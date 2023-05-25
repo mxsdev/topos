@@ -1,0 +1,20 @@
+[package]
+name = "topos"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bytemuck = { version = "1.13.1", features = [ "derive" ] }
+cosmic-text = "0.8.0"
+etagere = "0.2.7"
+euclid = "0.22.9"
+futures = "0.3.28"
+num-traits = "0.2.15"
+pollster = "0.3.0"
+rayon = "1.7.0"
+rustc-hash = "1.1.0"
+swash = "0.1.8"
+tao = "0.20.0"
+wgpu = "0.16.0"
