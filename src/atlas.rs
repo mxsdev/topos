@@ -1,38 +1,27 @@
 use std::{
-    borrow::{Borrow, BorrowMut, Cow},
     cell::RefCell,
-    collections::{hash_map::DefaultHasher, HashMap},
-    hash::{Hash, Hasher},
+    collections::HashMap,
+    hash::Hash,
     num::NonZeroU64,
-    ops::Deref,
-    sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard},
+    sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard},
 };
 
 use euclid::size2;
-use itertools::Itertools;
-use log::{error, info, trace};
-use rayon::{prelude::*, ThreadPool};
 
-use cosmic_text::{
-    Buffer as TextBuffer, Font, FontSystem, LayoutGlyph, LayoutRun, Placement, SwashCache,
-};
-use etagere::{AllocId, Allocation as AtlasAllocation, BucketedAtlasAllocator};
+use rayon::prelude::*;
+
+use cosmic_text::{FontSystem, LayoutGlyph};
+use etagere::{Allocation as AtlasAllocation, BucketedAtlasAllocator};
 use rustc_hash::FxHashMap;
-use swash::{
-    scale::{Render, ScaleContext},
-    shape::cluster::Glyph,
-};
-use tao::dpi::{LogicalSize, PhysicalSize};
-use wgpu::PipelineLayout;
+use swash::scale::ScaleContext;
 
 use crate::{
-    buffer,
     debug::{DebugAssert, HashU64},
     debug_panic,
     num::NextPowerOfTwo,
     surface::{ParamsBuffer, RenderingContext},
-    text::{self, GlyphContentType},
-    util::{PhysicalPos2, PhysicalRect, PhysicalSize2, PhysicalVec2, Size2},
+    text::GlyphContentType,
+    util::{PhysicalPos2, PhysicalRect, PhysicalSize2, PhysicalVec2},
 };
 
 type GlyphCacheKey = cosmic_text::CacheKey;
@@ -332,7 +321,6 @@ impl FontAtlas {
             device,
             params_buffer,
             texture_format,
-            queue,
             ..
         }: &RenderingContext,
     ) -> (wgpu::RenderPipeline, wgpu::BindGroup) {
@@ -689,7 +677,7 @@ impl FontAtlasManager {
         self.glyphs
             .insert(cache_key, GlyphCacheEntry::GlyphAllocation(alloc?));
 
-        let atlas = self.get_atlas_mut(alloc?.atlas_id).debug_assert()?;
+        let _atlas = self.get_atlas_mut(alloc?.atlas_id).debug_assert()?;
 
         // atlas.
 

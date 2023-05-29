@@ -64,7 +64,7 @@ pub fn render_text() {
     }
 
     // Create a default text color
-    let text_color = Color::rgb(0xFF, 0xFF, 0xFF);
+    let _text_color = Color::rgb(0xFF, 0xFF, 0xFF);
 
     // swash_cache.image_cache
 

@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use cosmic_text::LayoutGlyph;
+
 // lib.rs
 use tao::{event::WindowEvent, window::Window};
-use wgpu::util::{DeviceExt, RenderEncoder};
+use wgpu::util::{DeviceExt};
 
 use crate::{
     atlas::{self},
@@ -178,7 +178,7 @@ impl State {
         }
     }
 
-    pub fn input(&mut self, event: &WindowEvent) -> bool {
+    pub fn input(&mut self, _event: &WindowEvent) -> bool {
         todo!()
     }
 

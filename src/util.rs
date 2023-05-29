@@ -1,5 +1,5 @@
-use num_traits::{Float, Num, NumCast};
-use tao::dpi::PhysicalSize;
+use num_traits::{Float};
+
 
 // use crate::num::{Infty, Two};
 
@@ -247,17 +247,17 @@ pub struct LogicalUnit;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PhysicalUnit;
 
-pub type Rect<F: Float = f32> = euclid::Box2D<F, LogicalUnit>;
-pub type PhysicalRect<F: Float = f32> = euclid::Box2D<F, PhysicalUnit>;
+pub type Rect<F = f32> = euclid::Box2D<F, LogicalUnit>;
+pub type PhysicalRect<F = f32> = euclid::Box2D<F, PhysicalUnit>;
 
-pub type Pos2<F: Float = f32> = euclid::Point2D<F, LogicalUnit>;
-pub type PhysicalPos2<F: Float = f32> = euclid::Point2D<F, PhysicalUnit>;
+pub type Pos2<F = f32> = euclid::Point2D<F, LogicalUnit>;
+pub type PhysicalPos2<F = f32> = euclid::Point2D<F, PhysicalUnit>;
 
-pub type Vec2<F: Float = f32> = euclid::Vector2D<F, LogicalUnit>;
-pub type PhysicalVec2<F: Float = f32> = euclid::Vector2D<F, PhysicalUnit>;
+pub type Vec2<F = f32> = euclid::Vector2D<F, LogicalUnit>;
+pub type PhysicalVec2<F = f32> = euclid::Vector2D<F, PhysicalUnit>;
 
-pub type Size2<F: Num = f32> = euclid::Size2D<F, LogicalUnit>;
-pub type PhysicalSize2<F: Num = f32> = euclid::Size2D<F, PhysicalUnit>;
+pub type Size2<F = f32> = euclid::Size2D<F, LogicalUnit>;
+pub type PhysicalSize2<F = f32> = euclid::Size2D<F, PhysicalUnit>;
 
 // trait AssumePhysical {
 //     type PhysicalResult;
