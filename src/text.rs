@@ -5,6 +5,15 @@ pub(crate) enum GlyphContentType {
     Mask = 1,
 }
 
+impl GlyphContentType {
+    pub fn num_channels(&self) -> u32 {
+        match self {
+            GlyphContentType::Color => 4,
+            GlyphContentType::Mask => 1,
+        }
+    }
+}
+
 // pub struct TextView {}
 
 pub fn render_text() {
@@ -28,7 +37,7 @@ pub fn render_text() {
     // let mut buffer = buffer.borrow_with(&mut font_system);
 
     // Set a size for the text buffer, in pixels
-    buffer.set_size(&mut font_system, 80.0, 25.0);
+    buffer.set_size(&mut font_system, 20.0, 25.0);
 
     // Attributes indicate what font to choose
     let attrs = Attrs::new();

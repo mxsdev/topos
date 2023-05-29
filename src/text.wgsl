@@ -47,6 +47,28 @@ fn vs_main(
 
     vertex_out.position.y *= -1.;
 
+    // let v = vertex_in.vertex_idx % 4u;
+
+    // switch v {
+    //     case 0u: {
+    //         vertex_out.uv = vec2<f32>(0.0, 0.0);
+    //     }
+
+    //     case 1u: {
+    //         vertex_out.uv = vec2<f32>(1.0, 0.0);
+    //     }
+
+    //     case 2u: {
+    //         vertex_out.uv = vec2<f32>(0.0, 1.0);
+    //     }
+
+    //     case 3u: {
+    //         vertex_out.uv = vec2<f32>(1.0, 1.0);
+    //     }
+
+    //     default: { }
+    // }
+
     // switch vertex_in.vertex_idx {
     //     case 0u: {
     //         vertex_out.position = vec4<f32>(
@@ -80,5 +102,23 @@ fn vs_main(
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4<f32>(0.5, 0.2, 0.1, 1.0);
+    switch in.content_type {
+        // color
+        case 0u {
+            return textureSampleLevel(atlas_texture, atlas_sampler, in.uv, 0.0);
+        }
+
+        // mask
+        case 1u: {
+            // return vec4<f32>(1.0, 0.0, 0.0, 1.0);
+            var alpha = textureSampleLevel(atlas_texture, atlas_sampler, in.uv, 0.0).x;
+            
+            // return mix(vec4<f32>(1.0, 0.0, 0.0, 1.0), vec4<f32>(1.0, 1.0, 1.0, 1.0), alpha);
+            return vec4<f32>(in.color.rgb, in.color.a * alpha);
+        }
+
+        default: {
+            return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+        }
+    }
 }

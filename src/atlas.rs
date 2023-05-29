@@ -1,32 +1,44 @@
 use std::{
-    borrow::{BorrowMut, Cow},
+    borrow::{Borrow, BorrowMut, Cow},
     cell::RefCell,
-    collections::HashMap,
-    hash::Hash,
+    collections::{hash_map::DefaultHasher, HashMap},
+    hash::{Hash, Hasher},
     num::NonZeroU64,
-    sync::{Arc, Mutex, RwLock},
+    ops::Deref,
+    sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
+use euclid::size2;
+use itertools::Itertools;
+use log::{error, info, trace};
 use rayon::{prelude::*, ThreadPool};
 
-use cosmic_text::{Buffer as TextBuffer, Font, FontSystem, LayoutGlyph, SwashCache};
+use cosmic_text::{
+    Buffer as TextBuffer, Font, FontSystem, LayoutGlyph, LayoutRun, Placement, SwashCache,
+};
 use etagere::{AllocId, Allocation as AtlasAllocation, BucketedAtlasAllocator};
-use futures::future::join_all;
 use rustc_hash::FxHashMap;
-use swash::scale::{Render, ScaleContext};
-use tao::dpi::LogicalSize;
+use swash::{
+    scale::{Render, ScaleContext},
+    shape::cluster::Glyph,
+};
+use tao::dpi::{LogicalSize, PhysicalSize};
 use wgpu::PipelineLayout;
 
 use crate::{
+    buffer,
+    debug::{DebugAssert, HashU64},
+    debug_panic,
+    num::NextPowerOfTwo,
     surface::{ParamsBuffer, RenderingContext},
     text::{self, GlyphContentType},
-    util::PhysicalRect,
+    util::{PhysicalPos2, PhysicalRect, PhysicalSize2, PhysicalVec2, Size2},
 };
 
 type GlyphCacheKey = cosmic_text::CacheKey;
 
 pub struct GlyphToRender {
-    // cache_key: GlyphCacheKey,
+    size: PhysicalSize2<u32>,
     draw_rect: PhysicalRect,
     alloc: AtlasAllocation, // uv: Option<Size2>,
 }
@@ -61,15 +73,12 @@ pub(crate) struct FontAtlas {
     sampler: wgpu::Sampler,
     texture_view: wgpu::TextureView,
     atlas_type: GlyphContentType,
-    width: u32,
-    height: u32,
+    width: i32,
+    height: i32,
     shader: wgpu::ShaderModule,
     render_pipeline: wgpu::RenderPipeline,
     bind_group: wgpu::BindGroup,
 
-    // font_system: Arc<Mutex<FontSystem>>,
-    // scale_context: Arc<Mutex<ScaleContext>>,
-    // swash_cache: SwashCache,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     vertex_buffer_glyphs: u64,
@@ -141,18 +150,14 @@ impl FontAtlas {
             sampler,
             texture_view,
             atlas_type,
-            width,
-            height,
+            width: width as i32,
+            height: width as i32,
             shader,
             render_pipeline,
             bind_group,
-
             vertex_buffer,
             index_buffer,
             vertex_buffer_glyphs,
-
-            // swash_cache: SwashCache::new(),
-            // scale_context: Arc::new(Mutex::new(ScaleContext::new())),
             num_glyphs: 0,
         }
     }
@@ -176,35 +181,20 @@ impl FontAtlas {
 
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("font atlas vertex buffer"),
-            size: vertex_size,
+            size: vertex_size.next_power_of_two(),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
         let index_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("font atlas index buffer"),
-            size: index_size,
+            size: index_size.next_power_of_two(),
             usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
         return (vertex_buffer, index_buffer);
     }
-
-    // async fn render_glyph(&mut self, glyph: &LayoutGlyph) {
-    //     let LayoutGlyph { cache_key, .. } = glyph;
-
-    //     let font = self.font_system.lock().unwrap().get_font(cache_key.font_id);
-
-    //     let font = match font {
-    //         Some(some) => some,
-    //         None => {
-    //             // todo: error here
-    //             // log::warn!("did not find font {:?}", cache_key.font_id);
-    //             return;
-    //         }
-    //     };
-    // }
 
     pub fn prepare(
         &mut self,
@@ -213,82 +203,125 @@ impl FontAtlas {
     ) {
         self.num_glyphs = glyphs.len() as u64;
 
-        let mut data = Vec::<u8>::with_capacity(glyphs.len() * std::mem::size_of::<FontVertex>());
+        let (vertex_buffer_size, index_buffer_size) = Self::buffer_sizes(self.num_glyphs);
 
-        let draw_rects = glyphs.iter().map(
-            |GlyphToRender {
-                 alloc: AtlasAllocation { rectangle: uv, .. },
-                 draw_rect,
-             }| {
-                [
-                    FontVertex {
-                        pos: [draw_rect.min.x, draw_rect.min.y],
-                        uv: [uv.min.x as u32, uv.min.y as u32],
-                        color: [1., 1., 1., 1.],
-                        content_type: self.atlas_type as u32,
-                        depth: 0.,
-                    },
-                    FontVertex {
-                        pos: [draw_rect.max.x, draw_rect.min.y],
-                        uv: [uv.max.x as u32, uv.min.y as u32],
-                        color: [1., 1., 1., 1.],
-                        content_type: self.atlas_type as u32,
-                        depth: 0.,
-                    },
-                    FontVertex {
-                        pos: [draw_rect.min.x, draw_rect.max.y],
-                        uv: [uv.min.x as u32, uv.max.y as u32],
-                        color: [1., 1., 1., 1.],
-                        content_type: self.atlas_type as u32,
-                        depth: 0.,
-                    },
-                    FontVertex {
-                        pos: [draw_rect.max.x, draw_rect.max.y],
-                        uv: [uv.max.x as u32, uv.max.y as u32],
-                        color: [1., 1., 1., 1.],
-                        content_type: self.atlas_type as u32,
-                        depth: 0.,
-                    },
-                ]
+        let mut data = Vec::<u8>::with_capacity(vertex_buffer_size as usize);
+        let mut indices = Vec::<u8>::with_capacity(index_buffer_size as usize);
+
+        for (
+            i,
+            GlyphToRender {
+                alloc: AtlasAllocation { rectangle: uv, .. },
+                draw_rect,
+                size,
             },
-        );
+        ) in glyphs.iter().enumerate()
+        {
+            let alloc_pos = PhysicalPos2::new(uv.min.x as u32, uv.min.y as u32);
+            let uv = PhysicalRect::new(alloc_pos, alloc_pos + *size);
 
-        for draw_rect in draw_rects {
-            data.extend_from_slice(bytemuck::bytes_of(&draw_rect))
+            data.extend_from_slice(bytemuck::bytes_of(&[
+                FontVertex {
+                    pos: [draw_rect.min.x, draw_rect.min.y],
+                    uv: [uv.min.x as u32, uv.min.y as u32],
+                    color: [1., 1., 1., 1.],
+                    content_type: self.atlas_type as u32,
+                    depth: 0.,
+                },
+                FontVertex {
+                    pos: [draw_rect.max.x, draw_rect.min.y],
+                    uv: [uv.max.x as u32, uv.min.y as u32],
+                    color: [1., 1., 1., 1.],
+                    content_type: self.atlas_type as u32,
+                    depth: 0.,
+                },
+                FontVertex {
+                    pos: [draw_rect.min.x, draw_rect.max.y],
+                    uv: [uv.min.x as u32, uv.max.y as u32],
+                    color: [1., 1., 1., 1.],
+                    content_type: self.atlas_type as u32,
+                    depth: 0.,
+                },
+                FontVertex {
+                    pos: [draw_rect.max.x, draw_rect.max.y],
+                    uv: [uv.max.x as u32, uv.max.y as u32],
+                    color: [1., 1., 1., 1.],
+                    content_type: self.atlas_type as u32,
+                    depth: 0.,
+                },
+            ]));
+
+            let index_slice = [0u16, 1, 2, 1, 2, 3].map(|n| n + 4 * i as u16);
+
+            indices.extend_from_slice(bytemuck::bytes_of(&index_slice));
         }
-        // .map(|v| bytemuck::bytes_of(&v))
-        // .flatten()
-        // .copied()
-        // .collect();
-
-        let indices = [0u16, 1, 2, 1, 2, 3];
 
         queue.write_buffer(&self.vertex_buffer, 0, data.as_slice());
-        queue.write_buffer(&self.index_buffer, 0, bytemuck::bytes_of(&indices));
-
-        // queue.write_texture(texture, data, data_layout, size)
+        queue.write_buffer(&self.index_buffer, 0, indices.as_slice());
     }
 
     pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
+        if self.num_glyphs == 0 {
+            return;
+        }
+
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_bind_group(0, &self.bind_group, &[]);
-
-        let (vertex_size, index_size) = Self::buffer_sizes(self.num_glyphs);
-
-        // render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(0..vertex_size));
-        // render_pass.set_index_buffer(
-        //     self.index_buffer.slice(0..index_size),
-        //     wgpu::IndexFormat::Uint16,
-        // );
 
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
-        // render_pass.draw(0..index_size as u32, 0..1);
         render_pass.draw_indexed(0..(self.num_glyphs * 6) as u32, 0, 0..1);
+    }
 
-        // render_pass.multi_draw_indexed_indirect(indirect_buffer, indirect_offset, count)
-        // render_pass.draw_indexed(indices, base_vertex, instances)
+    fn try_allocate_space(&mut self, space: &PhysicalSize2<u32>) -> Option<AtlasAllocation> {
+        let space = PhysicalSize2::new(space.width as i32, space.height as i32);
+
+        if !self.can_fit(space) {
+            return None;
+        }
+
+        self.allocator.allocate(size2(space.width, space.height))
+    }
+
+    pub fn allocate_glyph(
+        &mut self,
+        image: &cosmic_text::SwashImage,
+        RenderingContext { queue, .. }: &RenderingContext,
+    ) -> Option<AtlasAllocation> {
+        let size = PhysicalSize2::new(image.placement.width, image.placement.height);
+
+        let alloc = self.try_allocate_space(&size)?;
+
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &self.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: alloc.rectangle.min.x as u32,
+                    y: alloc.rectangle.min.y as u32,
+                    z: 0,
+                },
+                aspect: wgpu::TextureAspect::default(),
+            },
+            &image.data,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(image.placement.width * self.atlas_type.num_channels()),
+                rows_per_image: None,
+            },
+            wgpu::Extent3d {
+                width: image.placement.width,
+                height: image.placement.height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        Some(alloc)
+    }
+
+    fn can_fit(&self, space: PhysicalSize2<i32>) -> bool {
+        return space.width <= self.width && space.height <= self.height;
     }
 
     pub fn render_pipeline(
@@ -356,7 +389,7 @@ impl FontAtlas {
                 entry_point: "fs_main",
                 targets: &[Some(wgpu::ColorTargetState {
                     format: *texture_format,
-                    blend: Some(wgpu::BlendState::REPLACE),
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
@@ -403,19 +436,68 @@ impl FontAtlas {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct AtlasId(GlyphContentType, u32);
 
-struct GlyphAllocation(AtlasId, AtlasAllocation);
+#[derive(Clone, Copy)]
+struct GlyphAllocation {
+    atlas_id: AtlasId,
+    allocation: AtlasAllocation,
+    size: PhysicalSize2<u32>,
+    placement: PhysicalPos2<i32>,
+}
 
-type FontAtlasCollection = HashMap<AtlasId, FontAtlas, crate::hash::BuildNoHashHasher<AtlasId>>;
+enum GlyphCacheEntry {
+    GlyphAllocation(GlyphAllocation),
+    Noop,
+}
+
+// TODO: use no hash hasher
+type FontAtlasCollection = HashMap<AtlasId, FontAtlas>;
 
 struct FontAtlasManager {
     mask_atlases: FontAtlasCollection,
     color_atlases: FontAtlasCollection,
 
-    glyphs: FxHashMap<GlyphCacheKey, GlyphAllocation>,
+    glyphs: FxHashMap<GlyphCacheKey, GlyphCacheEntry>,
 
     id: u32,
 
     rendering_context: Arc<RenderingContext>,
+}
+
+#[derive(Debug)]
+pub struct LayoutGlyphWithContext {
+    // pub glyph: &'a LayoutGlyph,
+    pub x_int: i32,
+    pub y_int: i32,
+    pub line_offset: f32,
+    pub cache_key: GlyphCacheKey,
+}
+
+impl LayoutGlyphWithContext {
+    pub fn from_layout_glyph(glyph: &LayoutGlyph, line_offset: f32) -> Self {
+        Self {
+            x_int: glyph.x_int,
+            y_int: glyph.y_int,
+            cache_key: glyph.cache_key,
+            line_offset,
+        }
+    }
+}
+
+// impl<'a> Deref for LayoutGlyphWithContext<'a> {
+//     type Target = LayoutGlyph;
+
+//     fn deref(&self) -> &Self::Target {
+//         &self.glyph
+//     }
+// }
+
+macro_rules! get_coll_mut {
+    ($self:ident, $($arg:tt)*) => {
+        match $($arg)* {
+            GlyphContentType::Color => &mut $self.color_atlases,
+            GlyphContentType::Mask => &mut $self.mask_atlases,
+        }
+    };
 }
 
 impl FontAtlasManager {
@@ -432,101 +514,305 @@ impl FontAtlasManager {
         };
     }
 
-    // pub fn allocate_glyph(
+    pub fn prepare<'a>(
+        &mut self,
+        glyphs: impl Iterator<Item = LayoutGlyphWithContext>,
+        pos: PhysicalPos2,
+    ) {
+        // convert to renderable glyphs
+        let mut partition = FxHashMap::<
+            AtlasId,
+            Vec<(
+                LayoutGlyphWithContext,
+                PhysicalSize2<u32>,
+                PhysicalPos2<i32>,
+                AtlasAllocation,
+            )>,
+        >::default();
 
-    // )
+        for glyph in glyphs {
+            let alloc = self.glyphs.get(&glyph.cache_key);
 
-    fn create_atlas(&mut self, kind: GlyphContentType, size: u32) {
-        let coll: &mut FontAtlasCollection = match kind {
-            GlyphContentType::Color => &mut self.color_atlases,
-            GlyphContentType::Mask => &mut self.mask_atlases,
-        };
+            match alloc {
+                Some(GlyphCacheEntry::GlyphAllocation(GlyphAllocation {
+                    atlas_id,
+                    size,
+                    allocation,
+                    placement,
+                    ..
+                })) => partition
+                    .entry(*atlas_id)
+                    .or_insert_with(|| Vec::new())
+                    .push((glyph, *size, *placement, *allocation)),
+                None => log::debug!("Glyph {} not cached", glyph.cache_key.glyph_id),
+                Some(GlyphCacheEntry::Noop) => {}
+            }
+        }
 
-        let atlas_id = self.id;
+        for (atlas_id, layout_glyphs) in partition.into_iter() {
+            let render_context = self.rendering_context.clone();
+
+            if let Some(atlas) = self.get_atlas_mut(atlas_id) {
+                let glyphs_to_render = layout_glyphs.iter().map(|(g, size, placement, alloc)| {
+                    // Log::trace!("{}", g.y_int);
+
+                    let glyph_pos = pos
+                        + PhysicalVec2::new(
+                            g.x_int as f32 + placement.x as f32,
+                            g.y_int as f32 - placement.y as f32 + g.line_offset,
+                        );
+
+                    let rect_size = PhysicalSize2::new(size.width as f32, size.height as f32);
+
+                    let draw_rect = PhysicalRect::new(glyph_pos, glyph_pos + rect_size);
+
+                    GlyphToRender {
+                        alloc: *alloc,
+                        draw_rect,
+                        size: *size,
+                    }
+                });
+
+                atlas.prepare(&render_context, glyphs_to_render.collect());
+            }
+        }
+    }
+
+    pub fn render<'a, 'b>(&'a self, render_pass: &'b mut wgpu::RenderPass<'a>) {
+        for atlas in self
+            .mask_atlases
+            .values()
+            .chain(self.color_atlases.values())
+        {
+            atlas.render(render_pass);
+        }
+    }
+
+    fn get_coll(&self, kind: GlyphContentType) -> &FontAtlasCollection {
+        match kind {
+            GlyphContentType::Color => &self.color_atlases,
+            GlyphContentType::Mask => &self.mask_atlases,
+        }
+    }
+
+    fn get_coll_mut(&mut self, kind: GlyphContentType) -> &mut FontAtlasCollection {
+        get_coll_mut!(self, kind)
+    }
+
+    fn get_atlas_mut(&mut self, id: AtlasId) -> Option<&mut FontAtlas> {
+        self.get_coll_mut(id.0).get_mut(&id)
+    }
+
+    fn get_atlas(&self, id: AtlasId) -> Option<&FontAtlas> {
+        self.get_coll(id.0).get(&id)
+    }
+
+    fn create_atlas(&mut self, kind: GlyphContentType, size: u32) -> AtlasId {
+        let size = u32::max(size, 512);
+
+        log::trace!("Creating new atlas of size {size}");
+
+        let atlas_id = AtlasId(kind, self.id);
         self.id += 1;
 
-        coll.insert()
+        let atlas = FontAtlas::new(&self.rendering_context, kind, size, size);
+
+        self.get_coll_mut(kind).insert(atlas_id, atlas);
+
+        atlas_id
     }
 
     pub fn has_glyph(&self, key: &GlyphCacheKey) -> bool {
         self.glyphs.contains_key(key)
     }
 
-    // pub fn find_or_create_atlas(
-    //     &mut self,
-    //     kind: GlyphContentType,
-    //     size: u32,
-    // ) -> Option<(AtlasId, &mut FontAtlas)> {
-    // }
+    pub fn allocate_glyph(
+        &mut self,
+        kind: GlyphContentType,
+        // glyph_size: PhysicalSize2<u32>,
+        image: cosmic_text::SwashImage,
+        cache_key: GlyphCacheKey,
+    ) -> Option<GlyphAllocation> {
+        let glyph_size = PhysicalSize2::<u32>::new(image.placement.width, image.placement.height);
+
+        let glyph_placement = PhysicalPos2::<i32>::new(image.placement.left, image.placement.top);
+
+        if glyph_size.is_empty() {
+            self.glyphs.insert(cache_key, GlyphCacheEntry::Noop);
+            return None;
+        }
+
+        let rendering_context = self.rendering_context.clone();
+
+        let coll = self.get_coll_mut(kind);
+
+        let alloc = coll
+            .iter_mut()
+            .map(|(id, atlas)| {
+                atlas
+                    .allocate_glyph(&image, &rendering_context)
+                    .map(|res| (*id, res))
+            })
+            .flatten()
+            .next()
+            .or_else(|| {
+                log::trace!("glyph size = {:?}", glyph_size);
+                let size = u32::max(glyph_size.width, glyph_size.height).next_power_of_2();
+                let atlas_id = self.create_atlas(kind, size);
+
+                match self.get_atlas_mut(atlas_id) {
+                    Some(atlas) => match atlas.allocate_glyph(&image, &rendering_context) {
+                        Some(res) => Some((atlas_id, res)),
+                        None => {
+                            log::error!(
+                                "Failed to allocate space for glyph {:x}",
+                                cache_key.hash_u64()
+                            );
+
+                            None
+                        }
+                    },
+                    None => {
+                        debug_panic!("Failed to get atlas for glyph");
+
+                        None
+                    }
+                }
+            })
+            .map(|(atlas_id, alloc)| GlyphAllocation {
+                atlas_id,
+                allocation: alloc,
+                size: glyph_size,
+                placement: glyph_placement,
+            });
+
+        self.glyphs
+            .insert(cache_key, GlyphCacheEntry::GlyphAllocation(alloc?));
+
+        let atlas = self.get_atlas_mut(alloc?.atlas_id).debug_assert()?;
+
+        // atlas.
+
+        // match alloc {
+        //     Some(alloc) => {
+        //     }
+        //     None => log::error!(
+        //         "Failed to allocate buffer for glyph {:x}",
+        //         cache_key.hash_u64()
+        //     ),
+        // }
+
+        alloc
+    }
+
+    pub fn get_glyph_uv() {}
 }
 
 pub struct FontManager {
     font_system: Arc<Mutex<FontSystem>>,
-    scale_context: Arc<Mutex<ScaleContext>>,
-
     atlas_manager: Arc<RwLock<FontAtlasManager>>,
+}
+
+pub struct FontManagerRenderResources<'a> {
+    atlas_manager: RwLockReadGuard<'a, FontAtlasManager>,
 }
 
 impl FontManager {
     pub fn new(rendering_context: Arc<RenderingContext>) -> Self {
         let font_system = FontSystem::new();
-        let scale_context = ScaleContext::new();
 
         let atlas_manager = FontAtlasManager::new(rendering_context);
 
         return Self {
             font_system: Arc::new(Mutex::new(font_system)),
-            scale_context: Arc::new(Mutex::new(scale_context)),
-
             atlas_manager: Arc::new(RwLock::new(atlas_manager)),
         };
     }
 
-    // heavy computation; should be run off main thread
-    pub fn generate_textures<'a>(
+    pub fn prepare<'a>(
         &mut self,
-        glyphs: impl IntoParallelIterator<Item = &'a LayoutGlyph>,
+        buffers: impl Iterator<Item = &'a cosmic_text::Buffer>,
+        pos: PhysicalPos2,
     ) {
-        let results = glyphs
-            .into_par_iter()
-            .filter(|g| !self.atlas_manager.read().unwrap().has_glyph(&g.cache_key))
-            .map(|g| {
-                let cache_key = g.cache_key;
+        let glyphs = buffers
+            .flat_map(|buffer| buffer.layout_runs())
+            .map(|line| {
+                let line_offset = line.line_y;
 
-                (
-                    cache_key,
-                    render_glyph(
-                        cache_key,
-                        self.font_system.as_ref(),
-                        // self.scale_context.as_ref(),
-                    ),
-                )
-            });
+                line.glyphs
+                    .into_iter()
+                    .map(move |glyph| LayoutGlyphWithContext::from_layout_glyph(glyph, line_offset))
+            })
+            .flatten();
 
-        // for glyph in glyphs {
-        //     // self.swash_cache.get_image_uncached(font_system, cache_key)
-        //     // join_all(iter)
-        // }
+        self.atlas_manager.write().unwrap().prepare(glyphs, pos)
     }
 
-    // pub(crate) fn gen_atlas(&self, context: &RenderingContext) -> FontAtlas {
-    //     FontAtlas::new(context, GlyphContentType::Mask, 512, 512)
-    // }
+    pub fn get_font_system(&mut self) -> MutexGuard<'_, cosmic_text::FontSystem> {
+        return self.font_system.lock().unwrap();
+    }
+
+    pub fn render_resources(&self) -> FontManagerRenderResources<'_> {
+        FontManagerRenderResources {
+            atlas_manager: self.atlas_manager.read().unwrap(),
+        }
+    }
+
+    pub fn render<'a, 'b>(
+        &self,
+        render_pass: &'a mut wgpu::RenderPass<'b>,
+        resources: &'b FontManagerRenderResources<'b>,
+    ) {
+        resources.atlas_manager.render(render_pass);
+    }
+
+    pub fn generate_textures<'a>(&mut self, buffers: Arc<Vec<cosmic_text::Buffer>>) {
+        let atlas_manager = self.atlas_manager.clone();
+        let font_system = self.font_system.clone();
+
+        std::thread::spawn(move || {
+            let results: Vec<(GlyphCacheKey, cosmic_text::SwashImage)> = buffers
+                .as_ref()
+                .par_iter()
+                .flat_map(|buffer| buffer.layout_runs().par_bridge())
+                // .iter()
+                // .flat_map(|buffer| buffer.layout_runs())
+                .flat_map(|line| line.glyphs)
+                .map(|g| {
+                    if atlas_manager.read().unwrap().has_glyph(&g.cache_key) {
+                        return None;
+                    }
+
+                    match render_glyph(g.cache_key, font_system.as_ref()) {
+                        Some(image) => Some((g.cache_key, image)),
+                        None => {
+                            log::error!("failed to render glyph {}!", g.cache_key.glyph_id);
+
+                            None
+                        }
+                    }
+                })
+                .flatten()
+                .collect();
+
+            for (cache_key, image) in results {
+                if let Some(kind) = match image.content {
+                    cosmic_text::SwashContent::Mask => Some(GlyphContentType::Mask),
+                    cosmic_text::SwashContent::Color => Some(GlyphContentType::Color),
+                    cosmic_text::SwashContent::SubpixelMask => {
+                        debug_panic!("Found subpixel mask!");
+                        None
+                    }
+                } {
+                    atlas_manager
+                        .write()
+                        .unwrap()
+                        .allocate_glyph(kind, image, cache_key);
+                }
+            }
+        });
+    }
 }
-
-// let mut atlas = AtlasAllocator::new(size2(1000, 1000));
-
-// let a = atlas.allocate(size2(100, 1000)).unwrap();
-// let b = atlas.allocate(size2(900, 200)).unwrap();
-
-// atlas.deallocate(a.id);
-
-// let c = atlas.allocate(size2(300, 200)).unwrap();
-
-// assert_eq!(c.rectangle, atlas[c.id]);
-
-// atlas.deallocate(c.id);
-// atlas.deallocate(b.id);
 
 thread_local! {
     static SCALE_CONTEXT: RefCell<ScaleContext> = RefCell::new(ScaleContext::new())
@@ -536,6 +822,8 @@ fn render_glyph(
     cache_key: GlyphCacheKey,
     font_system: &Mutex<FontSystem>,
 ) -> Option<cosmic_text::SwashImage> {
+    log::debug!("Rendering glyph {:x}", cache_key.hash_u64());
+
     use swash::{
         scale::{Render, Source, StrikeWith},
         zeno::{Format, Vector},
@@ -547,7 +835,7 @@ fn render_glyph(
         Some(some) => some,
         None => {
             // todo: error here
-            // log::warn!("did not find font {:?}", cache_key.font_id);
+            log::warn!("did not find font {:?}", cache_key.font_id);
             return None;
         }
     };

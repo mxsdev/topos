@@ -1,5 +1,6 @@
 mod atlas;
 mod buffer;
+mod debug;
 mod element;
 mod hash;
 mod num;
@@ -66,5 +67,21 @@ pub async fn run() {
 }
 
 fn main() {
+    pretty_env_logger::formatted_builder()
+        .parse_env(env_logger::Env::default().filter_or(
+            env_logger::DEFAULT_FILTER_ENV,
+            if cfg!(debug_assertions) {
+                "debug"
+            } else {
+                "warn"
+            },
+        ))
+        .filter_module("wgpu_core", log::LevelFilter::Warn)
+        .filter_module("naga", log::LevelFilter::Warn)
+        .filter_module("wgpu_hal", log::LevelFilter::Warn)
+        .filter_module("cosmic_text", log::LevelFilter::Warn)
+        .filter_module("tao", log::LevelFilter::Warn)
+        .init();
+
     run().block_on();
 }

@@ -1,10 +1,14 @@
 use std::sync::Arc;
 
+use cosmic_text::LayoutGlyph;
 // lib.rs
 use tao::{event::WindowEvent, window::Window};
 use wgpu::util::{DeviceExt, RenderEncoder};
 
-use crate::atlas;
+use crate::{
+    atlas::{self},
+    util::PhysicalPos2,
+};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -190,14 +194,69 @@ impl State {
         let render_context = &self.rendering_context;
         let RenderingContext { device, queue, .. } = render_context.as_ref();
 
-        // self.font_atlas.prepare(render_context);
+        //prepare
+        // Text metrics indicate the font size and line height of a buffer
+        let metrics = cosmic_text::Metrics::new(60.0, 80.0);
 
+        let buffer = {
+            let mut font_system = self.font_manager.get_font_system();
+
+            // A Buffer provides shaping and layout for a UTF-8 string, create one per text widget
+            let mut buffer = cosmic_text::Buffer::new(&mut font_system, metrics);
+
+            // Borrow buffer together with the font system for more convenient method calls
+            // let mut buffer = buffer.borrow_with(&mut font_system);
+
+            // Set a size for the text buffer, in pixels
+            buffer.set_size(&mut font_system, 700.0, 200.0);
+
+            // Attributes indicate what font to choose
+            let attrs = cosmic_text::Attrs::new();
+
+            // attrs.family(cosmic_text::Family::Name(()))
+            // attrs.family(Family)
+
+            // Perform shaping as desired
+            buffer.shape_until_scroll(&mut font_system);
+
+            // Default text color (0xFF, 0xFF, 0xFF is white)
+            // let text_color = Color::rgb(0xFF, 0xFF, 0xFF);
+
+            // Add some text!
+            buffer.set_text(&mut font_system, "Hello world! 🦀", attrs);
+
+            buffer
+        };
+
+        let buffers = Arc::new(vec![buffer]);
+
+        self.font_manager.generate_textures(buffers.clone());
+
+        // // FIXME: remove
+        // for run in buffers[0].layout_runs() {
+        //     for glyph in run.glyphs.iter() {
+        //         log::trace!("gyint: {}", glyph.y_offset);
+        //     }
+        // }
+
+        // let glyphs = atlas::FontManager::get_buffer_glyphs(&buffer);
+
+        // let glyphs: Vec<_> = glyphs.collect();
+        // let num_glyphs = glyphs.len();
+        // println!("{num_glyphs:?}");
+
+        self.font_manager
+            .prepare(buffers.iter(), PhysicalPos2::new(0., 0.));
+
+        //render
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         });
 
+        let font_manager_resources = self.font_manager.render_resources();
+
         {
-            let mut _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
@@ -215,6 +274,15 @@ impl State {
                 depth_stencil_attachment: None,
             });
 
+            self.font_manager
+                .render(&mut render_pass, &font_manager_resources);
+
+            // atlas::FontManager::render(&mut render_pass);
+
+            // self.font_manager
+            //     // .render(&mut render_pass);
+            //     .render(&mut render_pass, &font_manager_resources);
+
             // self.font_atlas.render(&mut _render_pass);
 
             // _render_pass.draw(vertices, instances)
@@ -223,9 +291,9 @@ impl State {
             // _render_pass.bufffer
         }
 
-        // submit will accept anything that implements IntoIter
         queue.submit(std::iter::once(encoder.finish()));
         output.present();
+        // submit will accept anything that implements IntoIter
 
         Ok(())
     }

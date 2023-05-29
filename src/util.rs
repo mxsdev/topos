@@ -254,8 +254,15 @@ pub type Pos2<F: Float = f32> = euclid::Point2D<F, LogicalUnit>;
 pub type PhysicalPos2<F: Float = f32> = euclid::Point2D<F, PhysicalUnit>;
 
 pub type Vec2<F: Float = f32> = euclid::Vector2D<F, LogicalUnit>;
+pub type PhysicalVec2<F: Float = f32> = euclid::Vector2D<F, PhysicalUnit>;
 
-pub type Size2<F: Float = f32> = euclid::Size2D<F, LogicalUnit>;
+pub type Size2<F: Num = f32> = euclid::Size2D<F, LogicalUnit>;
+pub type PhysicalSize2<F: Num = f32> = euclid::Size2D<F, PhysicalUnit>;
+
+// trait AssumePhysical {
+//     type PhysicalResult;
+//     fn as_physical(&self) -> Self::PhysicalResult;
+// }
 
 trait LogicalToPhysical {
     type PhysicalResult;
