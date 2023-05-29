@@ -1,245 +1,8 @@
-use num_traits::{Float};
+use std::ops::{Deref, DerefMut};
 
+use num_traits::{Float, Num, Signed};
 
-// use crate::num::{Infty, Two};
-
-// #[derive(Clone, Copy)]
-// pub struct Size2<P: Num = f32> {
-//     pub x: P,
-//     pub y: P,
-// }
-
-// impl<P: Num + Copy> Size2<P> {
-//     pub fn new(x: P, y: P) -> Self {
-//         Self { x, y }
-//     }
-
-//     pub fn to_physical<R: From<P> + Num>(&self, scale_factor: impl Into<P>) -> PhysicalSize2<R> {
-//         let scale_factor = scale_factor.into();
-
-//         PhysicalSize2 {
-//             x: (scale_factor * self.x).into(),
-//             y: (scale_factor * self.y).into(),
-//         }
-//     }
-
-//     pub fn scale(&self, fac: P) -> Self {
-//         Self {
-//             x: self.x * fac,
-//             y: self.y * fac,
-//         }
-//     }
-
-//     pub fn div(&self, fac: P) -> Self {
-//         Self {
-//             x: self.x / fac,
-//             y: self.y / fac,
-//         }
-//     }
-// }
-
-// #[derive(Clone, Copy)]
-// pub struct Pos2<P: Num = f32> {
-//     pub x: P,
-//     pub y: P,
-// }
-
-// impl<P: Num + Copy> Pos2<P> {
-//     pub const fn new(x: P, y: P) -> Self {
-//         Self { x, y }
-//     }
-
-//     pub const fn splat(p: P) -> Self {
-//         Self::new(p, p)
-//     }
-
-//     pub fn to_physical<R: From<P> + Num>(&self, scale_factor: impl Into<P>) -> PhysicalPos2<R> {
-//         let scale_factor = scale_factor.into();
-
-//         PhysicalPos2 {
-//             x: (scale_factor * self.x).into(),
-//             y: (scale_factor * self.y).into(),
-//         }
-//     }
-
-//     pub fn scale(&self, fac: P) -> Self {
-//         Self {
-//             x: self.x * fac,
-//             y: self.y * fac,
-//         }
-//     }
-
-//     pub fn div(&self, fac: P) -> Self {
-//         Self {
-//             x: self.x / fac,
-//             y: self.y / fac,
-//         }
-//     }
-// }
-
-// #[derive(Clone, Copy)]
-// pub struct Rect<P: Num = f32> {
-//     pub top_left: Pos2<P>,
-//     pub bottom_right: Pos2<P>,
-// }
-
-// impl<P: Num + Copy> Rect<P> {
-//     fn new(top_left: Pos2<P>, bottom_right: Pos2<P>) -> Self {
-//         Self {
-//             top_left,
-//             bottom_right,
-//         }
-//     }
-
-//     pub fn size(&self) -> Size2<P> {
-//         self.bottom_right - self.top_left
-//     }
-
-//     pub fn top_left(&self) -> Pos2<P> {
-//         self.top_left
-//     }
-
-//     pub fn bottom_right(&self) -> Pos2<P> {
-//         self.bottom_right
-//     }
-
-//     pub fn top_right(&self) -> Pos2<P> {
-//         Pos2::new(self.bottom_right.x, self.top_left.y)
-//     }
-
-//     pub fn bottom_left(&self) -> Pos2<P> {
-//         Pos2::new(self.top_left.x, self.bottom_right.y)
-//     }
-
-//     pub fn left(&self) -> P {
-//         self.top_left.x
-//     }
-
-//     pub fn right(&self) -> P {
-//         self.bottom_right.x
-//     }
-
-//     pub fn top(&self) -> P {
-//         self.top_left.y
-//     }
-
-//     pub fn bottom(&self) -> P {
-//         self.bottom_right.y
-//     }
-
-//     pub fn to_physical<R: From<P> + Num>(&self, scale_factor: impl Into<P>) -> PhysicalRect<R> {
-//         let scale_factor = scale_factor.into();
-
-//         PhysicalRect {
-//             top_left: self.top_left.to_physical(scale_factor),
-//             bottom_right: self.bottom_right.to_physical(scale_factor),
-//         }
-//     }
-// }
-
-// impl<P: Num + Copy + PartialOrd> Rect<P> {
-//     fn intersection(&self, other: &Rect<P>) -> Rect<P> {
-//         todo!()
-//     }
-
-//     fn is_within(&self, other: &Rect<P>) -> bool {
-//         return self.left() >= other.left()
-//             && self.right() <= other.right()
-//             && self.top() >= other.top()
-//             && self.bottom() <= other.bottom();
-//     }
-
-//     fn is_within_strict(&self, other: &Rect<P>) -> bool {
-//         return self.left() > other.left()
-//             && self.right() < other.right()
-//             && self.top() > other.top()
-//             && self.bottom() < other.bottom();
-//     }
-// }
-
-// impl<P: Num + Two + Copy> Rect<P> {
-//     fn origin(self) -> Pos2<P> {
-//         (self.top_left + self.bottom_right).div(P::TWO)
-//     }
-// }
-
-// impl<P: Infty + Num + Copy> Rect<P> {
-//     const NOTHING: Self = Self {
-//         bottom_right: Pos2::splat(P::NEG_INFINITY),
-//         top_left: Pos2::splat(P::INFINITY),
-//     };
-
-//     const EVERYTHING: Self = Self {
-//         bottom_right: Pos2::splat(P::INFINITY),
-//         top_left: Pos2::splat(P::NEG_INFINITY),
-//     };
-// }
-
-// pub struct PhysicalPos2<P: Num = f32> {
-//     pub x: P,
-//     pub y: P,
-// }
-
-// pub struct PhysicalSize2<P: Num = f32> {
-//     pub x: P,
-//     pub y: P,
-// }
-
-// pub struct PhysicalRect<P: Num = f32> {
-//     pub top_left: PhysicalPos2<P>,
-//     pub bottom_right: PhysicalPos2<P>,
-// }
-
-// impl<P: Num> std::ops::Add<Size2<P>> for Pos2<P> {
-//     type Output = Pos2<P>;
-
-//     fn add(self, rhs: Size2<P>) -> Self::Output {
-//         Self::Output {
-//             x: self.x + rhs.x,
-//             y: self.y + rhs.y,
-//         }
-//     }
-// }
-
-// impl<P: Num> std::ops::Sub<Size2<P>> for Pos2<P> {
-//     type Output = Pos2<P>;
-
-//     fn sub(self, rhs: Size2<P>) -> Self::Output {
-//         Self::Output {
-//             x: self.x - rhs.x,
-//             y: self.y - rhs.y,
-//         }
-//     }
-// }
-
-// impl<P: Num> std::ops::Add<Pos2<P>> for Pos2<P> {
-//     type Output = Pos2<P>;
-
-//     fn add(self, rhs: Pos2<P>) -> Self::Output {
-//         Self::Output {
-//             x: self.x + rhs.x,
-//             y: self.y + rhs.y,
-//         }
-//     }
-// }
-
-// impl<P: Num> std::ops::Sub<Pos2<P>> for Pos2<P> {
-//     type Output = Size2<P>;
-
-//     fn sub(self, rhs: Pos2<P>) -> Self::Output {
-//         Self::Output {
-//             x: self.x - rhs.x,
-//             y: self.y - rhs.y,
-//         }
-//     }
-// }
-
-// #[repr(u32)]
-// #[derive(Clone, Copy, Eq, PartialEq)]
-// pub(crate) enum DrawUnit {
-//     Logical = 0,
-//     Physical = 1,
-// }
+use crate::element::boundary::Boundary;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LogicalUnit;
@@ -250,6 +13,9 @@ pub struct PhysicalUnit;
 pub type Rect<F = f32> = euclid::Box2D<F, LogicalUnit>;
 pub type PhysicalRect<F = f32> = euclid::Box2D<F, PhysicalUnit>;
 
+pub type RoundedRect<F = f32> = euclid::Box2D<F, LogicalUnit>;
+pub type PhysicalRoundedRect<F = f32> = euclid::Box2D<F, PhysicalUnit>;
+
 pub type Pos2<F = f32> = euclid::Point2D<F, LogicalUnit>;
 pub type PhysicalPos2<F = f32> = euclid::Point2D<F, PhysicalUnit>;
 
@@ -258,11 +24,6 @@ pub type PhysicalVec2<F = f32> = euclid::Vector2D<F, PhysicalUnit>;
 
 pub type Size2<F = f32> = euclid::Size2D<F, LogicalUnit>;
 pub type PhysicalSize2<F = f32> = euclid::Size2D<F, PhysicalUnit>;
-
-// trait AssumePhysical {
-//     type PhysicalResult;
-//     fn as_physical(&self) -> Self::PhysicalResult;
-// }
 
 trait LogicalToPhysical {
     type PhysicalResult;
@@ -286,17 +47,6 @@ impl LogicalToPhysical for Pos2<f64> {
     }
 }
 
-// impl<F> LogicalToPhysical for Rect<F> {
-//     type PhysicalResult = PhysicalRect<F>;
-
-//     fn to_physical(&self, scale_factor: f64) -> Self::PhysicalResult {
-//         Self::PhysicalResult::new(
-//             self.min.to_physical(scale_factor),
-//             self.max.to_physical(scale_factor),
-//         )
-//     }
-// }
-
 impl LogicalToPhysical for Rect<f32> {
     type PhysicalResult = PhysicalRect<f32>;
 
@@ -316,5 +66,72 @@ impl LogicalToPhysical for Rect<f64> {
             self.min.to_physical(scale_factor),
             self.max.to_physical(scale_factor),
         )
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct RoundedBox2D<T, U> {
+    pub rect: euclid::Box2D<T, U>,
+    pub radius: T,
+}
+
+impl<T, U> RoundedBox2D<T, U> {
+    pub fn new(rect: euclid::Box2D<T, U>, radius: T) -> Self {
+        Self { rect, radius }
+    }
+}
+
+impl<T: Num, U> RoundedBox2D<T, U> {
+    pub fn from_rect(rect: euclid::Box2D<T, U>) -> Self {
+        Self {
+            rect,
+            radius: T::zero(),
+        }
+    }
+}
+
+impl<T: Num, U> From<euclid::Box2D<T, U>> for RoundedBox2D<T, U> {
+    fn from(rect: euclid::Box2D<T, U>) -> Self {
+        Self::from_rect(rect)
+    }
+}
+
+impl<T, U> Deref for RoundedBox2D<T, U> {
+    type Target = euclid::Box2D<T, U>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.rect
+    }
+}
+
+impl<T, U> DerefMut for RoundedBox2D<T, U> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.rect
+    }
+}
+
+impl<T: Float, U> Boundary<T, U> for euclid::Box2D<T, U> {
+    fn sdf(&self, pos: euclid::Point2D<T, U>) -> T {
+        let c = self.center();
+        let b = self.max - c;
+        let pos = pos - c;
+
+        let q = euclid::Vector2D::splat(pos.length()) - b;
+
+        q.max(euclid::Vector2D::splat(T::zero())).length() + T::min(T::zero(), T::max(q.x, q.y))
+    }
+}
+
+pub trait WgpuDescriptor<const N: usize>: Sized {
+    const ATTRIBS: [wgpu::VertexAttribute; N];
+
+    fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+        use std::mem;
+
+        wgpu::VertexBufferLayout {
+            array_stride: mem::size_of::<Self>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &Self::ATTRIBS,
+        }
     }
 }

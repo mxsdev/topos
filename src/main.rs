@@ -1,9 +1,16 @@
+#![feature(return_position_impl_trait_in_trait)]
+// #![feature(new_uninit)]
+// #![feature(maybe_uninit_write_slice)]
+
 mod atlas;
 mod buffer;
 mod debug;
 mod element;
+mod graphics;
 mod hash;
 mod num;
+mod paint;
+mod shape;
 mod surface;
 mod text;
 mod util;

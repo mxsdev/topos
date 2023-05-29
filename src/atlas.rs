@@ -18,10 +18,11 @@ use swash::scale::ScaleContext;
 use crate::{
     debug::{DebugAssert, HashU64},
     debug_panic,
+    graphics::DynamicGPUQuadBuffer,
     num::NextPowerOfTwo,
     surface::{ParamsBuffer, RenderingContext},
     text::GlyphContentType,
-    util::{PhysicalPos2, PhysicalRect, PhysicalSize2, PhysicalVec2},
+    util::{PhysicalPos2, PhysicalRect, PhysicalSize2, PhysicalVec2, WgpuDescriptor},
 };
 
 type GlyphCacheKey = cosmic_text::CacheKey;
@@ -42,18 +43,14 @@ struct FontVertex {
     depth: f32,
 }
 
-impl FontVertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![0 => Float32x2, 1 => Uint32x2, 2 => Float32x4, 3 => Uint32, 4 => Float32];
-
-    fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
-        use std::mem;
-
-        wgpu::VertexBufferLayout {
-            array_stride: mem::size_of::<Self>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &Self::ATTRIBS,
-        }
-    }
+impl WgpuDescriptor<5> for FontVertex {
+    const ATTRIBS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
+        0 => Float32x2,
+        1 => Uint32x2,
+        2 => Float32x4,
+        3 => Uint32,
+        4 => Float32
+    ];
 }
 
 pub(crate) struct FontAtlas {
@@ -64,12 +61,13 @@ pub(crate) struct FontAtlas {
     atlas_type: GlyphContentType,
     width: i32,
     height: i32,
+
     shader: wgpu::ShaderModule,
     render_pipeline: wgpu::RenderPipeline,
     bind_group: wgpu::BindGroup,
 
-    vertex_buffer: wgpu::Buffer,
-    index_buffer: wgpu::Buffer,
+    gpu_buffer: DynamicGPUQuadBuffer<FontVertex>,
+
     vertex_buffer_glyphs: u64,
 
     num_glyphs: u64,
@@ -87,8 +85,6 @@ impl FontAtlas {
         let RenderingContext { device, .. } = context;
 
         let allocator = BucketedAtlasAllocator::new(etagere::size2(width as i32, height as i32));
-
-        // allocator.deallocate(id)
 
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
 
@@ -131,7 +127,6 @@ impl FontAtlas {
             Self::render_pipeline(&shader, &sampler, &texture_view, context);
 
         let vertex_buffer_glyphs = Self::MIN_NUM_VERTS;
-        let (vertex_buffer, index_buffer) = Self::create_buffers(device, vertex_buffer_glyphs);
 
         Self {
             allocator,
@@ -144,123 +139,74 @@ impl FontAtlas {
             shader,
             render_pipeline,
             bind_group,
-            vertex_buffer,
-            index_buffer,
             vertex_buffer_glyphs,
             num_glyphs: 0,
+            gpu_buffer: DynamicGPUQuadBuffer::new(device),
         }
-    }
-
-    fn buffer_sizes(count: u64) -> (u64, u64) {
-        (
-            std::mem::size_of::<FontVertex>() as u64 * count * 4,
-            6 * count * 2,
-        )
-    }
-
-    fn allocate_buffers(&mut self, device: &wgpu::Device, count: u64) {
-        let (vertex_buffer, index_buffer) = Self::create_buffers(device, count);
-
-        self.vertex_buffer = vertex_buffer;
-        self.index_buffer = index_buffer;
-    }
-
-    fn create_buffers(device: &wgpu::Device, count: u64) -> (wgpu::Buffer, wgpu::Buffer) {
-        let (vertex_size, index_size) = Self::buffer_sizes(count);
-
-        let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("font atlas vertex buffer"),
-            size: vertex_size.next_power_of_two(),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let index_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("font atlas index buffer"),
-            size: index_size.next_power_of_two(),
-            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        return (vertex_buffer, index_buffer);
     }
 
     pub fn prepare(
         &mut self,
-        RenderingContext { queue, .. }: &RenderingContext,
+        RenderingContext { queue, device, .. }: &RenderingContext,
         glyphs: Vec<GlyphToRender>,
     ) {
-        self.num_glyphs = glyphs.len() as u64;
+        self.gpu_buffer.set_num_quads(device, glyphs.len() as u64);
 
-        let (vertex_buffer_size, index_buffer_size) = Self::buffer_sizes(self.num_glyphs);
+        self.gpu_buffer.write_all_quads(
+            queue,
+            glyphs.iter().map(
+                |GlyphToRender {
+                     alloc: AtlasAllocation { rectangle: uv, .. },
+                     draw_rect,
+                     size,
+                 }| {
+                    let alloc_pos = PhysicalPos2::new(uv.min.x as u32, uv.min.y as u32);
+                    let uv = PhysicalRect::new(alloc_pos, alloc_pos + *size);
 
-        let mut data = Vec::<u8>::with_capacity(vertex_buffer_size as usize);
-        let mut indices = Vec::<u8>::with_capacity(index_buffer_size as usize);
-
-        for (
-            i,
-            GlyphToRender {
-                alloc: AtlasAllocation { rectangle: uv, .. },
-                draw_rect,
-                size,
-            },
-        ) in glyphs.iter().enumerate()
-        {
-            let alloc_pos = PhysicalPos2::new(uv.min.x as u32, uv.min.y as u32);
-            let uv = PhysicalRect::new(alloc_pos, alloc_pos + *size);
-
-            data.extend_from_slice(bytemuck::bytes_of(&[
-                FontVertex {
-                    pos: [draw_rect.min.x, draw_rect.min.y],
-                    uv: [uv.min.x as u32, uv.min.y as u32],
-                    color: [1., 1., 1., 1.],
-                    content_type: self.atlas_type as u32,
-                    depth: 0.,
+                    [
+                        FontVertex {
+                            pos: [draw_rect.min.x, draw_rect.min.y],
+                            uv: [uv.min.x as u32, uv.min.y as u32],
+                            color: [1., 1., 1., 1.],
+                            content_type: self.atlas_type as u32,
+                            depth: 0.,
+                        },
+                        FontVertex {
+                            pos: [draw_rect.max.x, draw_rect.min.y],
+                            uv: [uv.max.x as u32, uv.min.y as u32],
+                            color: [1., 1., 1., 1.],
+                            content_type: self.atlas_type as u32,
+                            depth: 0.,
+                        },
+                        FontVertex {
+                            pos: [draw_rect.min.x, draw_rect.max.y],
+                            uv: [uv.min.x as u32, uv.max.y as u32],
+                            color: [1., 1., 1., 1.],
+                            content_type: self.atlas_type as u32,
+                            depth: 0.,
+                        },
+                        FontVertex {
+                            pos: [draw_rect.max.x, draw_rect.max.y],
+                            uv: [uv.max.x as u32, uv.max.y as u32],
+                            color: [1., 1., 1., 1.],
+                            content_type: self.atlas_type as u32,
+                            depth: 0.,
+                        },
+                    ]
                 },
-                FontVertex {
-                    pos: [draw_rect.max.x, draw_rect.min.y],
-                    uv: [uv.max.x as u32, uv.min.y as u32],
-                    color: [1., 1., 1., 1.],
-                    content_type: self.atlas_type as u32,
-                    depth: 0.,
-                },
-                FontVertex {
-                    pos: [draw_rect.min.x, draw_rect.max.y],
-                    uv: [uv.min.x as u32, uv.max.y as u32],
-                    color: [1., 1., 1., 1.],
-                    content_type: self.atlas_type as u32,
-                    depth: 0.,
-                },
-                FontVertex {
-                    pos: [draw_rect.max.x, draw_rect.max.y],
-                    uv: [uv.max.x as u32, uv.max.y as u32],
-                    color: [1., 1., 1., 1.],
-                    content_type: self.atlas_type as u32,
-                    depth: 0.,
-                },
-            ]));
-
-            let index_slice = [0u16, 1, 2, 1, 2, 3].map(|n| n + 4 * i as u16);
-
-            indices.extend_from_slice(bytemuck::bytes_of(&index_slice));
-        }
-
-        queue.write_buffer(&self.vertex_buffer, 0, data.as_slice());
-        queue.write_buffer(&self.index_buffer, 0, indices.as_slice());
+            ),
+        );
     }
 
     pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
-        if self.num_glyphs == 0 {
+        if self.gpu_buffer.num_quads() == 0 {
             return;
         }
 
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_bind_group(0, &self.bind_group, &[]);
 
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-
-        render_pass.draw_indexed(0..(self.num_glyphs * 6) as u32, 0, 0..1);
+        self.gpu_buffer.draw_all_quads(render_pass, 0..1);
     }
 
     fn try_allocate_space(&mut self, space: &PhysicalSize2<u32>) -> Option<AtlasAllocation> {
@@ -771,7 +717,7 @@ impl FontManager {
                         return None;
                     }
 
-                    match render_glyph(g.cache_key, font_system.as_ref()) {
+                    match rasterize_glyph(g.cache_key, font_system.as_ref()) {
                         Some(image) => Some((g.cache_key, image)),
                         None => {
                             log::error!("failed to render glyph {}!", g.cache_key.glyph_id);
@@ -806,11 +752,11 @@ thread_local! {
     static SCALE_CONTEXT: RefCell<ScaleContext> = RefCell::new(ScaleContext::new())
 }
 
-fn render_glyph(
+fn rasterize_glyph(
     cache_key: GlyphCacheKey,
     font_system: &Mutex<FontSystem>,
 ) -> Option<cosmic_text::SwashImage> {
-    log::debug!("Rendering glyph {:x}", cache_key.hash_u64());
+    log::debug!("Rasterizing glyph {:x}", cache_key.hash_u64());
 
     use swash::{
         scale::{Render, Source, StrikeWith},

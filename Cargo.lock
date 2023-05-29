@@ -1966,6 +1966,7 @@ dependencies = [
 name = "topos"
 version = "0.1.0"
 dependencies = [
+ "bitflags 2.3.1",
  "bytemuck",
  "cosmic-text",
  "env_logger",

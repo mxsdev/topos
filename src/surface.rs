@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
-
 // lib.rs
 use tao::{event::WindowEvent, window::Window};
-use wgpu::util::{DeviceExt};
+use wgpu::util::DeviceExt;
 
 use crate::{
     atlas::{self},
@@ -16,10 +15,6 @@ pub(crate) struct ParamsBuffer {
     screen_resolution: [u32; 2],
 }
 
-// impl ParamsBuffer {
-//     const ATTRIBS: [wgpu::VertexAttribute; 5]
-// }
-
 struct ScreenDescriptor {
     size: tao::dpi::PhysicalSize<u32>,
     scale_factor: f64,
@@ -27,15 +22,8 @@ struct ScreenDescriptor {
 
 pub struct State {
     surface: wgpu::Surface,
-    // device: wgpu::Device,
-    // queue: wgpu::Queue,
-    // config: wgpu::SurfaceConfiguration,
-    // params_buffer: wgpu::Buffer,
-    // size: tao::dpi::PhysicalSize<u32>,
     font_manager: atlas::FontManager,
 
-    // TODO: remove
-    // font_atlas: atlas::FontAtlas,
     rendering_context: Arc<RenderingContext>,
 
     screen_descriptor: ScreenDescriptor,
@@ -133,28 +121,16 @@ impl State {
             device: device,
             queue: queue,
             texture_format: surface_format,
-            // scale_factor: window.scale_factor(),
         }
         .into();
 
         let font_manager = atlas::FontManager::new(rendering_context.clone());
 
-        // let font_atlas = font_manager.gen_atlas(&rendering_context);
-
         Self {
-            // device,
-            // queue,
-            // config,
-            // params_buffer,
             rendering_context,
-
             surface,
-            // size,
             font_manager,
-
-            // font_atlas,
             config,
-
             screen_descriptor,
         }
     }
@@ -232,19 +208,6 @@ impl State {
 
         self.font_manager.generate_textures(buffers.clone());
 
-        // // FIXME: remove
-        // for run in buffers[0].layout_runs() {
-        //     for glyph in run.glyphs.iter() {
-        //         log::trace!("gyint: {}", glyph.y_offset);
-        //     }
-        // }
-
-        // let glyphs = atlas::FontManager::get_buffer_glyphs(&buffer);
-
-        // let glyphs: Vec<_> = glyphs.collect();
-        // let num_glyphs = glyphs.len();
-        // println!("{num_glyphs:?}");
-
         self.font_manager
             .prepare(buffers.iter(), PhysicalPos2::new(0., 0.));
 
@@ -276,24 +239,10 @@ impl State {
 
             self.font_manager
                 .render(&mut render_pass, &font_manager_resources);
-
-            // atlas::FontManager::render(&mut render_pass);
-
-            // self.font_manager
-            //     // .render(&mut render_pass);
-            //     .render(&mut render_pass, &font_manager_resources);
-
-            // self.font_atlas.render(&mut _render_pass);
-
-            // _render_pass.draw(vertices, instances)
-
-            // _render_pass.set_pipeline(pipeline)
-            // _render_pass.bufffer
         }
 
         queue.submit(std::iter::once(encoder.finish()));
         output.present();
-        // submit will accept anything that implements IntoIter
 
         Ok(())
     }
