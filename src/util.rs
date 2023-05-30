@@ -1,6 +1,7 @@
 use std::ops::{Deref, DerefMut};
 
 use num_traits::{Float, Num, Signed};
+use swash::scale;
 
 use crate::element::boundary::Boundary;
 
@@ -13,8 +14,8 @@ pub struct PhysicalUnit;
 pub type Rect<F = f32> = euclid::Box2D<F, LogicalUnit>;
 pub type PhysicalRect<F = f32> = euclid::Box2D<F, PhysicalUnit>;
 
-pub type RoundedRect<F = f32> = euclid::Box2D<F, LogicalUnit>;
-pub type PhysicalRoundedRect<F = f32> = euclid::Box2D<F, PhysicalUnit>;
+pub type RoundedRect<F = f32> = RoundedBox2D<F, LogicalUnit>;
+pub type PhysicalRoundedRect<F = f32> = RoundedBox2D<F, PhysicalUnit>;
 
 pub type Pos2<F = f32> = euclid::Point2D<F, LogicalUnit>;
 pub type PhysicalPos2<F = f32> = euclid::Point2D<F, PhysicalUnit>;
@@ -25,30 +26,93 @@ pub type PhysicalVec2<F = f32> = euclid::Vector2D<F, PhysicalUnit>;
 pub type Size2<F = f32> = euclid::Size2D<F, LogicalUnit>;
 pub type PhysicalSize2<F = f32> = euclid::Size2D<F, PhysicalUnit>;
 
-trait LogicalToPhysical {
+pub trait ToEuclid {
+    type EuclidResult;
+    fn to_euclid(self) -> Self::EuclidResult;
+}
+
+impl<P> ToEuclid for tao::dpi::LogicalPosition<P> {
+    type EuclidResult = Pos2<P>;
+
+    fn to_euclid(self) -> Self::EuclidResult {
+        Self::EuclidResult::new(self.x, self.y)
+    }
+}
+
+impl<P> ToEuclid for tao::dpi::PhysicalPosition<P> {
+    type EuclidResult = PhysicalPos2<P>;
+
+    fn to_euclid(self) -> Self::EuclidResult {
+        Self::EuclidResult::new(self.x, self.y)
+    }
+}
+
+impl<P> ToEuclid for tao::dpi::PhysicalSize<P> {
+    type EuclidResult = PhysicalSize2<P>;
+
+    fn to_euclid(self) -> Self::EuclidResult {
+        Self::EuclidResult::new(self.width, self.height)
+    }
+}
+
+impl<P> ToEuclid for tao::dpi::LogicalSize<P> {
+    type EuclidResult = Size2<P>;
+
+    fn to_euclid(self) -> Self::EuclidResult {
+        Self::EuclidResult::new(self.width, self.height)
+    }
+}
+
+pub trait LogicalToPhysical {
     type PhysicalResult;
     fn to_physical(&self, scale_factor: f64) -> Self::PhysicalResult;
 }
 
-impl LogicalToPhysical for Pos2<f32> {
-    type PhysicalResult = PhysicalPos2<f32>;
+trait CanScale: Float {
+    fn from_scale_fac(scale_factor: f64) -> Self;
+}
+
+impl CanScale for f64 {
+    fn from_scale_fac(scale_factor: f64) -> Self {
+        scale_factor
+    }
+}
+
+impl CanScale for f32 {
+    fn from_scale_fac(scale_factor: f64) -> Self {
+        scale_factor as Self
+    }
+}
+
+impl<F: CanScale> LogicalToPhysical for Pos2<F> {
+    type PhysicalResult = PhysicalPos2<F>;
 
     fn to_physical(&self, scale_factor: f64) -> Self::PhysicalResult {
-        let scale_factor = scale_factor as f32;
+        let scale_factor = F::from_scale_fac(scale_factor);
         Self::PhysicalResult::new(self.x * scale_factor, self.y * scale_factor)
     }
 }
 
-impl LogicalToPhysical for Pos2<f64> {
-    type PhysicalResult = PhysicalPos2<f64>;
+impl<F: CanScale> LogicalToPhysical for Vec2<F> {
+    type PhysicalResult = PhysicalVec2<F>;
 
     fn to_physical(&self, scale_factor: f64) -> Self::PhysicalResult {
+        let scale_factor = F::from_scale_fac(scale_factor);
         Self::PhysicalResult::new(self.x * scale_factor, self.y * scale_factor)
     }
 }
 
-impl LogicalToPhysical for Rect<f32> {
-    type PhysicalResult = PhysicalRect<f32>;
+impl<F: CanScale> LogicalToPhysical for Size2<F> {
+    type PhysicalResult = PhysicalSize2<F>;
+
+    fn to_physical(&self, scale_factor: f64) -> Self::PhysicalResult {
+        let scale_factor = F::from_scale_fac(scale_factor);
+        Self::PhysicalResult::new(self.width * scale_factor, self.height * scale_factor)
+    }
+}
+
+impl<F: CanScale> LogicalToPhysical for Rect<F> {
+    type PhysicalResult = PhysicalRect<F>;
 
     fn to_physical(&self, scale_factor: f64) -> Self::PhysicalResult {
         Self::PhysicalResult::new(
@@ -58,13 +122,13 @@ impl LogicalToPhysical for Rect<f32> {
     }
 }
 
-impl LogicalToPhysical for Rect<f64> {
-    type PhysicalResult = PhysicalRect<f64>;
+impl<F: CanScale> LogicalToPhysical for RoundedRect<F> {
+    type PhysicalResult = PhysicalRoundedRect<F>;
 
     fn to_physical(&self, scale_factor: f64) -> Self::PhysicalResult {
         Self::PhysicalResult::new(
-            self.min.to_physical(scale_factor),
-            self.max.to_physical(scale_factor),
+            self.rect.to_physical(scale_factor),
+            self.radius.map(|r| r * F::from_scale_fac(scale_factor)),
         )
     }
 }
@@ -72,21 +136,18 @@ impl LogicalToPhysical for Rect<f64> {
 #[derive(Clone, Copy, Debug)]
 pub struct RoundedBox2D<T, U> {
     pub rect: euclid::Box2D<T, U>,
-    pub radius: T,
+    pub radius: Option<T>,
 }
 
 impl<T, U> RoundedBox2D<T, U> {
-    pub fn new(rect: euclid::Box2D<T, U>, radius: T) -> Self {
+    pub fn new(rect: euclid::Box2D<T, U>, radius: Option<T>) -> Self {
         Self { rect, radius }
     }
 }
 
 impl<T: Num, U> RoundedBox2D<T, U> {
     pub fn from_rect(rect: euclid::Box2D<T, U>) -> Self {
-        Self {
-            rect,
-            radius: T::zero(),
-        }
+        Self { rect, radius: None }
     }
 }
 
@@ -110,13 +171,25 @@ impl<T, U> DerefMut for RoundedBox2D<T, U> {
     }
 }
 
-impl<T: Float, U> Boundary<T, U> for euclid::Box2D<T, U> {
+impl<T: Float + Signed, U> Boundary<T, U> for RoundedBox2D<T, U> {
+    fn sdf(&self, pos: euclid::Point2D<T, U>) -> T {
+        let rect_sdf = self.rect.sdf(pos);
+
+        match self.radius {
+            Some(radius) => rect_sdf - radius,
+            None => rect_sdf,
+        }
+    }
+}
+
+impl<T: Float + Signed, U> Boundary<T, U> for euclid::Box2D<T, U> {
     fn sdf(&self, pos: euclid::Point2D<T, U>) -> T {
         let c = self.center();
         let b = self.max - c;
         let pos = pos - c;
 
-        let q = euclid::Vector2D::splat(pos.length()) - b;
+        // let q = euclid::Vector2D::splat(pos.length()) - b;
+        let q = pos.abs() - b;
 
         q.max(euclid::Vector2D::splat(T::zero())).length() + T::min(T::zero(), T::max(q.x, q.y))
     }
@@ -133,5 +206,17 @@ pub trait WgpuDescriptor<const N: usize>: Sized {
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &Self::ATTRIBS,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rect_sdf() {
+        let rect = Rect::from_size(Size2::new(10., 10.));
+
+        assert_eq!(rect.sdf(Pos2::new(1., 1.)), 1.);
     }
 }

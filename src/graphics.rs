@@ -39,11 +39,24 @@ impl<T: Sized + Pod> DynamicGPUQuadBuffer<T> {
         &self.index_buffer
     }
 
-    pub fn draw_all_quads<'a>(
+    pub fn render_all_quads<'a>(
         &'a self,
+        render_pipeline: &'a wgpu::RenderPipeline,
+        bind_group: &'a wgpu::BindGroup,
         render_pass: &mut wgpu::RenderPass<'a>,
         instances: Range<u32>,
     ) {
+        if self.num_quads == 0 {
+            return;
+        }
+
+        render_pass.set_pipeline(&render_pipeline);
+        render_pass.set_bind_group(0, &bind_group, &[]);
+
+        self.draw_all_quads(render_pass, instances);
+    }
+
+    fn draw_all_quads<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, instances: Range<u32>) {
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 

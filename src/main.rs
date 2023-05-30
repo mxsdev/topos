@@ -13,6 +13,7 @@ mod paint;
 mod shape;
 mod surface;
 mod text;
+mod time;
 mod util;
 
 use pollster::FutureExt;
@@ -28,48 +29,51 @@ pub async fn run() {
 
     let mut state = surface::State::new(&window).await;
 
-    event_loop.run(move |event, _, control_flow| match event {
-        Event::WindowEvent {
-            ref event,
-            window_id,
-            ..
-        } if window_id == window.id() => match event {
-            WindowEvent::CloseRequested
-            | WindowEvent::KeyboardInput {
-                event:
-                    KeyEvent {
-                        state: ElementState::Pressed,
-                        physical_key: tao::keyboard::KeyCode::Escape,
-                        ..
-                    },
+    event_loop.run(move |event, _, control_flow| {
+        // asd
+        match event {
+            Event::WindowEvent {
+                ref event,
+                window_id,
                 ..
-            } => *control_flow = ControlFlow::Exit,
-            WindowEvent::Resized(physical_size) => state.resize(*physical_size, None),
-            WindowEvent::ScaleFactorChanged {
-                new_inner_size,
-                scale_factor,
-            } => state.resize(**new_inner_size, Some(*scale_factor)),
-            _ => {}
-        },
-        Event::RedrawRequested(window_id) if window_id == window.id() => {
-            state.update();
+            } if window_id == window.id() => match event {
+                WindowEvent::CloseRequested
+                | WindowEvent::KeyboardInput {
+                    event:
+                        KeyEvent {
+                            state: ElementState::Pressed,
+                            physical_key: tao::keyboard::KeyCode::Escape,
+                            ..
+                        },
+                    ..
+                } => *control_flow = ControlFlow::Exit,
+                WindowEvent::Resized(physical_size) => state.resize(*physical_size, None),
+                WindowEvent::ScaleFactorChanged {
+                    new_inner_size,
+                    scale_factor,
+                } => state.resize(**new_inner_size, Some(*scale_factor)),
+                e => state.input(e),
+            },
+            Event::RedrawRequested(window_id) if window_id == window.id() => {
+                state.update();
 
-            match state.render() {
-                Ok(_) => {}
-                // Reconfigure the surface if lost
-                Err(wgpu::SurfaceError::Lost) => state.resize(state.get_size(), None),
-                // The system is out of memory, we should probably quit
-                Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
-                // All other errors (Outdated, Timeout) should be resolved by the next frame
-                Err(e) => eprintln!("{:?}", e),
+                match state.render() {
+                    Ok(_) => {}
+                    // Reconfigure the surface if lost
+                    Err(wgpu::SurfaceError::Lost) => state.resize(state.get_size(), None),
+                    // The system is out of memory, we should probably quit
+                    Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
+                    // All other errors (Outdated, Timeout) should be resolved by the next frame
+                    Err(e) => eprintln!("{:?}", e),
+                }
             }
+            Event::MainEventsCleared => {
+                // RedrawRequested will only trigger once, unless we manually
+                // request it.
+                window.request_redraw()
+            }
+            _ => {}
         }
-        Event::MainEventsCleared => {
-            // RedrawRequested will only trigger once, unless we manually
-            // request it.
-            window.request_redraw()
-        }
-        _ => {}
     });
 }
 

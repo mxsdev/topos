@@ -199,14 +199,12 @@ impl FontAtlas {
     }
 
     pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
-        if self.gpu_buffer.num_quads() == 0 {
-            return;
-        }
-
-        render_pass.set_pipeline(&self.render_pipeline);
-        render_pass.set_bind_group(0, &self.bind_group, &[]);
-
-        self.gpu_buffer.draw_all_quads(render_pass, 0..1);
+        self.gpu_buffer.render_all_quads(
+            &self.render_pipeline,
+            &self.bind_group,
+            render_pass,
+            0..1,
+        );
     }
 
     fn try_allocate_space(&mut self, space: &PhysicalSize2<u32>) -> Option<AtlasAllocation> {

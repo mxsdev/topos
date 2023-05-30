@@ -1,13 +1,23 @@
 use std::sync::Arc;
 
+use palette::Srgba;
+use swash::scale;
 // lib.rs
 use tao::{event::WindowEvent, window::Window};
 use wgpu::util::DeviceExt;
 
 use crate::{
     atlas::{self},
-    util::PhysicalPos2,
+    element::boundary::Boundary,
+    shape::{BoxShaderVertex, ShapeRenderer},
+    time::FramerateCounter,
+    util::{
+        LogicalToPhysical, PhysicalPos2, PhysicalRect, PhysicalRoundedRect, Pos2, Rect,
+        RoundedRect, ToEuclid,
+    },
 };
+
+use crate::shape::{self};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -22,13 +32,21 @@ struct ScreenDescriptor {
 
 pub struct State {
     surface: wgpu::Surface,
+
     font_manager: atlas::FontManager,
+    shape_renderer: shape::ShapeRenderer,
 
     rendering_context: Arc<RenderingContext>,
 
     screen_descriptor: ScreenDescriptor,
 
     config: wgpu::SurfaceConfiguration,
+
+    mouse_pos: Pos2,
+
+    framerate_counter: FramerateCounter,
+
+    text_buffers: Arc<Vec<cosmic_text::Buffer>>,
 }
 
 pub struct RenderingContext {
@@ -85,6 +103,9 @@ impl State {
             .unwrap();
 
         let surface_caps = surface.get_capabilities(&adapter);
+
+        log::trace!("Allowed present modes: {:?}", surface_caps.present_modes);
+
         // Shader code in this tutorial assumes an sRGB surface texture. Using a different
         // one will result all the colors coming out darker. If you want to support non
         // sRGB surfaces, you'll need to account for that when drawing to the frame.
@@ -100,7 +121,12 @@ impl State {
             format: surface_format,
             width: size.width,
             height: size.height,
-            present_mode: surface_caps.present_modes[0],
+            present_mode: wgpu::PresentMode::Fifo,
+            // present_mode: surface_caps
+            //     .present_modes
+            //     .into_iter()
+            //     .find(|m| *m == wgpu::PresentMode::Immediate)
+            //     .unwrap_or(wgpu::PresentMode::Fifo),
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
         };
@@ -124,58 +150,21 @@ impl State {
         }
         .into();
 
-        let font_manager = atlas::FontManager::new(rendering_context.clone());
+        let mut font_manager = atlas::FontManager::new(rendering_context.clone());
+        let shape_renderer = shape::ShapeRenderer::new(&rendering_context);
 
-        Self {
-            rendering_context,
-            surface,
-            font_manager,
-            config,
-            screen_descriptor,
-        }
-    }
+        let mouse_pos = window
+            .cursor_position()
+            .map(|p| p.to_logical(screen_descriptor.scale_factor).to_euclid())
+            .unwrap_or_default();
 
-    pub fn resize(&mut self, new_size: tao::dpi::PhysicalSize<u32>, scale_factor: Option<f64>) {
-        if new_size.width > 0 && new_size.height > 0 {
-            self.screen_descriptor.size = new_size;
-            self.config_mut().width = new_size.width;
-            self.config_mut().height = new_size.height;
-            self.surface.configure(self.device(), self.config());
+        let framerate_counter = FramerateCounter::default();
 
-            if let Some(scale_factor) = scale_factor {
-                self.screen_descriptor.scale_factor = scale_factor;
-            }
+        let text_buffer = {
+            // Text metrics indicate the font size and line height of a buffer
+            let metrics = cosmic_text::Metrics::new(60.0, 80.0);
 
-            self.queue().write_buffer(
-                self.params_buffer(),
-                0,
-                bytemuck::bytes_of(&Into::<[u32; 2]>::into(new_size)),
-            )
-        }
-    }
-
-    pub fn input(&mut self, _event: &WindowEvent) -> bool {
-        todo!()
-    }
-
-    pub fn update(&mut self) {}
-
-    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        let output = self.surface.get_current_texture()?;
-
-        let view = output
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-
-        let render_context = &self.rendering_context;
-        let RenderingContext { device, queue, .. } = render_context.as_ref();
-
-        //prepare
-        // Text metrics indicate the font size and line height of a buffer
-        let metrics = cosmic_text::Metrics::new(60.0, 80.0);
-
-        let buffer = {
-            let mut font_system = self.font_manager.get_font_system();
+            let mut font_system = font_manager.get_font_system();
 
             // A Buffer provides shaping and layout for a UTF-8 string, create one per text widget
             let mut buffer = cosmic_text::Buffer::new(&mut font_system, metrics);
@@ -204,12 +193,85 @@ impl State {
             buffer
         };
 
-        let buffers = Arc::new(vec![buffer]);
+        Self {
+            rendering_context,
+            surface,
+            font_manager,
+            config,
+            screen_descriptor,
+            shape_renderer,
+            mouse_pos,
+            framerate_counter,
+            text_buffers: Arc::new(vec![text_buffer]),
+        }
+    }
 
-        self.font_manager.generate_textures(buffers.clone());
+    pub fn resize(&mut self, new_size: tao::dpi::PhysicalSize<u32>, scale_factor: Option<f64>) {
+        if new_size.width > 0 && new_size.height > 0 {
+            self.screen_descriptor.size = new_size;
+            self.config_mut().width = new_size.width;
+            self.config_mut().height = new_size.height;
+            self.surface.configure(self.device(), self.config());
+
+            if let Some(scale_factor) = scale_factor {
+                self.screen_descriptor.scale_factor = scale_factor;
+            }
+
+            self.queue().write_buffer(
+                self.params_buffer(),
+                0,
+                bytemuck::bytes_of(&Into::<[u32; 2]>::into(new_size)),
+            )
+        }
+    }
+
+    pub fn input(&mut self, event: &WindowEvent) {
+        match event {
+            WindowEvent::CursorMoved { position, .. } => {
+                self.mouse_pos = position
+                    .to_logical(self.screen_descriptor.scale_factor)
+                    .to_euclid();
+            }
+
+            _ => {}
+        }
+    }
+
+    pub fn update(&mut self) {}
+
+    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+        let output = self.surface.get_current_texture()?;
+        let start_time = std::time::Instant::now();
+
+        let sf = self.screen_descriptor.scale_factor;
+
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let render_context = &self.rendering_context;
+        let RenderingContext { device, queue, .. } = render_context.as_ref();
+
+        //prepare
+        self.font_manager
+            .generate_textures(self.text_buffers.clone());
 
         self.font_manager
-            .prepare(buffers.iter(), PhysicalPos2::new(0., 0.));
+            .prepare(self.text_buffers.iter(), PhysicalPos2::new(0., 0.));
+
+        // create rectangle
+        let rect = RoundedRect::from_rect(Rect::new(Pos2::new(10., 10.), Pos2::new(150., 150.)));
+
+        let color = if rect.inflate(1., 1.).sdf(self.mouse_pos) >= -f32::EPSILON {
+            Srgba::new(1., 0., 0., 1.)
+        } else {
+            Srgba::new(0., 1., 0., 1.)
+        };
+
+        let rects = [(rect.to_physical(sf), color)];
+
+        self.shape_renderer
+            .prepare_boxes(device, queue, rects.into_iter());
 
         //render
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -239,10 +301,15 @@ impl State {
 
             self.font_manager
                 .render(&mut render_pass, &font_manager_resources);
+
+            self.shape_renderer.render_all_boxes(&mut render_pass)
         }
 
         queue.submit(std::iter::once(encoder.finish()));
         output.present();
+
+        let elapsed_time = std::time::Instant::now() - start_time;
+        log::trace!("Elapsed render time: {:?}", elapsed_time);
 
         Ok(())
     }
