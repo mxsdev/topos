@@ -68,7 +68,7 @@ pub trait LogicalToPhysical {
     fn to_physical(&self, scale_factor: f64) -> Self::PhysicalResult;
 }
 
-trait CanScale: Float {
+pub trait CanScale: Float {
     fn from_scale_fac(scale_factor: f64) -> Self;
 }
 
@@ -81,6 +81,14 @@ impl CanScale for f64 {
 impl CanScale for f32 {
     fn from_scale_fac(scale_factor: f64) -> Self {
         scale_factor as Self
+    }
+}
+
+impl<F: CanScale> LogicalToPhysical for F {
+    type PhysicalResult = F;
+
+    fn to_physical(&self, scale_factor: f64) -> Self::PhysicalResult {
+        *self * F::from_scale_fac(scale_factor)
     }
 }
 
@@ -128,7 +136,7 @@ impl<F: CanScale> LogicalToPhysical for RoundedRect<F> {
     fn to_physical(&self, scale_factor: f64) -> Self::PhysicalResult {
         Self::PhysicalResult::new(
             self.rect.to_physical(scale_factor),
-            self.radius.map(|r| r * F::from_scale_fac(scale_factor)),
+            self.radius.map(|r| r.to_physical(scale_factor)),
         )
     }
 }
@@ -172,26 +180,34 @@ impl<T, U> DerefMut for RoundedBox2D<T, U> {
 }
 
 impl<T: Float + Signed, U> Boundary<T, U> for RoundedBox2D<T, U> {
-    fn sdf(&self, pos: euclid::Point2D<T, U>) -> T {
-        let rect_sdf = self.rect.sdf(pos);
-
+    fn sdf(&self, pos: &euclid::Point2D<T, U>) -> T {
         match self.radius {
-            Some(radius) => rect_sdf - radius,
-            None => rect_sdf,
+            Some(radius) => {
+                let c = self.center();
+                let b = (self.max - c) - euclid::Vector2D::<T, U>::splat(radius);
+                let pos = *pos - c;
+
+                let q = pos.abs() - b;
+
+                -(q.max(euclid::Vector2D::splat(T::zero())).length()
+                    + T::min(T::zero(), T::max(q.x, q.y))
+                    - radius)
+            }
+
+            None => self.rect.sdf(pos),
         }
     }
 }
 
 impl<T: Float + Signed, U> Boundary<T, U> for euclid::Box2D<T, U> {
-    fn sdf(&self, pos: euclid::Point2D<T, U>) -> T {
+    fn sdf(&self, pos: &euclid::Point2D<T, U>) -> T {
         let c = self.center();
         let b = self.max - c;
-        let pos = pos - c;
+        let pos = *pos - c;
 
-        // let q = euclid::Vector2D::splat(pos.length()) - b;
         let q = pos.abs() - b;
 
-        q.max(euclid::Vector2D::splat(T::zero())).length() + T::min(T::zero(), T::max(q.x, q.y))
+        -(q.max(euclid::Vector2D::splat(T::zero())).length() + T::min(T::zero(), T::max(q.x, q.y)))
     }
 }
 
@@ -209,6 +225,20 @@ pub trait WgpuDescriptor<const N: usize>: Sized {
     }
 }
 
+pub trait AsWinit {
+    type Winit;
+
+    unsafe fn as_winit(&self) -> &Self::Winit;
+}
+
+impl AsWinit for tao::monitor::MonitorHandle {
+    type Winit = winit::monitor::MonitorHandle;
+
+    unsafe fn as_winit(&self) -> &Self::Winit {
+        return std::mem::transmute(self);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -217,6 +247,9 @@ mod tests {
     fn test_rect_sdf() {
         let rect = Rect::from_size(Size2::new(10., 10.));
 
-        assert_eq!(rect.sdf(Pos2::new(1., 1.)), 1.);
+        assert_eq!(rect.sdf(&Pos2::new(1., 1.)), 1.);
+
+        let mut theta = (225.).to_radians();
+        assert_eq!(rect.sdf(&Pos2::new(theta.cos(), theta.sin())), 1.)
     }
 }

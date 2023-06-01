@@ -7,7 +7,10 @@ use swash::scale::Render;
 use crate::{
     graphics::DynamicGPUQuadBuffer,
     surface::{ParamsBuffer, RenderingContext},
-    util::{PhysicalRoundedRect, RoundedRect, WgpuDescriptor},
+    util::{
+        CanScale, LogicalToPhysical, LogicalUnit, PhysicalRoundedRect, PhysicalUnit, RoundedBox2D,
+        RoundedRect, WgpuDescriptor,
+    },
 };
 
 pub struct RenderResources<T: Sized + Pod> {
@@ -48,29 +51,18 @@ impl ShapeRenderer {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        boxes: impl ExactSizeIterator<Item = (PhysicalRoundedRect, Srgba)>,
+        boxes: impl ExactSizeIterator<Item = [BoxShaderVertex; 4]>,
     ) {
         let buf = &mut self.box_resources.gpu_buffer;
 
         buf.set_num_quads(device, boxes.len() as u64);
 
-        buf.write_all_quads(
-            queue,
-            boxes.map(|(rect, col)| BoxShaderVertex::from_rrect(rect, col)),
-        );
+        buf.write_all_quads(queue, boxes);
     }
 
     pub fn render_all_boxes<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
         self.box_resources.render_all_quads(render_pass, 0..1);
     }
-
-    // pub fn box_resources_mut(&mut self) -> &mut RenderResources<BoxShaderVertex> {
-    //     &mut self.box_resources
-    // }
-
-    // pub fn box_resources(&self) -> &RenderResources<BoxShaderVertex> {
-    //     &self.box_resources
-    // }
 
     fn create_box_resources(
         RenderingContext {
@@ -158,51 +150,109 @@ pub struct BoxShaderVertex {
     color: [f32; 4],
     rounding: f32,
     depth: f32,
+    stroke_width: f32,
 }
 
-impl WgpuDescriptor<5> for BoxShaderVertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
+impl WgpuDescriptor<6> for BoxShaderVertex {
+    const ATTRIBS: [wgpu::VertexAttribute; 6] = wgpu::vertex_attr_array![
         0 => Float32x2,
         1 => Float32x2,
         2 => Float32x4,
         3 => Float32,
         4 => Float32,
+        5 => Float32,
     ];
 }
 
 impl BoxShaderVertex {
-    pub fn from_rrect(rect: PhysicalRoundedRect<f32>, color: palette::Srgba) -> [Self; 4] {
-        let dims = rect.center() - rect.max;
+    pub fn from_paint_rect(
+        paint_rect: PaintRectangle<f32, PhysicalUnit>,
+    ) -> impl Iterator<Item = [Self; 4]> {
+        let fill_rect = paint_rect
+            .fill
+            .map(|f| Self::from_rect_stroked(paint_rect.rect, f, None));
+
+        let stroke_rect = paint_rect
+            .stroke_color
+            .zip(paint_rect.stroke_width)
+            .map(|(color, width)| Self::from_rect_stroked(paint_rect.rect, color, Some(width)));
+
+        [fill_rect, stroke_rect].into_iter().flatten()
+    }
+
+    fn from_rect_stroked(
+        rect: RoundedBox2D<f32, PhysicalUnit>,
+        color: Srgba,
+        stroke_width: Option<f32>,
+    ) -> [Self; 4] {
+        let dims = rect.max - rect.center();
+
+        let color: [f32; 4] = color.into();
+        let stroke_width = stroke_width.unwrap_or(0.);
 
         return [
             Self {
                 pos: [rect.min.x, rect.min.y],
                 dims: [dims.x, dims.y],
-                color: color.into(),
+                color,
                 depth: 0.,
                 rounding: rect.radius.unwrap_or(0.),
+                stroke_width,
             },
             Self {
                 pos: [rect.max.x, rect.min.y],
                 dims: [dims.x, dims.y],
-                color: color.into(),
+                color,
                 depth: 0.,
                 rounding: rect.radius.unwrap_or(0.),
+                stroke_width,
             },
             Self {
                 pos: [rect.min.x, rect.max.y],
                 dims: [dims.x, dims.y],
-                color: color.into(),
+                color,
                 depth: 0.,
                 rounding: rect.radius.unwrap_or(0.),
+                stroke_width,
             },
             Self {
                 pos: [rect.max.x, rect.max.y],
                 dims: [dims.x, dims.y],
-                color: color.into(),
+                color,
                 depth: 0.,
                 rounding: rect.radius.unwrap_or(0.),
+                stroke_width,
             },
         ];
+    }
+}
+
+pub struct PaintRectangle<F: CanScale = f32, U = LogicalUnit> {
+    pub rect: RoundedBox2D<F, U>,
+    pub fill: Option<Srgba>,
+    pub stroke_color: Option<Srgba>,
+    pub stroke_width: Option<F>,
+}
+
+pub enum PaintShape {
+    Rectangle(PaintRectangle),
+}
+
+impl Into<PaintShape> for PaintRectangle {
+    fn into(self) -> PaintShape {
+        PaintShape::Rectangle(self)
+    }
+}
+
+impl<F: CanScale> LogicalToPhysical for PaintRectangle<F, LogicalUnit> {
+    type PhysicalResult = PaintRectangle<F, PhysicalUnit>;
+
+    fn to_physical(&self, scale_factor: f64) -> Self::PhysicalResult {
+        Self::PhysicalResult {
+            fill: self.fill,
+            stroke_color: self.stroke_color,
+            stroke_width: self.stroke_width.map(|w| w.to_physical(scale_factor)),
+            rect: self.rect.to_physical(scale_factor),
+        }
     }
 }

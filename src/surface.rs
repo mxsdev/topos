@@ -1,8 +1,7 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, RwLock};
 
 use palette::Srgba;
 use swash::scale;
-// lib.rs
 use tao::{event::WindowEvent, window::Window};
 use wgpu::util::DeviceExt;
 
@@ -30,23 +29,11 @@ struct ScreenDescriptor {
     scale_factor: f64,
 }
 
-pub struct State {
+pub struct RenderSurface {
     surface: wgpu::Surface,
-
-    font_manager: atlas::FontManager,
-    shape_renderer: shape::ShapeRenderer,
-
-    rendering_context: Arc<RenderingContext>,
-
     screen_descriptor: ScreenDescriptor,
-
     config: wgpu::SurfaceConfiguration,
-
-    mouse_pos: Pos2,
-
-    framerate_counter: FramerateCounter,
-
-    text_buffers: Arc<Vec<cosmic_text::Buffer>>,
+    rendering_context: Arc<RenderingContext>,
 }
 
 pub struct RenderingContext {
@@ -56,8 +43,7 @@ pub struct RenderingContext {
     pub texture_format: wgpu::TextureFormat,
 }
 
-impl State {
-    // Creating some of the wgpu types requires async code
+impl RenderSurface {
     pub async fn new(window: &Window) -> Self {
         let size = window.inner_size();
 
@@ -109,7 +95,7 @@ impl State {
         // Shader code in this tutorial assumes an sRGB surface texture. Using a different
         // one will result all the colors coming out darker. If you want to support non
         // sRGB surfaces, you'll need to account for that when drawing to the frame.
-        let surface_format = surface_caps
+        let texture_format = surface_caps
             .formats
             .iter()
             .copied()
@@ -118,7 +104,7 @@ impl State {
             .unwrap_or(surface_caps.formats[0]);
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface_format,
+            format: texture_format,
             width: size.width,
             height: size.height,
             present_mode: wgpu::PresentMode::Fifo,
@@ -142,203 +128,63 @@ impl State {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let rendering_context: Arc<_> = RenderingContext {
-            params_buffer: params_buffer,
-            device: device,
-            queue: queue,
-            texture_format: surface_format,
+        let rendering_context = RenderingContext {
+            device,
+            params_buffer,
+            queue,
+            texture_format,
         }
         .into();
 
-        let mut font_manager = atlas::FontManager::new(rendering_context.clone());
-        let shape_renderer = shape::ShapeRenderer::new(&rendering_context);
-
-        let mouse_pos = window
-            .cursor_position()
-            .map(|p| p.to_logical(screen_descriptor.scale_factor).to_euclid())
-            .unwrap_or_default();
-
-        let framerate_counter = FramerateCounter::default();
-
-        let text_buffer = {
-            // Text metrics indicate the font size and line height of a buffer
-            let metrics = cosmic_text::Metrics::new(60.0, 80.0);
-
-            let mut font_system = font_manager.get_font_system();
-
-            // A Buffer provides shaping and layout for a UTF-8 string, create one per text widget
-            let mut buffer = cosmic_text::Buffer::new(&mut font_system, metrics);
-
-            // Borrow buffer together with the font system for more convenient method calls
-            // let mut buffer = buffer.borrow_with(&mut font_system);
-
-            // Set a size for the text buffer, in pixels
-            buffer.set_size(&mut font_system, 700.0, 200.0);
-
-            // Attributes indicate what font to choose
-            let attrs = cosmic_text::Attrs::new();
-
-            // attrs.family(cosmic_text::Family::Name(()))
-            // attrs.family(Family)
-
-            // Perform shaping as desired
-            buffer.shape_until_scroll(&mut font_system);
-
-            // Default text color (0xFF, 0xFF, 0xFF is white)
-            // let text_color = Color::rgb(0xFF, 0xFF, 0xFF);
-
-            // Add some text!
-            buffer.set_text(&mut font_system, "Hello world! 🦀", attrs);
-
-            buffer
-        };
-
         Self {
-            rendering_context,
-            surface,
-            font_manager,
             config,
+            rendering_context,
             screen_descriptor,
-            shape_renderer,
-            mouse_pos,
-            framerate_counter,
-            text_buffers: Arc::new(vec![text_buffer]),
+            surface,
         }
+    }
+
+    pub fn reconfigure(&mut self) {
+        self.resize(self.get_size(), None)
     }
 
     pub fn resize(&mut self, new_size: tao::dpi::PhysicalSize<u32>, scale_factor: Option<f64>) {
         if new_size.width > 0 && new_size.height > 0 {
             self.screen_descriptor.size = new_size;
-            self.config_mut().width = new_size.width;
-            self.config_mut().height = new_size.height;
-            self.surface.configure(self.device(), self.config());
+            self.config.width = new_size.width;
+            self.config.height = new_size.height;
+            self.surface
+                .configure(&self.rendering_context.device, &self.config);
 
             if let Some(scale_factor) = scale_factor {
                 self.screen_descriptor.scale_factor = scale_factor;
             }
 
-            self.queue().write_buffer(
-                self.params_buffer(),
+            self.rendering_context.queue.write_buffer(
+                &self.rendering_context.params_buffer,
                 0,
                 bytemuck::bytes_of(&Into::<[u32; 2]>::into(new_size)),
             )
         }
     }
 
-    pub fn input(&mut self, event: &WindowEvent) {
-        match event {
-            WindowEvent::CursorMoved { position, .. } => {
-                self.mouse_pos = position
-                    .to_logical(self.screen_descriptor.scale_factor)
-                    .to_euclid();
-            }
-
-            _ => {}
-        }
+    pub fn surface(&self) -> &wgpu::Surface {
+        &self.surface
     }
 
-    pub fn update(&mut self) {}
-
-    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        let output = self.surface.get_current_texture()?;
-        let start_time = std::time::Instant::now();
-
-        let sf = self.screen_descriptor.scale_factor;
-
-        let view = output
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-
-        let render_context = &self.rendering_context;
-        let RenderingContext { device, queue, .. } = render_context.as_ref();
-
-        //prepare
-        self.font_manager
-            .generate_textures(self.text_buffers.clone());
-
-        self.font_manager
-            .prepare(self.text_buffers.iter(), PhysicalPos2::new(0., 0.));
-
-        // create rectangle
-        let rect = RoundedRect::from_rect(Rect::new(Pos2::new(10., 10.), Pos2::new(150., 150.)));
-
-        let color = if rect.inflate(1., 1.).sdf(self.mouse_pos) >= -f32::EPSILON {
-            Srgba::new(1., 0., 0., 1.)
-        } else {
-            Srgba::new(0., 1., 0., 1.)
-        };
-
-        let rects = [(rect.to_physical(sf), color)];
-
-        self.shape_renderer
-            .prepare_boxes(device, queue, rects.into_iter());
-
-        //render
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Render Encoder"),
-        });
-
-        let font_manager_resources = self.font_manager.render_resources();
-
-        {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.2,
-                            b: 0.3,
-                            a: 1.0,
-                        }),
-                        store: true,
-                    },
-                })],
-                depth_stencil_attachment: None,
-            });
-
-            self.font_manager
-                .render(&mut render_pass, &font_manager_resources);
-
-            self.shape_renderer.render_all_boxes(&mut render_pass)
-        }
-
-        queue.submit(std::iter::once(encoder.finish()));
-        output.present();
-
-        let elapsed_time = std::time::Instant::now() - start_time;
-        log::trace!("Elapsed render time: {:?}", elapsed_time);
-
-        Ok(())
+    pub fn clone_rendering_context(&self) -> Arc<RenderingContext> {
+        self.rendering_context.clone()
     }
 
-    fn get_render_context(&self) -> &RenderingContext {
-        return &self.rendering_context;
+    pub fn rendering_context(&self) -> &RenderingContext {
+        &self.rendering_context
+    }
+
+    pub fn scale_factor(&self) -> f64 {
+        self.screen_descriptor.scale_factor
     }
 
     pub fn get_size(&self) -> tao::dpi::PhysicalSize<u32> {
         self.screen_descriptor.size
-    }
-
-    fn config_mut(&mut self) -> &mut wgpu::SurfaceConfiguration {
-        &mut self.config
-    }
-
-    fn device(&self) -> &wgpu::Device {
-        &self.rendering_context.device
-    }
-
-    fn queue(&self) -> &wgpu::Queue {
-        &self.rendering_context.queue
-    }
-
-    fn config(&self) -> &wgpu::SurfaceConfiguration {
-        &self.config
-    }
-
-    fn params_buffer(&self) -> &wgpu::Buffer {
-        &self.rendering_context.params_buffer
     }
 }
