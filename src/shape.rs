@@ -1,16 +1,12 @@
-use std::{num::NonZeroU64, ops::Range};
+use std::{marker::PhantomData, num::NonZeroU64, ops::Range};
 
 use bytemuck::Pod;
 use palette::Srgba;
-use swash::scale::Render;
 
 use crate::{
     graphics::DynamicGPUQuadBuffer,
     surface::{ParamsBuffer, RenderingContext},
-    util::{
-        CanScale, LogicalToPhysical, LogicalUnit, PhysicalRoundedRect, PhysicalUnit, RoundedBox2D,
-        RoundedRect, WgpuDescriptor,
-    },
+    util::{CanScale, LogicalToPhysical, LogicalUnit, PhysicalUnit, RoundedBox2D, WgpuDescriptor},
 };
 
 pub struct RenderResources<T: Sized + Pod> {
@@ -151,16 +147,18 @@ pub struct BoxShaderVertex {
     rounding: f32,
     depth: f32,
     stroke_width: f32,
+    blur_radius: f32,
 }
 
-impl WgpuDescriptor<6> for BoxShaderVertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 6] = wgpu::vertex_attr_array![
+impl WgpuDescriptor<7> for BoxShaderVertex {
+    const ATTRIBS: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![
         0 => Float32x2,
         1 => Float32x2,
         2 => Float32x4,
         3 => Float32,
         4 => Float32,
         5 => Float32,
+        6 => Float32,
     ];
 }
 
@@ -168,27 +166,43 @@ impl BoxShaderVertex {
     pub fn from_paint_rect(
         paint_rect: PaintRectangle<f32, PhysicalUnit>,
     ) -> impl Iterator<Item = [Self; 4]> {
+        // let fill_rect = None;
+        // let stroke_rect = None;
+
         let fill_rect = paint_rect
             .fill
-            .map(|f| Self::from_rect_stroked(paint_rect.rect, f, None));
+            .map(|f| Self::from_rect_stroked(paint_rect.rect, f, None, None));
 
-        let stroke_rect = paint_rect
-            .stroke_color
-            .zip(paint_rect.stroke_width)
-            .map(|(color, width)| Self::from_rect_stroked(paint_rect.rect, color, Some(width)));
+        let stroke_rect =
+            paint_rect
+                .stroke_color
+                .zip(paint_rect.stroke_width)
+                .map(|(color, width)| {
+                    Self::from_rect_stroked(paint_rect.rect, color, Some(width), None)
+                });
 
-        [fill_rect, stroke_rect].into_iter().flatten()
+        let blur_rect = paint_rect.blur.map(
+            |PaintBlur {
+                 blur_radius, color, ..
+             }| {
+                Self::from_rect_stroked(paint_rect.rect, color, None, Some(blur_radius))
+            },
+        );
+
+        [blur_rect, fill_rect, stroke_rect].into_iter().flatten()
     }
 
     fn from_rect_stroked(
         rect: RoundedBox2D<f32, PhysicalUnit>,
         color: Srgba,
         stroke_width: Option<f32>,
+        blur_radius: Option<f32>,
     ) -> [Self; 4] {
         let dims = rect.max - rect.center();
 
         let color: [f32; 4] = color.into();
         let stroke_width = stroke_width.unwrap_or(0.);
+        let blur_radius = blur_radius.unwrap_or(0.);
 
         return [
             Self {
@@ -198,6 +212,7 @@ impl BoxShaderVertex {
                 depth: 0.,
                 rounding: rect.radius.unwrap_or(0.),
                 stroke_width,
+                blur_radius,
             },
             Self {
                 pos: [rect.max.x, rect.min.y],
@@ -206,6 +221,7 @@ impl BoxShaderVertex {
                 depth: 0.,
                 rounding: rect.radius.unwrap_or(0.),
                 stroke_width,
+                blur_radius,
             },
             Self {
                 pos: [rect.min.x, rect.max.y],
@@ -214,6 +230,7 @@ impl BoxShaderVertex {
                 depth: 0.,
                 rounding: rect.radius.unwrap_or(0.),
                 stroke_width,
+                blur_radius,
             },
             Self {
                 pos: [rect.max.x, rect.max.y],
@@ -222,8 +239,25 @@ impl BoxShaderVertex {
                 depth: 0.,
                 rounding: rect.radius.unwrap_or(0.),
                 stroke_width,
+                blur_radius,
             },
         ];
+    }
+}
+
+pub struct PaintBlur<F: CanScale = f32, U = LogicalUnit> {
+    pub blur_radius: F,
+    pub color: Srgba,
+    _unit: PhantomData<U>,
+}
+
+impl<F: CanScale, U> PaintBlur<F, U> {
+    pub fn new(blur_radius: F, color: Srgba) -> Self {
+        Self {
+            blur_radius,
+            color,
+            _unit: PhantomData,
+        }
     }
 }
 
@@ -232,6 +266,7 @@ pub struct PaintRectangle<F: CanScale = f32, U = LogicalUnit> {
     pub fill: Option<Srgba>,
     pub stroke_color: Option<Srgba>,
     pub stroke_width: Option<F>,
+    pub blur: Option<PaintBlur>,
 }
 
 pub enum PaintShape {
@@ -253,6 +288,10 @@ impl<F: CanScale> LogicalToPhysical for PaintRectangle<F, LogicalUnit> {
             stroke_color: self.stroke_color,
             stroke_width: self.stroke_width.map(|w| w.to_physical(scale_factor)),
             rect: self.rect.to_physical(scale_factor),
+            blur: self
+                .blur
+                .as_ref()
+                .map(|b| PaintBlur::new(b.blur_radius.to_physical(scale_factor), b.color)),
         }
     }
 }

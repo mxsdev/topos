@@ -2,7 +2,7 @@ use num_traits::Signed;
 use palette::Srgba;
 
 use crate::{
-    shape::PaintRectangle,
+    shape::{PaintBlur, PaintRectangle},
     util::{Pos2, Rect, RoundedRect},
 };
 
@@ -81,7 +81,8 @@ impl Element for TestElement {
             rect: self.rect,
             fill: Some(fill),
             stroke_color: Some(Srgba::new(0., 0., 0., 1.)),
-            stroke_width: Some(1.5),
+            stroke_width: Some(1.),
+            blur: Some(PaintBlur::new(10., Srgba::new(0., 0., 0., 0.5))),
         })
     }
 }
