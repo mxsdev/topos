@@ -1,4 +1,5 @@
 #![feature(return_position_impl_trait_in_trait)]
+#![feature(ptr_metadata)]
 // #![feature(new_uninit)]
 // #![feature(maybe_uninit_write_slice)]
 
@@ -9,8 +10,9 @@ mod debug;
 mod element;
 mod graphics;
 mod hash;
+mod history;
+mod input;
 mod num;
-mod paint;
 mod scene;
 mod shape;
 mod surface;

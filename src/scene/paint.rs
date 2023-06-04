@@ -1,11 +1,11 @@
 use crate::shape::PaintShape;
 
 #[derive(Default)]
-pub struct ScenePainter {
+pub struct PaintPass {
     shapes: Vec<PaintShape>,
 }
 
-impl ScenePainter {
+impl PaintPass {
     pub fn add(&mut self, shape: impl Into<PaintShape>) {
         self.shapes.push(shape.into());
     }

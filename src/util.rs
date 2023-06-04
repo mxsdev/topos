@@ -1,5 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
+use euclid::{Box2D, Point2D, Size2D, Translation2D};
 use num_traits::{Float, Num, Signed};
 use swash::scale;
 
@@ -31,7 +32,7 @@ pub trait ToEuclid {
     fn to_euclid(self) -> Self::EuclidResult;
 }
 
-impl<P> ToEuclid for tao::dpi::LogicalPosition<P> {
+impl<P> ToEuclid for winit::dpi::LogicalPosition<P> {
     type EuclidResult = Pos2<P>;
 
     fn to_euclid(self) -> Self::EuclidResult {
@@ -39,7 +40,7 @@ impl<P> ToEuclid for tao::dpi::LogicalPosition<P> {
     }
 }
 
-impl<P> ToEuclid for tao::dpi::PhysicalPosition<P> {
+impl<P> ToEuclid for winit::dpi::PhysicalPosition<P> {
     type EuclidResult = PhysicalPos2<P>;
 
     fn to_euclid(self) -> Self::EuclidResult {
@@ -47,7 +48,7 @@ impl<P> ToEuclid for tao::dpi::PhysicalPosition<P> {
     }
 }
 
-impl<P> ToEuclid for tao::dpi::PhysicalSize<P> {
+impl<P> ToEuclid for winit::dpi::PhysicalSize<P> {
     type EuclidResult = PhysicalSize2<P>;
 
     fn to_euclid(self) -> Self::EuclidResult {
@@ -55,7 +56,7 @@ impl<P> ToEuclid for tao::dpi::PhysicalSize<P> {
     }
 }
 
-impl<P> ToEuclid for tao::dpi::LogicalSize<P> {
+impl<P> ToEuclid for winit::dpi::LogicalSize<P> {
     type EuclidResult = Size2<P>;
 
     fn to_euclid(self) -> Self::EuclidResult {
@@ -66,6 +67,11 @@ impl<P> ToEuclid for tao::dpi::LogicalSize<P> {
 pub trait LogicalToPhysical {
     type PhysicalResult;
     fn to_physical(&self, scale_factor: f64) -> Self::PhysicalResult;
+}
+
+pub trait PhysicalToLogical {
+    type LogicalResult;
+    fn to_logical(&self, scale_factor: f64) -> Self::LogicalResult;
 }
 
 pub trait CanScale: Float {
@@ -138,6 +144,15 @@ impl<F: CanScale> LogicalToPhysical for RoundedRect<F> {
             self.rect.to_physical(scale_factor),
             self.radius.map(|r| r.to_physical(scale_factor)),
         )
+    }
+}
+
+impl<F: CanScale> PhysicalToLogical for PhysicalSize2<F> {
+    type LogicalResult = Size2<F>;
+
+    fn to_logical(&self, scale_factor: f64) -> Self::LogicalResult {
+        let scale_factor = F::from_scale_fac(scale_factor);
+        Self::LogicalResult::new(self.width / scale_factor, self.height / scale_factor)
     }
 }
 
@@ -231,11 +246,42 @@ pub trait AsWinit {
     unsafe fn as_winit(&self) -> &Self::Winit;
 }
 
-impl AsWinit for tao::monitor::MonitorHandle {
+impl AsWinit for winit::monitor::MonitorHandle {
     type Winit = winit::monitor::MonitorHandle;
 
     unsafe fn as_winit(&self) -> &Self::Winit {
         return std::mem::transmute(self);
+    }
+}
+
+pub trait Translate2DMut<F, U> {
+    fn translate_mut(&mut self, x: F, y: F);
+}
+
+impl<F: Num + Copy, U> Translate2DMut<F, U> for euclid::Point2D<F, U> {
+    fn translate_mut(&mut self, x: F, y: F) {
+        self.x = self.x + x;
+        self.y = self.y + y;
+    }
+}
+
+impl<F: Num + Copy, U> Translate2DMut<F, U> for euclid::Box2D<F, U> {
+    fn translate_mut(&mut self, x: F, y: F) {
+        self.min.translate_mut(x, y);
+        self.max.translate_mut(x, y);
+    }
+}
+
+pub trait FromMinSize<F, U> {
+    fn from_min_size(min: Point2D<F, U>, size: Size2D<F, U>) -> Self;
+}
+
+impl<F: Num + Copy, U> FromMinSize<F, U> for Box2D<F, U> {
+    fn from_min_size(min: Point2D<F, U>, size: Size2D<F, U>) -> Self {
+        Self {
+            min,
+            max: min + size,
+        }
     }
 }
 

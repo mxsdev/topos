@@ -1,27 +1,30 @@
 use core::panic;
-use std::{
-    sync::{Arc, Mutex, RwLock},
-    time::Duration,
-};
+use std::time::Duration;
 
-use futures::channel::mpsc::SendError;
-use itertools::Itertools;
-use tao::{
-    event::{ElementState, Event, KeyEvent, WindowEvent},
+use winit::{
+    event::{ElementState, Event, KeyboardInput, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
 };
 
-use std::sync::mpsc::{self, Receiver, Sender};
+use crate::{
+    element::TestElement,
+    input::{self, input_state::InputState, winit::WinitState},
+    scene::scene::Scene,
+    surface::RenderSurface,
+};
 
-use crate::{scene::Scene, surface::RenderSurface, util::AsWinit};
+type RootElement = TestElement;
 
 pub struct App {
     event_loop: EventLoop<()>,
-    window: tao::window::Window,
+    window: winit::window::Window,
 
     render_surface: RenderSurface,
-    scene: Scene,
+    scene: Scene<RootElement>,
+
+    winit_state: WinitState,
+    input_state: InputState,
 }
 
 impl App {
@@ -32,8 +35,6 @@ impl App {
         let mut last_render_time: Option<Instant> = None;
 
         self.event_loop.run(move |event, _, control_flow| {
-            let mut send_update_to_scene = false;
-
             match event {
                 Event::WindowEvent {
                     ref event,
@@ -42,10 +43,10 @@ impl App {
                 } if window_id == self.window.id() => match event {
                     WindowEvent::CloseRequested
                     | WindowEvent::KeyboardInput {
-                        event:
-                            KeyEvent {
+                        input:
+                            KeyboardInput {
                                 state: ElementState::Pressed,
-                                physical_key: tao::keyboard::KeyCode::Escape,
+                                virtual_keycode: Some(winit::event::VirtualKeyCode::Escape),
                                 ..
                             },
                         ..
@@ -62,7 +63,9 @@ impl App {
                         .render_surface
                         .resize(**new_inner_size, Some(*scale_factor)),
 
-                    _ => send_update_to_scene = true,
+                    e => {
+                        let _ = self.winit_state.on_event(e);
+                    }
                 },
                 Event::RedrawRequested(window_id) if window_id == self.window.id() => {
                     let mut do_render = true;
@@ -84,12 +87,18 @@ impl App {
                     if do_render {
                         let render_start_time = Instant::now();
 
+                        let raw_input = self.winit_state.take_egui_input();
+
                         let output = self.render_surface.surface().get_current_texture();
+
+                        let input_state =
+                            std::mem::take(&mut self.input_state).begin_frame(raw_input, true);
 
                         match output {
                             Ok(output) => {
                                 let start = Instant::now();
-                                self.scene.render(&self.render_surface, output);
+
+                                self.scene.render(&self.render_surface, output, input_state);
                                 let end = Instant::now();
 
                                 last_render_time = Some(start);
@@ -112,12 +121,14 @@ impl App {
                     // request it.
                     self.window.request_redraw()
                 }
-                _ => send_update_to_scene = true,
-            }
 
-            if send_update_to_scene {
-                self.scene
-                    .handle_window_event(event, self.window.scale_factor());
+                // Event::UserEvent(UserEvent::AccessKitActionRequest(
+                //     accesskit_winit::ActionRequestEvent { request, .. },
+                // )) => {
+                //     self.winit_state
+                //         .on_accesskit_action_request(request.clone());
+                // }
+                _ => {}
             }
         });
     }
@@ -129,7 +140,12 @@ impl App {
         let render_surface = RenderSurface::new(&window).await;
         let rendering_context = render_surface.clone_rendering_context();
 
-        let scene = Scene::new(rendering_context);
+        let root = TestElement::new();
+
+        let scene = Scene::new(rendering_context, root);
+
+        let winit_state = WinitState::new(&window);
+        let input_state = InputState::default().into();
 
         Self {
             event_loop,
@@ -137,21 +153,24 @@ impl App {
 
             render_surface,
             scene,
+
+            winit_state,
+            input_state,
         }
     }
 
-    pub fn resize(&mut self, new_size: tao::dpi::PhysicalSize<u32>, scale_factor: Option<f64>) {
+    pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>, scale_factor: Option<f64>) {
         self.render_surface.resize(new_size, scale_factor);
     }
 
-    pub fn get_size(&self) -> tao::dpi::PhysicalSize<u32> {
+    pub fn get_size(&self) -> winit::dpi::PhysicalSize<u32> {
         self.render_surface.get_size()
     }
 }
 
-fn get_window_frame_time(window: &tao::window::Window) -> Option<std::time::Duration> {
-    let monitor_tao = window.current_monitor()?;
-    let monitor = unsafe { monitor_tao.as_winit() };
+fn get_window_frame_time(window: &winit::window::Window) -> Option<std::time::Duration> {
+    let monitor = window.current_monitor()?;
+    // let monitor = unsafe { monitor_tao.as_winit() };
 
     let frame_rate = monitor.refresh_rate_millihertz()? as f64 / 1000.;
 

@@ -6,7 +6,10 @@ use palette::Srgba;
 use crate::{
     graphics::DynamicGPUQuadBuffer,
     surface::{ParamsBuffer, RenderingContext},
-    util::{CanScale, LogicalToPhysical, LogicalUnit, PhysicalUnit, RoundedBox2D, WgpuDescriptor},
+    util::{
+        CanScale, LogicalToPhysical, LogicalUnit, PhysicalUnit, RoundedBox2D, Translate2DMut,
+        WgpuDescriptor,
+    },
 };
 
 pub struct RenderResources<T: Sized + Pod> {
@@ -292,6 +295,20 @@ impl<F: CanScale> LogicalToPhysical for PaintRectangle<F, LogicalUnit> {
                 .blur
                 .as_ref()
                 .map(|b| PaintBlur::new(b.blur_radius.to_physical(scale_factor), b.color)),
+        }
+    }
+}
+
+impl<F: CanScale, U> Translate2DMut<F, U> for PaintRectangle<F, U> {
+    fn translate_mut(&mut self, x: F, y: F) {
+        self.rect.translate_mut(x, y);
+    }
+}
+
+impl Translate2DMut<f32, LogicalUnit> for PaintShape {
+    fn translate_mut(&mut self, x: f32, y: f32) {
+        match self {
+            PaintShape::Rectangle(rect) => rect.translate_mut(x, y),
         }
     }
 }
