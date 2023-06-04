@@ -9,7 +9,7 @@ use swash::scale;
 
 use crate::{
     atlas,
-    element::{Element, ElementEvent, ElementRef, SizeConstraint, TestElement},
+    element::{Element, ElementEvent, ElementRef, SizeConstraint},
     input::{input_state::InputState, winit::WinitState},
     scene::update::UpdatePass,
     shape::{self, BoxShaderVertex, PaintRectangle},
@@ -64,7 +64,7 @@ impl<Root: Element + 'static> Scene<Root> {
         render_surface: &RenderSurface,
         output: wgpu::SurfaceTexture,
         input: InputState,
-    ) {
+    ) -> InputState {
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -89,21 +89,25 @@ impl<Root: Element + 'static> Scene<Root> {
 
         // layout pass
         let mut layout_pass = LayoutPass::create(&mut self.root);
-        layout_pass.layout_child(&mut self.root, default_constraints);
+        self.root
+            .get()
+            .layout(default_constraints, &mut layout_pass);
 
         let scene_layout = layout_pass.finish();
 
         // render pass
         let mut scene_context = SceneContext::new(input);
 
-        for (mut element, pos) in scene_layout.into_iter() {
+        for (mut element, pos) in scene_layout.into_iter().rev() {
             if let Some(mut element) = element.try_get() {
                 element.ui(&mut scene_context, pos);
             }
         }
 
-        let rects: Vec<_> = scene_context
-            .drain()
+        let (shapes, input) = scene_context.drain();
+
+        let rects: Vec<_> = shapes
+            .rev()
             .flat_map(|p| match p {
                 shape::PaintShape::Rectangle(paint_rect) => {
                     BoxShaderVertex::from_paint_rect(paint_rect.to_physical(scale_fac))
@@ -138,6 +142,8 @@ impl<Root: Element + 'static> Scene<Root> {
 
         queue.submit(std::iter::once(encoder.finish()));
         output.present();
+
+        input
 
         // Ok(())
     }

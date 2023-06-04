@@ -8,26 +8,24 @@ use winit::{
 };
 
 use crate::{
-    element::TestElement,
+    element::Element,
     input::{self, input_state::InputState, winit::WinitState},
     scene::scene::Scene,
     surface::RenderSurface,
 };
 
-type RootElement = TestElement;
-
-pub struct App {
+pub struct App<Root: Element + 'static> {
     event_loop: EventLoop<()>,
     window: winit::window::Window,
 
     render_surface: RenderSurface,
-    scene: Scene<RootElement>,
+    scene: Scene<Root>,
 
     winit_state: WinitState,
     input_state: InputState,
 }
 
-impl App {
+impl<Root: Element + 'static> App<Root> {
     pub fn run(mut self) {
         use std::time::*;
 
@@ -76,7 +74,7 @@ impl App {
                         if let Some(frame_time) = get_window_frame_time(&self.window) {
                             let elapsed_time = Instant::now().duration_since(last_render_time);
 
-                            let buffer_duration = last_render_duration + Duration::from_micros(0);
+                            let buffer_duration = last_render_duration + Duration::from_micros(200);
 
                             if elapsed_time < (frame_time.saturating_sub(buffer_duration)) {
                                 do_render = false;
@@ -87,18 +85,23 @@ impl App {
                     if do_render {
                         let render_start_time = Instant::now();
 
-                        let raw_input = self.winit_state.take_egui_input();
-
+                        let texture_block_start = Instant::now();
                         let output = self.render_surface.surface().get_current_texture();
-
-                        let input_state =
-                            std::mem::take(&mut self.input_state).begin_frame(raw_input, true);
+                        let texture_block_time = Instant::now().duration_since(texture_block_start);
+                        // log::trace!("texture block time: {:?}", texture_block_time);
 
                         match output {
                             Ok(output) => {
                                 let start = Instant::now();
 
-                                self.scene.render(&self.render_surface, output, input_state);
+                                let raw_input = self.winit_state.take_egui_input();
+
+                                let input_state = std::mem::take(&mut self.input_state)
+                                    .begin_frame(raw_input, true);
+
+                                self.input_state =
+                                    self.scene.render(&self.render_surface, output, input_state);
+
                                 let end = Instant::now();
 
                                 last_render_time = Some(start);
@@ -113,7 +116,6 @@ impl App {
                         }
 
                         let render_time = Instant::now().duration_since(render_start_time);
-                        // log::trace!("rendered; lag: {:?}", render_time);
                     }
                 }
                 Event::MainEventsCleared => {
@@ -133,14 +135,12 @@ impl App {
         });
     }
 
-    pub async fn new() -> Self {
+    pub async fn new(root: Root) -> Self {
         let event_loop = EventLoop::new();
         let window = WindowBuilder::new().build(&event_loop).unwrap();
 
         let render_surface = RenderSurface::new(&window).await;
         let rendering_context = render_surface.clone_rendering_context();
-
-        let root = TestElement::new();
 
         let scene = Scene::new(rendering_context, root);
 

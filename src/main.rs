@@ -16,6 +16,7 @@ mod num;
 mod scene;
 mod shape;
 mod surface;
+mod test;
 mod text;
 mod time;
 mod util;
@@ -23,9 +24,10 @@ mod util;
 pub use refbox;
 
 use pollster::FutureExt;
+use test::TestElement;
 
 pub async fn run() {
-    app::App::new().await.run();
+    app::App::new(TestElement::new()).await.run();
 }
 
 fn main() {

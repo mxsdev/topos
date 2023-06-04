@@ -569,6 +569,8 @@ pub struct PointerState {
 
     /// All button events that occurred this frame
     pub(crate) pointer_events: Vec<PointerEvent>,
+
+    hover_consumed: bool,
 }
 
 impl Default for PointerState {
@@ -587,6 +589,7 @@ impl Default for PointerState {
             last_click_time: std::f64::NEG_INFINITY,
             last_last_click_time: std::f64::NEG_INFINITY,
             pointer_events: vec![],
+            hover_consumed: false,
         }
     }
 }
@@ -711,7 +714,13 @@ impl PointerState {
             Vec2::default()
         };
 
+        self.hover_consumed = false;
+
         self
+    }
+
+    pub fn consume_hover(&mut self) {
+        self.hover_consumed = true;
     }
 
     // fn wants_repaint(&self) -> bool {
@@ -754,6 +763,10 @@ impl PointerState {
     /// If it is a good idea to show a tooltip, where is pointer?
     #[inline(always)]
     pub fn hover_pos(&self) -> Option<Pos2> {
+        if self.hover_consumed {
+            return None;
+        }
+
         self.latest_pos
     }
 

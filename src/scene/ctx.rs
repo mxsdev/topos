@@ -66,8 +66,8 @@ impl SceneContext {
         Self::new_inner(Rc::new(RefCell::new(input)))
     }
 
-    pub(super) fn drain(self) -> impl Iterator<Item = PaintShape> {
-        self.shapes.into_iter()
+    pub(super) fn drain(self) -> (impl DoubleEndedIterator<Item = PaintShape>, InputState) {
+        (self.shapes.into_iter(), self.input.take())
     }
 
     pub fn add_shape(&mut self, shape: impl Into<PaintShape>) {

@@ -2,12 +2,13 @@ use num_traits::Signed;
 use palette::Srgba;
 
 use crate::{
+    input::PointerButton,
     scene::{ctx::SceneContext, update::UpdatePass, PaintPass},
     shape::{PaintBlur, PaintRectangle},
-    util::{Pos2, Rect, RoundedRect, Size2},
+    util::{Pos2, Rect, RoundedRect, Size2, Translate2DMut},
 };
 
-use super::{boundary::Boundary, Element, ElementEvent, MouseButton, SizeConstraint};
+use crate::element::{boundary::Boundary, Element, ElementEvent, MouseButton, SizeConstraint};
 
 pub struct TestElement {
     rect: RoundedRect,
@@ -30,17 +31,33 @@ impl TestElement {
 
 impl Element for TestElement {
     fn ui(&mut self, ctx: &mut SceneContext, pos: Pos2) {
-        self.hovered = if let Some(hover) = ctx.input().pointer.hover_pos() {
-            // log::trace!("mouse pos: {:?}", hover);
-            self.rect.sdf(&hover).is_positive()
+        if self.hovered {
+            if ctx.input().pointer.primary_pressed() {
+                self.dragging = true;
+            }
+        }
+
+        if self.dragging {
+            let del = ctx.input().pointer.delta();
+            self.rect.translate_mut(del.x, del.y);
+
+            if ctx.input().pointer.primary_released() {
+                self.dragging = false;
+            }
         } else {
-            false
-        };
+            if let Some(hover) = ctx.input().pointer.hover_pos() {
+                self.hovered = self.rect.sdf(&hover).is_positive()
+            };
+        }
 
         let fill = match self.hovered {
             true => Srgba::new(1., 0., 0., 1.),
             false => Srgba::new(0., 1., 0., 1.),
         };
+
+        if self.hovered {
+            ctx.input().pointer.consume_hover();
+        }
 
         ctx.add_shape(PaintRectangle {
             rect: self.rect,

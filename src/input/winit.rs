@@ -84,7 +84,7 @@ impl WinitState {
     /// # Safety
     ///
     /// The returned `State` must not outlive the input `display_target`.
-    pub fn new(display_target: &impl HasRawDisplayHandle) -> Self {
+    pub fn new(display_target: &winit::window::Window) -> Self {
         let egui_input = RawInput {
             focused: false, // winit will tell us when we have focus
             ..Default::default()
@@ -96,7 +96,7 @@ impl WinitState {
             pointer_pos_in_points: None,
             any_pointer_button_down: false,
             current_cursor_icon: None,
-            current_pixels_per_point: 1.0,
+            current_pixels_per_point: display_target.scale_factor() as f32,
             clipboard: super::clipboard::Clipboard::new(display_target),
 
             simulate_touch_screen: false,
