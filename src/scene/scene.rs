@@ -9,7 +9,7 @@ use swash::scale;
 
 use crate::{
     atlas,
-    element::{Element, ElementEvent, SizeConstraint, TestElement},
+    element::{Element, ElementEvent, ElementRef, SizeConstraint, TestElement},
     input::{input_state::InputState, winit::WinitState},
     scene::update::UpdatePass,
     shape::{self, BoxShaderVertex, PaintRectangle},
@@ -18,24 +18,22 @@ use crate::{
 };
 
 use super::{
-    ctx::{SceneContext, SceneContextInternal},
+    ctx::SceneContext,
     layout::{ElementPlacement, LayoutPass},
     PaintPass,
 };
 
-pub struct Scene<Root: Element> {
+pub struct Scene<Root: Element + 'static> {
     font_manager: atlas::FontManager,
     shape_renderer: shape::ShapeRenderer,
 
     last_mouse_pos: Option<Pos2>,
 
     // elements: Vec<Box<dyn Element>>,
-    root: Root,
-
-    scene_context: Rc<RefCell<SceneContextInternal>>,
+    root: ElementRef<Root>,
 }
 
-impl<Root: Element> Scene<Root> {
+impl<Root: Element + 'static> Scene<Root> {
     pub fn new(rendering_context: Arc<RenderingContext>, root: Root) -> Self {
         let shape_renderer = shape::ShapeRenderer::new(&rendering_context);
         let font_manager = atlas::FontManager::new(rendering_context);
@@ -49,9 +47,7 @@ impl<Root: Element> Scene<Root> {
 
             last_mouse_pos: None,
 
-            root,
-
-            scene_context: Rc::new(RefCell::new(SceneContextInternal::default())),
+            root: root.into(),
         }
     }
 
@@ -92,25 +88,19 @@ impl<Root: Element> Scene<Root> {
         };
 
         // layout pass
-        let mut layout_pass = LayoutPass::create(&self.root);
+        let mut layout_pass = LayoutPass::create(&mut self.root);
         layout_pass.layout_child(&mut self.root, default_constraints);
 
-        self.scene_context
-            .borrow_mut()
-            .set_placement(layout_pass.finish());
+        let scene_layout = layout_pass.finish();
 
         // render pass
-        let mut scene_context = SceneContext::new(self.scene_context.clone());
+        let mut scene_context = SceneContext::new(input);
 
-        // for element in self.iter_elements() {
-        //     element.ui(
-        //         &mut scene_context,
-        //         SizeConstraint {
-        //             max: Size2::zero(),
-        //             min: Size2::zero(),
-        //         },
-        //     );
-        // }
+        for (mut element, pos) in scene_layout.into_iter() {
+            if let Some(mut element) = element.try_get() {
+                element.ui(&mut scene_context, pos);
+            }
+        }
 
         let rects: Vec<_> = scene_context
             .drain()

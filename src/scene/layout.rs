@@ -2,18 +2,20 @@ use ordered_hash_map::OrderedHashMap;
 use rustc_hash::FxHashMap;
 
 use crate::{
-    element::{Element, ElementId, ElementRef, SizeConstraint},
+    element::{Element, ElementId, ElementRef, ElementWeakref, SizeConstraint},
     util::{Pos2, Size2, Vec2},
 };
 
-pub type ElementPlacement = FxHashMap<ElementId, Pos2>;
+// pub type ElementPlacement = FxHashMap<ElementId, Pos2>;
+pub type ElementPlacement = Vec<(ElementWeakref<dyn Element>, Pos2)>;
 
 pub struct LayoutPass {
     // pub(super) elements: Vec<ElementRef<'a>>,
     // result: FxHashMap<ElementRef<'a>, u32>,
-    id: ElementId,
+    // id: ElementId,
+    element: ElementWeakref<dyn Element>,
     placement: Option<Vec2>,
-    children: FxHashMap<ElementId, LayoutPass>,
+    children: OrderedHashMap<ElementId, LayoutPass>,
 }
 
 // type ElementRef<'a> = &'a mut dyn Element;
@@ -27,38 +29,45 @@ pub struct LayoutPass {
 struct LayoutNode {}
 
 impl LayoutPass {
-    pub(super) fn create(child: &ElementRef<dyn Element>) -> Self {
+    pub(super) fn create(child: &mut ElementRef<impl Element + 'static>) -> Self {
         Self {
-            id: child.id(),
+            element: child.get_weak_dyn(),
             placement: Default::default(),
             children: Default::default(),
         }
     }
 
-    pub fn layout_child(&mut self, child: &mut impl Element, constraints: SizeConstraint) -> Size2 {
+    pub fn layout_child(
+        &mut self,
+        child: &mut ElementRef<impl Element + 'static>,
+        constraints: SizeConstraint,
+    ) -> Size2 {
         let mut child_node = LayoutPass::create(child);
 
-        let size = child.layout(constraints, &mut child_node);
+        let size = child.get().layout(constraints, &mut child_node);
+
+        self.children.insert(child.id(), child_node);
 
         size
     }
 
-    pub fn place_child(&mut self, element: &impl Element, pos: Pos2) {
+    pub fn place_child(&mut self, element: &ElementRef<dyn Element>, pos: Pos2) {
         if let Some(child) = self.children.get_mut(&element.id()) {
             child.placement = Some(pos.to_vector());
         }
     }
 
-    fn populate_placement(&self, mut pos: Pos2, memo: &mut ElementPlacement) {
+    fn populate_placement(self, mut pos: Pos2, memo: &mut ElementPlacement) {
         if let Some(placement) = self.placement {
             pos += placement;
         }
 
-        for child in self.children.values() {
+        for child in self.children.into_values() {
             child.populate_placement(pos, memo);
         }
 
-        memo.insert(self.id, pos);
+        memo.push((self.element, pos));
+        // memo.insert(self.id, pos);
     }
 
     pub(super) fn finish(self) -> ElementPlacement {

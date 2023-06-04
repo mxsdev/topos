@@ -1,6 +1,6 @@
 use std::borrow::BorrowMut;
 
-use refbox::RefBox;
+use crate::refbox::{self, coerce_ref, RefBox};
 
 use crate::{
     scene::{ctx::SceneContext, layout::LayoutPass, update::UpdatePass, PaintPass},
@@ -58,15 +58,38 @@ pub struct ElementRef<T: Element + ?Sized> {
     element: RefBox<T>,
 }
 
-impl<T: Element> ElementRef<T> {
+impl<T: Element + ?Sized> ElementRef<T> {
+    pub fn new(element: T) -> Self
+    where
+        T: Sized,
+    {
+        Self {
+            element: RefBox::new(element),
+        }
+    }
+
     pub fn get(&mut self) -> refbox::Borrow<T> {
         self.element.try_borrow_mut().unwrap()
     }
 
-    pub fn get_weak(&mut self) -> ElementWeakref<T> {
+    pub fn get_weak_dyn(&mut self) -> ElementWeakref<dyn Element>
+    where
+        T: Sized + 'static,
+    {
         ElementWeakref {
-            reference: self.element.create_ref(),
+            reference: coerce_ref!(self.element.create_ref() => dyn Element),
         }
+    }
+
+    // pub fn get_weak(&mut self) -> ElementWeakref<T> {
+    //     ElementWeakref {
+    //         reference: self.element.create_ref(),
+    //     }
+    // }
+
+    pub fn id(&self) -> ElementId {
+        let (id, _) = (self as *const Self).to_raw_parts();
+        id as ElementId
     }
 }
 
@@ -74,8 +97,14 @@ pub struct ElementWeakref<T: Element + ?Sized> {
     reference: refbox::Ref<T>,
 }
 
-impl<T: Element> ElementWeakref<T> {
+impl<T: Element + ?Sized> ElementWeakref<T> {
     pub fn try_get(&mut self) -> Option<refbox::Borrow<T>> {
         self.reference.try_borrow_mut().ok()
+    }
+}
+
+impl<T: Element> From<T> for ElementRef<T> {
+    fn from(value: T) -> Self {
+        ElementRef::new(value)
     }
 }

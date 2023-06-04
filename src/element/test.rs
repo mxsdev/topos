@@ -29,7 +29,14 @@ impl TestElement {
 }
 
 impl Element for TestElement {
-    fn ui(&mut self, ctx: &mut SceneContext, constraint: SizeConstraint) -> Size2 {
+    fn ui(&mut self, ctx: &mut SceneContext, pos: Pos2) {
+        self.hovered = if let Some(hover) = ctx.input().pointer.hover_pos() {
+            // log::trace!("mouse pos: {:?}", hover);
+            self.rect.sdf(&hover).is_positive()
+        } else {
+            false
+        };
+
         let fill = match self.hovered {
             true => Srgba::new(1., 0., 0., 1.),
             false => Srgba::new(0., 1., 0., 1.),
@@ -44,6 +51,14 @@ impl Element for TestElement {
         });
 
         Default::default()
+    }
+
+    fn layout(
+        &mut self,
+        constraints: SizeConstraint,
+        layout_pass: &mut crate::scene::layout::LayoutPass,
+    ) -> Size2 {
+        Size2::zero()
     }
 
     // fn update(&mut self, event: &ElementEvent, update: &mut UpdatePass) -> bool {

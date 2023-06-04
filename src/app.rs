@@ -113,7 +113,7 @@ impl App {
                         }
 
                         let render_time = Instant::now().duration_since(render_start_time);
-                        log::trace!("rendered; lag: {:?}", render_time);
+                        // log::trace!("rendered; lag: {:?}", render_time);
                     }
                 }
                 Event::MainEventsCleared => {

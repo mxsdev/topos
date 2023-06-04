@@ -1,39 +1,42 @@
-use std::{cell::RefCell, ops::Deref, rc::Rc};
+use std::{
+    cell::{RefCell, RefMut},
+    ops::Deref,
+    rc::Rc,
+};
 
 use euclid::{default, Translation2D};
 
 use crate::{
     element::{Element, SizeConstraint},
+    input::input_state::InputState,
     shape::PaintShape,
     util::{Pos2, Size2, Translate2DMut},
 };
 
 use super::layout::ElementPlacement;
 
-pub(super) struct SceneContextInternal {
-    placement: ElementPlacement,
-}
+// #[derive(Default)]
+// pub(super) struct SceneContextInternal {
+//     input: InputState,
+// }
 
-impl SceneContextInternal {
-    pub fn new(placement: ElementPlacement) -> Self {
-        Self { placement }
-    }
+// impl SceneContextInternal {
+//     pub fn new() -> Self {
+//         Self::default()
+//     }
 
-    pub fn set_placement(&mut self, placement: ElementPlacement) {
-        self.placement = placement
-    }
-}
+//     pub fn set_input(&mut self, input: InputState) {
+//         self.input = input;
+//     }
 
-impl Default for SceneContextInternal {
-    fn default() -> Self {
-        Self {
-            placement: Default::default(),
-        }
-    }
-}
+//     // pub fn set_placement(&mut self, placement: ElementPlacement) {
+//     //     self.placement = placement
+//     // }
+// }
 
 pub struct SceneContext {
-    internal: Rc<RefCell<SceneContextInternal>>,
+    // internal: Rc<RefCell<SceneContextInternal>>,
+    input: Rc<RefCell<InputState>>,
     shapes: Vec<PaintShape>,
 }
 
@@ -45,18 +48,22 @@ pub struct ChildUI {
 impl Clone for SceneContext {
     fn clone(&self) -> Self {
         Self {
-            internal: self.internal.clone(),
+            input: self.input.clone(),
             shapes: Default::default(),
         }
     }
 }
 
 impl SceneContext {
-    pub(super) fn new(internal: Rc<RefCell<SceneContextInternal>>) -> Self {
+    fn new_inner(input: Rc<RefCell<InputState>>) -> Self {
         Self {
-            internal,
+            input,
             shapes: Default::default(),
         }
+    }
+
+    pub(super) fn new(input: InputState) -> Self {
+        Self::new_inner(Rc::new(RefCell::new(input)))
     }
 
     pub(super) fn drain(self) -> impl Iterator<Item = PaintShape> {
@@ -67,18 +74,22 @@ impl SceneContext {
         self.shapes.push(shape.into())
     }
 
-    pub fn render_child(&mut self, element: &mut impl Element, constraint: SizeConstraint) {
-        let mut ctx = self.clone();
-
-        let placement = self.internal.borrow().placement.get(&element.id());
-
-        if let Some(pos) = placement {
-            let size = element.ui(&mut ctx, *pos);
-            self.shapes.extend(ctx.shapes.into_iter());
-        }
-
-        // ChildUI { shapes, size }
+    pub fn input(&mut self) -> RefMut<InputState> {
+        self.input.borrow_mut()
     }
+
+    // pub fn render_child(&mut self, element: &mut impl Element, constraint: SizeConstraint) {
+    //     let mut ctx = self.clone();
+
+    //     let placement = self.internal.borrow().placement.get(&element.id());
+
+    //     if let Some(pos) = placement {
+    //         let size = element.ui(&mut ctx, *pos);
+    //         self.shapes.extend(ctx.shapes.into_iter());
+    //     }
+
+    //     // ChildUI { shapes, size }
+    // }
 
     // pub fn place_child(&mut self, pos: Pos2, child: ChildUI) {
     //     let ChildUI { shapes, size } = child;
