@@ -26,6 +26,7 @@ impl Element for TestRoot {
     fn layout(&mut self, constraints: SizeConstraint, layout_pass: &mut LayoutPass) -> Size2 {
         for rect in self.rects.iter_mut() {
             layout_pass.layout_child(rect, constraints);
+            layout_pass.place_child(rect, Pos2::zero());
         }
 
         constraints.max
