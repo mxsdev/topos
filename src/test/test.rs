@@ -1,36 +1,54 @@
+use keyframe::{functions::BezierCurve, mint::Vector2};
 use num_traits::Signed;
-use palette::Srgba;
+use palette::{rgb::Rgb, Srgba};
 
 use crate::{
+    element::transition::Transition,
     input::PointerButton,
     scene::{ctx::SceneContext, update::UpdatePass, PaintPass},
     shape::{PaintBlur, PaintRectangle},
-    util::{Pos2, Rect, RoundedRect, Size2, Translate2DMut},
+    util::{FromMinSize, Pos2, Rect, RoundedRect, Size2, Translate2D, Translate2DMut, Vec2},
 };
 
 use crate::element::{boundary::Boundary, Element, ElementEvent, MouseButton, SizeConstraint};
 
-pub struct TestElement {
+pub struct TestRect {
     rect: RoundedRect,
     hovered: bool,
     dragging: bool,
+    pub clicked: bool,
+
+    transition: Transition,
 }
 
-impl TestElement {
-    pub fn new() -> Self {
+impl TestRect {
+    pub fn new(pos: Pos2) -> Self {
+        // keyframe::ease(function, from, to, time)
+        // keyframe::functions::BezierCurve::from([])
+
+        let curve = BezierCurve::from(Vector2 { x: 0.62, y: 0. }, Vector2 { x: 0.43, y: 0.98 });
+        //  BezierCurve::from([.62,0.].into(),[.43,.98].into())
+
         Self {
             rect: RoundedRect::new(
-                Rect::new(Pos2::new(20., 20.), Pos2::new(200., 100.)),
+                // Rect::new(Pos2::new(20., 20.), Pos2::new(200., 100.)),
+                Rect::from_min_size(pos, Size2::new(180., 180.)),
                 Some(10.),
             ),
             hovered: false,
             dragging: false,
+            clicked: false,
+
+            // ease_func: Box::new(keyframe::functions::Linear),
+            transition: Transition::new(0.15).set_ease_func(curve),
         }
     }
 }
 
-impl Element for TestElement {
+impl Element for TestRect {
     fn ui(&mut self, ctx: &mut SceneContext, pos: Pos2) {
+        self.clicked = self.hovered && ctx.input().pointer.primary_clicked();
+
         if self.hovered {
             if ctx.input().pointer.primary_pressed() {
                 self.dragging = true;
@@ -47,20 +65,32 @@ impl Element for TestElement {
         } else {
             if let Some(hover) = ctx.input().pointer.hover_pos() {
                 self.hovered = self.rect.sdf(&hover).is_positive()
+            } else {
+                self.hovered = false;
             };
         }
 
-        let fill = match self.hovered {
-            true => Srgba::new(1., 0., 0., 1.),
-            false => Srgba::new(0., 1., 0., 1.),
-        };
-
-        if self.hovered {
+        if self.hovered || self.dragging {
             ctx.input().pointer.consume_hover();
         }
 
+        self.transition.set_state(self.hovered);
+        self.transition.update(ctx);
+
+        use palette::Mix;
+        let fill = Srgba::mix(
+            Srgba::new(1., 0., 0., 1.),
+            Srgba::new(0., 1., 0., 1.),
+            self.transition.fac(),
+        );
+
+        // let fill = match self.hovered {
+        //     true => Srgba::new(1., 0., 0., 1.),
+        //     false => Srgba::new(0., 1., 0., 1.),
+        // };
+
         ctx.add_shape(PaintRectangle {
-            rect: self.rect,
+            rect: self.rect.translate_vec(Vec2::new(0., 0.)),
             fill: Some(fill),
             stroke_color: Some(Srgba::new(0., 0., 0., 1.)),
             stroke_width: Some(1.),

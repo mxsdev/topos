@@ -89,20 +89,20 @@ impl<Root: Element + 'static> Scene<Root> {
 
         // layout pass
         let mut layout_pass = LayoutPass::create(&mut self.root);
-        self.root
-            .get()
-            .layout(default_constraints, &mut layout_pass);
+        self.root.layout(default_constraints, &mut layout_pass);
 
         let scene_layout = layout_pass.finish();
 
         // render pass
-        let mut scene_context = SceneContext::new(input);
+        let mut scene_context = SceneContext::new(input, scene_layout);
 
-        for (mut element, pos) in scene_layout.into_iter().rev() {
-            if let Some(mut element) = element.try_get() {
-                element.ui(&mut scene_context, pos);
-            }
-        }
+        self.root.ui(&mut scene_context, Pos2::zero());
+
+        // for (mut element, pos) in scene_layout.into_iter().rev() {
+        //     if let Some(mut element) = element.try_get() {
+        //         element.ui(&mut scene_context, pos);
+        //     }
+        // }
 
         let (shapes, input) = scene_context.drain();
 

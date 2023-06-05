@@ -14,6 +14,7 @@ use super::{
 
 // pub type ElementRef<El: Element> = RefBox<El>;
 
+#[derive(Clone, Copy)]
 pub struct SizeConstraint<F = f32> {
     pub min: Size2<F>,
     pub max: Size2<F>,
@@ -21,17 +22,17 @@ pub struct SizeConstraint<F = f32> {
 
 pub type ElementId = usize;
 
-pub trait Element: Send {
+pub trait Element {
     fn layout(&mut self, constraints: SizeConstraint, layout_pass: &mut LayoutPass) -> Size2;
     fn ui(&mut self, ctx: &mut SceneContext, pos: Pos2);
 
-    // fn id(&self) -> ElementId
-    // where
-    //     Self: Sized,
-    // {
-    //     let (id, _) = (self as *const dyn Element).to_raw_parts();
-    //     id as ElementId
-    // }
+    fn id(&self) -> ElementId
+    where
+        Self: Sized,
+    {
+        let (id, _) = (self as *const dyn Element).to_raw_parts();
+        id as ElementId
+    }
 
     // fn ui(&mut self, ctx: &mut SceneContext, constraint: SizeConstraint) -> Size2;
 
@@ -54,57 +55,59 @@ pub trait Element: Send {
     // fn on_hover_exit(&mut self) {}
 }
 
-pub struct ElementRef<T: Element + ?Sized> {
-    element: RefBox<T>,
-}
+pub type ElementRef<T: Element + ?Sized> = T;
 
-impl<T: Element + ?Sized> ElementRef<T> {
-    pub fn new(element: T) -> Self
-    where
-        T: Sized,
-    {
-        Self {
-            element: RefBox::new(element),
-        }
-    }
+// pub struct ElementRef<T: Element + ?Sized> {
+//     element: RefBox<T>,
+// }
 
-    pub fn get(&mut self) -> refbox::Borrow<T> {
-        self.element.try_borrow_mut().unwrap()
-    }
+// impl<T: Element + ?Sized> ElementRef<T> {
+//     pub fn new(element: T) -> Self
+//     where
+//         T: Sized,
+//     {
+//         Self {
+//             element: RefBox::new(element),
+//         }
+//     }
 
-    pub fn get_weak_dyn(&mut self) -> ElementWeakref<dyn Element>
-    where
-        T: Sized + 'static,
-    {
-        ElementWeakref {
-            reference: coerce_ref!(self.element.create_ref() => dyn Element),
-        }
-    }
+//     pub fn get(&mut self) -> refbox::Borrow<T> {
+//         self.element.try_borrow_mut().unwrap()
+//     }
 
-    // pub fn get_weak(&mut self) -> ElementWeakref<T> {
-    //     ElementWeakref {
-    //         reference: self.element.create_ref(),
-    //     }
-    // }
+//     pub fn get_weak_dyn(&mut self) -> ElementWeakref<dyn Element>
+//     where
+//         T: Sized + 'static,
+//     {
+//         ElementWeakref {
+//             reference: coerce_ref!(self.element.create_ref() => dyn Element),
+//         }
+//     }
 
-    pub fn id(&self) -> ElementId {
-        let (id, _) = (self as *const Self).to_raw_parts();
-        id as ElementId
-    }
-}
+//     // pub fn get_weak(&mut self) -> ElementWeakref<T> {
+//     //     ElementWeakref {
+//     //         reference: self.element.create_ref(),
+//     //     }
+//     // }
 
-pub struct ElementWeakref<T: Element + ?Sized> {
-    reference: refbox::Ref<T>,
-}
+//     pub fn id(&self) -> ElementId {
+//         let (id, _) = (self as *const Self).to_raw_parts();
+//         id as ElementId
+//     }
+// }
 
-impl<T: Element + ?Sized> ElementWeakref<T> {
-    pub fn try_get(&mut self) -> Option<refbox::Borrow<T>> {
-        self.reference.try_borrow_mut().ok()
-    }
-}
+// pub struct ElementWeakref<T: Element + ?Sized> {
+//     reference: refbox::Ref<T>,
+// }
 
-impl<T: Element> From<T> for ElementRef<T> {
-    fn from(value: T) -> Self {
-        ElementRef::new(value)
-    }
-}
+// impl<T: Element + ?Sized> ElementWeakref<T> {
+//     pub fn try_get(&mut self) -> Option<refbox::Borrow<T>> {
+//         self.reference.try_borrow_mut().ok()
+//     }
+// }
+
+// impl<T: Element> From<T> for ElementRef<T> {
+//     fn from(value: T) -> Self {
+//         ElementRef::new(value)
+//     }
+// }

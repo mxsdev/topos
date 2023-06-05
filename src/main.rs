@@ -24,10 +24,10 @@ mod util;
 pub use refbox;
 
 use pollster::FutureExt;
-use test::TestElement;
+use test::{TestRect, TestRoot};
 
 pub async fn run() {
-    app::App::new(TestElement::new()).await.run();
+    app::App::new(TestRoot::new()).await.run();
 }
 
 fn main() {

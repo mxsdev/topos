@@ -13,7 +13,7 @@ use crate::{
     util::{Pos2, Size2, Translate2DMut},
 };
 
-use super::layout::ElementPlacement;
+use super::{layout::ElementPlacement, scene};
 
 // #[derive(Default)]
 // pub(super) struct SceneContextInternal {
@@ -37,6 +37,7 @@ use super::layout::ElementPlacement;
 pub struct SceneContext {
     // internal: Rc<RefCell<SceneContextInternal>>,
     input: Rc<RefCell<InputState>>,
+    scene_layout: Rc<RefCell<ElementPlacement>>,
     shapes: Vec<PaintShape>,
 }
 
@@ -49,21 +50,29 @@ impl Clone for SceneContext {
     fn clone(&self) -> Self {
         Self {
             input: self.input.clone(),
+            scene_layout: self.scene_layout.clone(),
             shapes: Default::default(),
         }
     }
 }
 
 impl SceneContext {
-    fn new_inner(input: Rc<RefCell<InputState>>) -> Self {
+    fn new_inner(
+        input: Rc<RefCell<InputState>>,
+        scene_layout: Rc<RefCell<ElementPlacement>>,
+    ) -> Self {
         Self {
             input,
+            scene_layout,
             shapes: Default::default(),
         }
     }
 
-    pub(super) fn new(input: InputState) -> Self {
-        Self::new_inner(Rc::new(RefCell::new(input)))
+    pub(super) fn new(input: InputState, scene_layout: ElementPlacement) -> Self {
+        Self::new_inner(
+            Rc::new(RefCell::new(input)),
+            Rc::new(RefCell::new(scene_layout)),
+        )
     }
 
     pub(super) fn drain(self) -> (impl DoubleEndedIterator<Item = PaintShape>, InputState) {
@@ -78,18 +87,17 @@ impl SceneContext {
         self.input.borrow_mut()
     }
 
-    // pub fn render_child(&mut self, element: &mut impl Element, constraint: SizeConstraint) {
-    //     let mut ctx = self.clone();
+    pub fn render_child(&mut self, element: &mut impl Element) {
+        let mut ctx = self.clone();
 
-    //     let placement = self.internal.borrow().placement.get(&element.id());
+        let scene_layout = self.scene_layout.borrow();
+        let placement = scene_layout.get(&element.id());
 
-    //     if let Some(pos) = placement {
-    //         let size = element.ui(&mut ctx, *pos);
-    //         self.shapes.extend(ctx.shapes.into_iter());
-    //     }
-
-    //     // ChildUI { shapes, size }
-    // }
+        if let Some(pos) = placement {
+            element.ui(&mut ctx, *pos);
+            self.shapes.extend(ctx.shapes.into_iter());
+        }
+    }
 
     // pub fn place_child(&mut self, pos: Pos2, child: ChildUI) {
     //     let ChildUI { shapes, size } = child;

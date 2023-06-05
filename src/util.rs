@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
-use euclid::{Box2D, Point2D, Size2D, Translation2D};
+use euclid::{Box2D, Point2D, Size2D, Translation2D, Vector2D};
 use num_traits::{Float, Num, Signed};
 use swash::scale;
 
@@ -156,11 +156,13 @@ impl<F: CanScale> PhysicalToLogical for PhysicalSize2<F> {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct RoundedBox2D<T, U> {
     pub rect: euclid::Box2D<T, U>,
     pub radius: Option<T>,
 }
+
+impl<T: Copy, U: Clone> Copy for RoundedBox2D<T, U> {}
 
 impl<T, U> RoundedBox2D<T, U> {
     pub fn new(rect: euclid::Box2D<T, U>, radius: Option<T>) -> Self {
@@ -254,8 +256,20 @@ impl AsWinit for winit::monitor::MonitorHandle {
     }
 }
 
+pub trait Translate2D<F, U>: Sized {
+    fn translate(&self, x: F, y: F) -> Self;
+
+    fn translate_vec(&self, vec: Vector2D<F, U>) -> Self {
+        self.translate(vec.x, vec.y)
+    }
+}
+
 pub trait Translate2DMut<F, U> {
     fn translate_mut(&mut self, x: F, y: F);
+
+    fn translate_mut_vec(&mut self, vec: Vector2D<F, U>) {
+        self.translate_mut(vec.x, vec.y)
+    }
 }
 
 impl<F: Num + Copy, U> Translate2DMut<F, U> for euclid::Point2D<F, U> {
@@ -269,6 +283,14 @@ impl<F: Num + Copy, U> Translate2DMut<F, U> for euclid::Box2D<F, U> {
     fn translate_mut(&mut self, x: F, y: F) {
         self.min.translate_mut(x, y);
         self.max.translate_mut(x, y);
+    }
+}
+
+impl<F: Num + Copy, U: Clone> Translate2D<F, U> for RoundedBox2D<F, U> {
+    fn translate(&self, x: F, y: F) -> Self {
+        let mut res = *self;
+        res.rect.translate_mut(x, y);
+        res
     }
 }
 
