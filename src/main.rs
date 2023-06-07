@@ -1,5 +1,6 @@
 #![feature(return_position_impl_trait_in_trait)]
 #![feature(ptr_metadata)]
+#![feature(float_next_up_down)]
 // #![feature(new_uninit)]
 // #![feature(maybe_uninit_write_slice)]
 

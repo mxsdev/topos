@@ -20,15 +20,17 @@ pub struct RenderResources<T: Sized + Pod> {
 }
 
 impl<T: Sized + Pod> RenderResources<T> {
-    pub fn render_all_quads<'a>(
-        &'a self,
+    pub fn render_quads<'a>(
+        &'a mut self,
         render_pass: &mut wgpu::RenderPass<'a>,
+        quads: u64,
         instances: Range<u32>,
     ) {
-        self.gpu_buffer.render_all_quads(
+        self.gpu_buffer.render_quads(
             &self.render_pipeline,
             &self.bind_group,
             render_pass,
+            quads,
             instances,
         )
     }
@@ -59,8 +61,9 @@ impl ShapeRenderer {
         buf.write_all_quads(queue, boxes);
     }
 
-    pub fn render_all_boxes<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
-        self.box_resources.render_all_quads(render_pass, 0..1);
+    pub fn render_boxes<'a>(&'a mut self, render_pass: &mut wgpu::RenderPass<'a>, num_boxes: u64) {
+        self.box_resources
+            .render_quads(render_pass, num_boxes, 0..1);
     }
 
     fn create_box_resources(

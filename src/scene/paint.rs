@@ -14,3 +14,20 @@ impl PaintPass {
         self.shapes.into_iter()
     }
 }
+
+#[derive(Default)]
+pub struct DepthIterator {
+    curr: f32,
+}
+
+impl DepthIterator {
+    pub(super) fn new() {
+        Default::default()
+    }
+
+    pub fn next(&mut self) -> f32 {
+        let mut next = self.curr.next_up();
+        std::mem::swap(&mut self.curr, &mut next);
+        return next;
+    }
+}

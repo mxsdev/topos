@@ -1,4 +1,4 @@
-use std::ops::{Deref, DerefMut};
+use std::ops::{Deref, DerefMut, Range};
 
 use euclid::{Box2D, Point2D, Size2D, Translation2D, Vector2D};
 use num_traits::{Float, Num, Signed};
@@ -303,6 +303,43 @@ impl<F: Num + Copy, U> FromMinSize<F, U> for Box2D<F, U> {
         Self {
             min,
             max: min + size,
+        }
+    }
+}
+
+pub trait ScaleRange<F> {
+    fn scale(&self, fac: F) -> Self;
+}
+
+impl<F: Num + Copy> ScaleRange<F> for Range<F> {
+    fn scale(&self, fac: F) -> Self {
+        self.map_range(|x| x * fac)
+
+        // Self {
+        //     start: self.start * fac,
+        //     end: self.end * fac,
+        // }
+    }
+}
+
+pub trait MapRange<A, B> {
+    type Result;
+
+    fn map_range<F>(&self, f: F) -> Self::Result
+    where
+        F: Fn(A) -> B;
+}
+
+impl<A: Copy, B> MapRange<A, B> for Range<A> {
+    type Result = Range<B>;
+
+    fn map_range<F>(&self, f: F) -> Self::Result
+    where
+        F: Fn(A) -> B,
+    {
+        Self::Result {
+            start: f(self.start),
+            end: f(self.end),
         }
     }
 }

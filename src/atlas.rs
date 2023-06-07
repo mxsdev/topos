@@ -1,9 +1,9 @@
 use std::{
     cell::RefCell,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     hash::Hash,
     num::NonZeroU64,
-    sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard},
+    sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
 use euclid::size2;
@@ -31,6 +31,7 @@ pub struct GlyphToRender {
     size: PhysicalSize2<u32>,
     draw_rect: PhysicalRect,
     alloc: AtlasAllocation, // uv: Option<Size2>,
+    clip_rect: Option<PhysicalRect>,
 }
 
 #[repr(C)]
@@ -159,6 +160,7 @@ impl FontAtlas {
                      alloc: AtlasAllocation { rectangle: uv, .. },
                      draw_rect,
                      size,
+                     ..
                  }| {
                     let alloc_pos = PhysicalPos2::new(uv.min.x as u32, uv.min.y as u32);
                     let uv = PhysicalRect::new(alloc_pos, alloc_pos + *size);
@@ -198,11 +200,12 @@ impl FontAtlas {
         );
     }
 
-    pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
-        self.gpu_buffer.render_all_quads(
+    pub fn render<'a>(&'a mut self, render_pass: &mut wgpu::RenderPass<'a>, quads: u64) {
+        self.gpu_buffer.render_quads(
             &self.render_pipeline,
             &self.bind_group,
             render_pass,
+            quads,
             0..1,
         );
     }
@@ -366,7 +369,7 @@ impl FontAtlas {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-struct AtlasId(GlyphContentType, u32);
+pub struct AtlasId(GlyphContentType, u32);
 
 #[derive(Clone, Copy)]
 struct GlyphAllocation {
@@ -396,22 +399,39 @@ struct FontAtlasManager {
 }
 
 #[derive(Debug)]
-pub struct LayoutGlyphWithContext {
+pub struct PlacedGlyph {
     // pub glyph: &'a LayoutGlyph,
     pub x_int: i32,
     pub y_int: i32,
     pub line_offset: f32,
     pub cache_key: GlyphCacheKey,
+    pub depth: f32,
 }
 
-impl LayoutGlyphWithContext {
+pub struct PlacedTextBox {
+    glyphs: Vec<PlacedGlyph>,
+    clip_rect: Option<PhysicalRect>,
+}
+
+impl PlacedGlyph {
     pub fn from_layout_glyph(glyph: &LayoutGlyph, line_offset: f32) -> Self {
         Self {
             x_int: glyph.x_int,
             y_int: glyph.y_int,
             cache_key: glyph.cache_key,
             line_offset,
+            depth: 0.,
         }
+    }
+
+    pub fn from_buffer(buffer: &cosmic_text::Buffer) -> impl Iterator<Item = Self> + '_ {
+        buffer.layout_runs().flat_map(|r| {
+            let line_y = r.line_y;
+
+            r.glyphs
+                .iter()
+                .map(move |g| Self::from_layout_glyph(g, line_y.clone()))
+        })
     }
 }
 
@@ -446,38 +466,37 @@ impl FontAtlasManager {
         };
     }
 
-    pub fn prepare<'a>(
-        &mut self,
-        glyphs: impl Iterator<Item = LayoutGlyphWithContext>,
-        pos: PhysicalPos2,
-    ) {
+    pub fn prepare<'a>(&mut self, boxes: impl Iterator<Item = PlacedTextBox>, pos: PhysicalPos2) {
         // convert to renderable glyphs
         let mut partition = FxHashMap::<
             AtlasId,
             Vec<(
-                LayoutGlyphWithContext,
+                PlacedGlyph,
                 PhysicalSize2<u32>,
                 PhysicalPos2<i32>,
                 AtlasAllocation,
+                Option<PhysicalRect>,
             )>,
         >::default();
 
-        for glyph in glyphs {
-            let alloc = self.glyphs.get(&glyph.cache_key);
+        for text_box in boxes {
+            for glyph in text_box.glyphs {
+                let alloc = self.glyphs.get(&glyph.cache_key);
 
-            match alloc {
-                Some(GlyphCacheEntry::GlyphAllocation(GlyphAllocation {
-                    atlas_id,
-                    size,
-                    allocation,
-                    placement,
-                    ..
-                })) => partition
-                    .entry(*atlas_id)
-                    .or_insert_with(|| Vec::new())
-                    .push((glyph, *size, *placement, *allocation)),
-                None => log::debug!("Glyph {} not cached", glyph.cache_key.glyph_id),
-                Some(GlyphCacheEntry::Noop) => {}
+                match alloc {
+                    Some(GlyphCacheEntry::GlyphAllocation(GlyphAllocation {
+                        atlas_id,
+                        size,
+                        allocation,
+                        placement,
+                        ..
+                    })) => partition
+                        .entry(*atlas_id)
+                        .or_insert_with(|| Vec::new())
+                        .push((glyph, *size, *placement, *allocation, text_box.clip_rect)),
+                    None => log::debug!("Glyph {} not cached", glyph.cache_key.glyph_id),
+                    Some(GlyphCacheEntry::Noop) => {}
+                }
             }
         }
 
@@ -485,39 +504,45 @@ impl FontAtlasManager {
             let render_context = self.rendering_context.clone();
 
             if let Some(atlas) = self.get_atlas_mut(atlas_id) {
-                let glyphs_to_render = layout_glyphs.iter().map(|(g, size, placement, alloc)| {
-                    // Log::trace!("{}", g.y_int);
+                let glyphs_to_render =
+                    layout_glyphs
+                        .iter()
+                        .map(|(g, size, placement, alloc, clip_rect)| {
+                            // Log::trace!("{}", g.y_int);
 
-                    let glyph_pos = pos
-                        + PhysicalVec2::new(
-                            g.x_int as f32 + placement.x as f32,
-                            g.y_int as f32 - placement.y as f32 + g.line_offset,
-                        );
+                            let glyph_pos = pos
+                                + PhysicalVec2::new(
+                                    g.x_int as f32 + placement.x as f32,
+                                    g.y_int as f32 - placement.y as f32 + g.line_offset,
+                                );
 
-                    let rect_size = PhysicalSize2::new(size.width as f32, size.height as f32);
+                            let rect_size =
+                                PhysicalSize2::new(size.width as f32, size.height as f32);
 
-                    let draw_rect = PhysicalRect::new(glyph_pos, glyph_pos + rect_size);
+                            let draw_rect = PhysicalRect::new(glyph_pos, glyph_pos + rect_size);
 
-                    GlyphToRender {
-                        alloc: *alloc,
-                        draw_rect,
-                        size: *size,
-                    }
-                });
+                            GlyphToRender {
+                                alloc: *alloc,
+                                draw_rect,
+                                size: *size,
+                                clip_rect: *clip_rect,
+                            }
+                        });
 
                 atlas.prepare(&render_context, glyphs_to_render.collect());
             }
         }
     }
 
-    pub fn render<'a, 'b>(&'a self, render_pass: &'b mut wgpu::RenderPass<'a>) {
-        for atlas in self
-            .mask_atlases
-            .values()
-            .chain(self.color_atlases.values())
-        {
-            atlas.render(render_pass);
-        }
+    pub fn render<'a, 'b>(
+        &'a mut self,
+        render_pass: &'b mut wgpu::RenderPass<'a>,
+        atlas_id: AtlasId,
+        glyphs: u64,
+    ) {
+        // TODO: make this a Result
+        let atlas = self.get_atlas_mut(atlas_id).unwrap();
+        atlas.render(render_pass, glyphs);
     }
 
     fn get_coll(&self, kind: GlyphContentType) -> &FontAtlasCollection {
@@ -646,7 +671,7 @@ pub struct FontManager {
 }
 
 pub struct FontManagerRenderResources<'a> {
-    atlas_manager: RwLockReadGuard<'a, FontAtlasManager>,
+    atlas_manager: RwLockWriteGuard<'a, FontAtlasManager>,
 }
 
 impl FontManager {
@@ -661,23 +686,19 @@ impl FontManager {
         };
     }
 
-    pub fn prepare<'a>(
-        &mut self,
-        buffers: impl Iterator<Item = &'a cosmic_text::Buffer>,
-        pos: PhysicalPos2,
-    ) {
-        let glyphs = buffers
-            .flat_map(|buffer| buffer.layout_runs())
-            .map(|line| {
-                let line_offset = line.line_y;
+    pub fn prepare<'a>(&mut self, text_boxes: Vec<PlacedTextBox>, pos: PhysicalPos2) {
+        self.generate_textures(
+            text_boxes
+                .iter()
+                .flat_map(|b| b.glyphs.iter())
+                .map(|g| g.cache_key)
+                .collect(),
+        );
 
-                line.glyphs
-                    .into_iter()
-                    .map(move |glyph| LayoutGlyphWithContext::from_layout_glyph(glyph, line_offset))
-            })
-            .flatten();
-
-        self.atlas_manager.write().unwrap().prepare(glyphs, pos)
+        self.atlas_manager
+            .write()
+            .unwrap()
+            .prepare(text_boxes.into_iter(), pos)
     }
 
     pub fn get_font_system(&mut self) -> MutexGuard<'_, cosmic_text::FontSystem> {
@@ -686,39 +707,38 @@ impl FontManager {
 
     pub fn render_resources(&self) -> FontManagerRenderResources<'_> {
         FontManagerRenderResources {
-            atlas_manager: self.atlas_manager.read().unwrap(),
+            atlas_manager: self.atlas_manager.write().unwrap(),
         }
     }
 
     pub fn render<'a, 'b>(
         &self,
         render_pass: &'a mut wgpu::RenderPass<'b>,
-        resources: &'b FontManagerRenderResources<'b>,
+        resources: &'b mut FontManagerRenderResources<'b>,
+        atlas_id: AtlasId,
+        num_glyphs: u64,
     ) {
-        resources.atlas_manager.render(render_pass);
+        resources
+            .atlas_manager
+            .render(render_pass, atlas_id, num_glyphs);
     }
 
-    pub fn generate_textures<'a>(&mut self, buffers: Arc<Vec<cosmic_text::Buffer>>) {
+    pub fn generate_textures<'a>(&mut self, mut glyphs: HashSet<GlyphCacheKey>) {
         let atlas_manager = self.atlas_manager.clone();
         let font_system = self.font_system.clone();
 
         std::thread::spawn(move || {
-            let results: Vec<(GlyphCacheKey, cosmic_text::SwashImage)> = buffers
-                .as_ref()
-                .par_iter()
-                .flat_map(|buffer| buffer.layout_runs().par_bridge())
-                // .iter()
-                // .flat_map(|buffer| buffer.layout_runs())
-                .flat_map(|line| line.glyphs)
+            let results: Vec<(GlyphCacheKey, cosmic_text::SwashImage)> = glyphs
+                .par_drain()
                 .map(|g| {
-                    if atlas_manager.read().unwrap().has_glyph(&g.cache_key) {
+                    if atlas_manager.read().unwrap().has_glyph(&g) {
                         return None;
                     }
 
-                    match rasterize_glyph(g.cache_key, font_system.as_ref()) {
-                        Some(image) => Some((g.cache_key, image)),
+                    match rasterize_glyph(&g, font_system.as_ref()) {
+                        Some(image) => Some((g, image)),
                         None => {
-                            log::error!("failed to render glyph {}!", g.cache_key.glyph_id);
+                            log::error!("failed to render glyph {}!", g.glyph_id);
 
                             None
                         }
@@ -751,7 +771,7 @@ thread_local! {
 }
 
 fn rasterize_glyph(
-    cache_key: GlyphCacheKey,
+    cache_key: &GlyphCacheKey,
     font_system: &Mutex<FontSystem>,
 ) -> Option<cosmic_text::SwashImage> {
     log::debug!("Rasterizing glyph {:x}", cache_key.hash_u64());

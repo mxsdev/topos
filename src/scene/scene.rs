@@ -115,6 +115,8 @@ impl<Root: Element + 'static> Scene<Root> {
             })
             .collect();
 
+        let num_rects = rects.len();
+
         self.shape_renderer
             .prepare_boxes(device, queue, rects.into_iter());
 
@@ -137,7 +139,8 @@ impl<Root: Element + 'static> Scene<Root> {
                 depth_stencil_attachment: None,
             });
 
-            self.shape_renderer.render_all_boxes(&mut render_pass);
+            self.shape_renderer
+                .render_boxes(&mut render_pass, num_rects as u64);
         }
 
         queue.submit(std::iter::once(encoder.finish()));

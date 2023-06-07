@@ -74,7 +74,7 @@ impl<Root: Element + 'static> App<Root> {
                         if let Some(frame_time) = get_window_frame_time(&self.window) {
                             let elapsed_time = Instant::now().duration_since(last_render_time);
 
-                            let buffer_duration = last_render_duration + Duration::from_micros(200);
+                            let buffer_duration = last_render_duration + Duration::from_micros(0);
 
                             if elapsed_time < (frame_time.saturating_sub(buffer_duration)) {
                                 do_render = false;
@@ -116,6 +116,7 @@ impl<Root: Element + 'static> App<Root> {
                         }
 
                         let render_time = Instant::now().duration_since(render_start_time);
+                        // log::trace!("render_time: {:?}", render_time);
                     }
                 }
                 Event::MainEventsCleared => {
