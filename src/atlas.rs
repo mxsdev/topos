@@ -200,7 +200,7 @@ impl FontAtlas {
         );
     }
 
-    pub fn render<'a>(&'a mut self, render_pass: &mut wgpu::RenderPass<'a>, quads: u64) {
+    pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, quads: u64) {
         self.gpu_buffer.render_quads(
             &self.render_pipeline,
             &self.bind_group,
@@ -411,6 +411,7 @@ pub struct PlacedGlyph {
 pub struct PlacedTextBox {
     glyphs: Vec<PlacedGlyph>,
     clip_rect: Option<PhysicalRect>,
+    pub pos: PhysicalPos2,
 }
 
 impl PlacedGlyph {
@@ -452,6 +453,88 @@ macro_rules! get_coll_mut {
     };
 }
 
+pub struct BatchedAtlasRender {
+    pub atlas_id: AtlasId,
+    pub num_quads: u64,
+}
+
+impl BatchedAtlasRender {
+    pub fn new(atlas_id: AtlasId) -> Self {
+        Self {
+            atlas_id,
+            num_quads: Default::default(),
+        }
+    }
+}
+
+pub enum BatchedAtlasRenderBoxesEntry {
+    Batch(BatchedAtlasRender),
+    Done,
+}
+
+impl Into<BatchedAtlasRenderBoxesEntry> for BatchedAtlasRender {
+    fn into(self) -> BatchedAtlasRenderBoxesEntry {
+        BatchedAtlasRenderBoxesEntry::Batch(self)
+    }
+}
+
+#[derive(Default)]
+struct BatchedAtlasRenderBoxes {
+    batches: Vec<BatchedAtlasRenderBoxesEntry>,
+    render_batch: Option<BatchedAtlasRender>,
+}
+
+impl BatchedAtlasRenderBoxes {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn new_quad(&mut self, atlas_id: AtlasId) {
+        let current_render_batch = self
+            .render_batch
+            .get_or_insert(BatchedAtlasRender::new(atlas_id));
+
+        if current_render_batch.atlas_id != atlas_id {
+            let mut old_render_batch = BatchedAtlasRender::new(atlas_id);
+
+            std::mem::swap(current_render_batch, &mut old_render_batch);
+
+            self.batches.push(old_render_batch.into());
+        }
+
+        current_render_batch.num_quads += 1;
+    }
+
+    fn finish_text_box(&mut self) {
+        self.batches.push(BatchedAtlasRenderBoxesEntry::Done)
+    }
+
+    fn as_iterator(
+        self,
+    ) -> BatchedAtlasRenderBoxIterator<impl Iterator<Item = BatchedAtlasRenderBoxesEntry>> {
+        BatchedAtlasRenderBoxIterator {
+            batches: self.batches.into_iter(),
+        }
+    }
+}
+
+pub struct BatchedAtlasRenderBoxIterator<T: Iterator<Item = BatchedAtlasRenderBoxesEntry>> {
+    batches: T,
+}
+
+impl<T: Iterator<Item = BatchedAtlasRenderBoxesEntry>> Iterator
+    for BatchedAtlasRenderBoxIterator<T>
+{
+    type Item = BatchedAtlasRender;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.batches.next()? {
+            BatchedAtlasRenderBoxesEntry::Batch(b) => Some(b),
+            BatchedAtlasRenderBoxesEntry::Done => None,
+        }
+    }
+}
+
 impl FontAtlasManager {
     pub fn new(rendering_context: Arc<RenderingContext>) -> Self {
         return Self {
@@ -466,7 +549,10 @@ impl FontAtlasManager {
         };
     }
 
-    pub fn prepare<'a>(&mut self, boxes: impl Iterator<Item = PlacedTextBox>, pos: PhysicalPos2) {
+    pub fn prepare<'a>(
+        &mut self,
+        boxes: impl Iterator<Item = PlacedTextBox>,
+    ) -> BatchedAtlasRenderBoxIterator<impl Iterator<Item = BatchedAtlasRenderBoxesEntry>> {
         // convert to renderable glyphs
         let mut partition = FxHashMap::<
             AtlasId,
@@ -476,8 +562,11 @@ impl FontAtlasManager {
                 PhysicalPos2<i32>,
                 AtlasAllocation,
                 Option<PhysicalRect>,
+                PhysicalPos2,
             )>,
         >::default();
+
+        let mut render_batches = BatchedAtlasRenderBoxes::new();
 
         for text_box in boxes {
             for glyph in text_box.glyphs {
@@ -490,14 +579,27 @@ impl FontAtlasManager {
                         allocation,
                         placement,
                         ..
-                    })) => partition
-                        .entry(*atlas_id)
-                        .or_insert_with(|| Vec::new())
-                        .push((glyph, *size, *placement, *allocation, text_box.clip_rect)),
+                    })) => {
+                        render_batches.new_quad(*atlas_id);
+
+                        partition
+                            .entry(*atlas_id)
+                            .or_insert_with(|| Vec::new())
+                            .push((
+                                glyph,
+                                *size,
+                                *placement,
+                                *allocation,
+                                text_box.clip_rect,
+                                text_box.pos,
+                            ))
+                    }
                     None => log::debug!("Glyph {} not cached", glyph.cache_key.glyph_id),
                     Some(GlyphCacheEntry::Noop) => {}
                 }
             }
+
+            render_batches.finish_text_box();
         }
 
         for (atlas_id, layout_glyphs) in partition.into_iter() {
@@ -507,10 +609,10 @@ impl FontAtlasManager {
                 let glyphs_to_render =
                     layout_glyphs
                         .iter()
-                        .map(|(g, size, placement, alloc, clip_rect)| {
+                        .map(|(g, size, placement, alloc, clip_rect, pos)| {
                             // Log::trace!("{}", g.y_int);
 
-                            let glyph_pos = pos
+                            let glyph_pos = *pos
                                 + PhysicalVec2::new(
                                     g.x_int as f32 + placement.x as f32,
                                     g.y_int as f32 - placement.y as f32 + g.line_offset,
@@ -532,16 +634,18 @@ impl FontAtlasManager {
                 atlas.prepare(&render_context, glyphs_to_render.collect());
             }
         }
+
+        render_batches.as_iterator()
     }
 
     pub fn render<'a, 'b>(
-        &'a mut self,
+        &'a self,
         render_pass: &'b mut wgpu::RenderPass<'a>,
         atlas_id: AtlasId,
         glyphs: u64,
     ) {
         // TODO: make this a Result
-        let atlas = self.get_atlas_mut(atlas_id).unwrap();
+        let atlas = self.get_atlas(atlas_id).unwrap();
         atlas.render(render_pass, glyphs);
     }
 
@@ -686,7 +790,10 @@ impl FontManager {
         };
     }
 
-    pub fn prepare<'a>(&mut self, text_boxes: Vec<PlacedTextBox>, pos: PhysicalPos2) {
+    pub fn prepare<'a>(
+        &mut self,
+        text_boxes: Vec<PlacedTextBox>,
+    ) -> BatchedAtlasRenderBoxIterator<impl Iterator<Item = BatchedAtlasRenderBoxesEntry>> {
         self.generate_textures(
             text_boxes
                 .iter()
@@ -698,7 +805,7 @@ impl FontManager {
         self.atlas_manager
             .write()
             .unwrap()
-            .prepare(text_boxes.into_iter(), pos)
+            .prepare(text_boxes.into_iter())
     }
 
     pub fn get_font_system(&mut self) -> MutexGuard<'_, cosmic_text::FontSystem> {
@@ -711,16 +818,15 @@ impl FontManager {
         }
     }
 
-    pub fn render<'a, 'b>(
+    pub fn render<'a, 'b, 'c>(
         &self,
         render_pass: &'a mut wgpu::RenderPass<'b>,
-        resources: &'b mut FontManagerRenderResources<'b>,
-        atlas_id: AtlasId,
-        num_glyphs: u64,
+        resources: &'b FontManagerRenderResources<'c>,
+        batch: &BatchedAtlasRender,
     ) {
         resources
             .atlas_manager
-            .render(render_pass, atlas_id, num_glyphs);
+            .render(render_pass, batch.atlas_id, batch.num_quads);
     }
 
     pub fn generate_textures<'a>(&mut self, mut glyphs: HashSet<GlyphCacheKey>) {

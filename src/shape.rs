@@ -4,6 +4,7 @@ use bytemuck::Pod;
 use palette::Srgba;
 
 use crate::{
+    atlas::PlacedTextBox,
     graphics::DynamicGPUQuadBuffer,
     surface::{ParamsBuffer, RenderingContext},
     util::{
@@ -21,7 +22,7 @@ pub struct RenderResources<T: Sized + Pod> {
 
 impl<T: Sized + Pod> RenderResources<T> {
     pub fn render_quads<'a>(
-        &'a mut self,
+        &'a self,
         render_pass: &mut wgpu::RenderPass<'a>,
         quads: u64,
         instances: Range<u32>,
@@ -61,7 +62,7 @@ impl ShapeRenderer {
         buf.write_all_quads(queue, boxes);
     }
 
-    pub fn render_boxes<'a>(&'a mut self, render_pass: &mut wgpu::RenderPass<'a>, num_boxes: u64) {
+    pub fn render_boxes<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, num_boxes: u64) {
         self.box_resources
             .render_quads(render_pass, num_boxes, 0..1);
     }
@@ -277,6 +278,7 @@ pub struct PaintRectangle<F: CanScale = f32, U = LogicalUnit> {
 
 pub enum PaintShape {
     Rectangle(PaintRectangle),
+    Text(PlacedTextBox),
 }
 
 impl Into<PaintShape> for PaintRectangle {
@@ -312,6 +314,7 @@ impl Translate2DMut<f32, LogicalUnit> for PaintShape {
     fn translate_mut(&mut self, x: f32, y: f32) {
         match self {
             PaintShape::Rectangle(rect) => rect.translate_mut(x, y),
+            PaintShape::Text(text_box) => text_box.pos.translate_mut(x, y),
         }
     }
 }

@@ -1,4 +1,10 @@
-use std::{marker::PhantomData, ops::Range};
+use std::{
+    cell::{RefCell, RefMut},
+    marker::PhantomData,
+    ops::Range,
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 
 use bytemuck::Pod;
 use wgpu::RenderPass;
@@ -12,7 +18,7 @@ pub struct DynamicGPUQuadBuffer<T: Sized + Pod> {
     cap_quads: u64,
     num_quads: u64,
 
-    draw_idx: u64,
+    draw_idx: Mutex<u64>,
 
     _data: PhantomData<Vec<T>>,
 }
@@ -30,8 +36,8 @@ impl<T: Sized + Pod> DynamicGPUQuadBuffer<T> {
             vertex_buffer,
             index_buffer,
             cap_quads: Self::MIN_CAP_QUADS,
-            num_quads: 0,
-            draw_idx: 0,
+            num_quads: Default::default(),
+            draw_idx: Mutex::new(Default::default()),
             _data: PhantomData,
         }
     }
@@ -45,15 +51,17 @@ impl<T: Sized + Pod> DynamicGPUQuadBuffer<T> {
     }
 
     pub fn render_quads<'a>(
-        &'a mut self,
+        &'a self,
         render_pipeline: &'a wgpu::RenderPipeline,
         bind_group: &'a wgpu::BindGroup,
         render_pass: &mut wgpu::RenderPass<'a>,
         quads: u64,
         instances: Range<u32>,
     ) {
-        let draw_idx = self.draw_idx;
-        self.draw_idx += quads;
+        let mut draw_idx_mut = self.draw_idx.lock().unwrap();
+        let draw_idx = *draw_idx_mut;
+
+        *draw_idx_mut += quads;
 
         self.render_quad_range(
             render_pipeline,
@@ -79,18 +87,24 @@ impl<T: Sized + Pod> DynamicGPUQuadBuffer<T> {
         render_pass.set_pipeline(&render_pipeline);
         render_pass.set_bind_group(0, &bind_group, &[]);
 
-        render_pass.set_vertex_buffer(
-            0,
-            self.vertex_buffer
-                .slice(quads.scale(Self::QUAD_VERTEX_BYTES)),
-        );
+        // render_pass.set_vertex_buffer(
+        //     0,
+        //     self.vertex_buffer
+        //         .slice(quads.scale(Self::QUAD_VERTEX_BYTES)),
+        // );
 
-        render_pass.set_index_buffer(
-            self.index_buffer.slice(quads.scale(Self::QUAD_INDEX_BYTES)),
-            wgpu::IndexFormat::Uint16,
-        );
+        // render_pass.set_index_buffer(
+        //     self.index_buffer.slice(quads.scale(Self::QUAD_INDEX_BYTES)),
+        //     wgpu::IndexFormat::Uint16,
+        // );
 
-        render_pass.draw_indexed(quads.map_range(|x| x as u32).scale(6), 0, instances);
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+
+        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+
+        let num_quads = (quads.end - quads.start) as u32;
+
+        render_pass.draw_indexed(0..18, 0, instances);
     }
 
     // pub fn render_all_quads<'a>(
@@ -148,7 +162,7 @@ impl<T: Sized + Pod> DynamicGPUQuadBuffer<T> {
         self.num_quads = num_quads;
         self.reallocate_buffers(device);
 
-        self.draw_idx = 0;
+        *self.draw_idx.lock().unwrap() = 0;
     }
 
     fn reallocate_buffers(&mut self, device: &wgpu::Device) {

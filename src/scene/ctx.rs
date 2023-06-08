@@ -39,6 +39,7 @@ pub struct SceneContext {
     input: Rc<RefCell<InputState>>,
     scene_layout: Rc<RefCell<ElementPlacement>>,
     shapes: Vec<PaintShape>,
+    scale_factor: f32,
 }
 
 pub struct ChildUI {
@@ -52,6 +53,7 @@ impl Clone for SceneContext {
             input: self.input.clone(),
             scene_layout: self.scene_layout.clone(),
             shapes: Default::default(),
+            scale_factor: self.scale_factor,
         }
     }
 }
@@ -60,28 +62,37 @@ impl SceneContext {
     fn new_inner(
         input: Rc<RefCell<InputState>>,
         scene_layout: Rc<RefCell<ElementPlacement>>,
+        scale_factor: f32,
     ) -> Self {
         Self {
             input,
             scene_layout,
             shapes: Default::default(),
+            scale_factor,
         }
     }
 
-    pub(super) fn new(input: InputState, scene_layout: ElementPlacement) -> Self {
+    pub(super) fn new(
+        input: InputState,
+        scene_layout: ElementPlacement,
+        scale_factor: f32,
+    ) -> Self {
         Self::new_inner(
             Rc::new(RefCell::new(input)),
             Rc::new(RefCell::new(scene_layout)),
+            scale_factor,
         )
     }
 
-    pub(super) fn drain(self) -> (impl DoubleEndedIterator<Item = PaintShape>, InputState) {
-        (self.shapes.into_iter(), self.input.take())
+    pub(super) fn drain(self) -> (Vec<PaintShape>, InputState) {
+        (self.shapes, self.input.take())
     }
 
     pub fn add_shape(&mut self, shape: impl Into<PaintShape>) {
         self.shapes.push(shape.into())
     }
+
+    pub fn add_buffer(&mut self, buffer: &cosmic_text::Buffer) {}
 
     pub fn input(&mut self) -> RefMut<InputState> {
         self.input.borrow_mut()

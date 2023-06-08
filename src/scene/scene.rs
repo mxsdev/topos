@@ -4,15 +4,19 @@ use std::{
     sync::Arc,
 };
 
+use enum_as_inner::EnumAsInner;
 use rustc_hash::FxHashMap;
 use swash::scale;
 
 use crate::{
-    atlas,
+    atlas::{
+        self, BatchedAtlasRender, BatchedAtlasRenderBoxIterator, BatchedAtlasRenderBoxesEntry,
+        FontManagerRenderResources,
+    },
     element::{Element, ElementEvent, ElementRef, SizeConstraint},
     input::{input_state::InputState, winit::WinitState},
     scene::update::UpdatePass,
-    shape::{self, BoxShaderVertex, PaintRectangle},
+    shape::{self, BoxShaderVertex, PaintRectangle, PaintShape},
     surface::{RenderSurface, RenderingContext},
     util::{LogicalToPhysical, PhysicalToLogical, Pos2, Size2, ToEuclid},
 };
@@ -94,31 +98,36 @@ impl<Root: Element + 'static> Scene<Root> {
         let scene_layout = layout_pass.finish();
 
         // render pass
-        let mut scene_context = SceneContext::new(input, scene_layout);
+        let mut scene_context = SceneContext::new(input, scene_layout, scale_fac as f32);
 
         self.root.ui(&mut scene_context, Pos2::zero());
 
-        // for (mut element, pos) in scene_layout.into_iter().rev() {
-        //     if let Some(mut element) = element.try_get() {
-        //         element.ui(&mut scene_context, pos);
-        //     }
-        // }
-
         let (shapes, input) = scene_context.drain();
 
-        let rects: Vec<_> = shapes
-            .rev()
-            .flat_map(|p| match p {
-                shape::PaintShape::Rectangle(paint_rect) => {
-                    BoxShaderVertex::from_paint_rect(paint_rect.to_physical(scale_fac))
-                }
-            })
-            .collect();
+        let mut batcher = BatchedRenderCollector::new();
 
-        let num_rects = rects.len();
+        let mut rects = Vec::new();
+        let mut text_boxes = Vec::new();
+
+        for shape in shapes.into_iter().rev() {
+            batcher.add_shape(&shape);
+
+            match shape {
+                shape::PaintShape::Rectangle(paint_rect) => rects.extend(
+                    BoxShaderVertex::from_paint_rect(paint_rect.to_physical(scale_fac)),
+                ),
+                shape::PaintShape::Text(text_box) => text_boxes.push(text_box),
+            }
+        }
 
         self.shape_renderer
             .prepare_boxes(device, queue, rects.into_iter());
+
+        let mut text_box_iterator = self.font_manager.prepare(text_boxes);
+
+        let batches = batcher.finalize();
+
+        let font_resources = self.font_manager.render_resources();
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -139,8 +148,29 @@ impl<Root: Element + 'static> Scene<Root> {
                 depth_stencil_attachment: None,
             });
 
-            self.shape_renderer
-                .render_boxes(&mut render_pass, num_rects as u64);
+            for x in batches {
+                match x {
+                    BatchedRender::Rectangles(num_boxes) => {
+                        self.shape_renderer
+                            .render_boxes(&mut render_pass, num_boxes);
+                    }
+
+                    BatchedRender::TextBox => {
+                        for text_box_batch in &mut text_box_iterator {
+                            self.font_manager.render(
+                                &mut render_pass,
+                                &font_resources,
+                                &text_box_batch,
+                            )
+                        }
+                    }
+
+                    _ => {}
+                }
+            }
+
+            // self.shape_renderer
+            //     .render_boxes(&mut render_pass, num_rects as u64);
         }
 
         queue.submit(std::iter::once(encoder.finish()));
@@ -152,17 +182,164 @@ impl<Root: Element + 'static> Scene<Root> {
     }
 }
 
-// #[derive(Hash)]
-// struct ElementId(usize);
+#[derive(Default)]
+struct BatchedRenderCollector {
+    batches: Vec<BatchedRender>,
+    current: Option<BatchedRender>,
+}
 
-// impl ElementId {
-//     pub fn from_element(element: &Box<dyn Element>) -> Self {
-//         let (ptr, ..) = (&**element as *const dyn Element).to_raw_parts();
-//         Self(ptr as usize)
+impl BatchedRenderCollector {
+    fn new() -> Self {
+        Default::default()
+    }
+
+    fn add_shape(&mut self, shape: &PaintShape) {
+        match shape {
+            PaintShape::Rectangle(_) => {
+                let el = self
+                    .current
+                    .get_or_insert(BatchedRender::default_for_shape(shape));
+
+                if let Some(num_rects) = el.as_rectangles_mut() {
+                    *num_rects += 1;
+                } else {
+                    self.batches.extend(self.current.take().into_iter());
+
+                    *self
+                        .current
+                        .insert(BatchedRender::default_for_shape(shape))
+                        .as_rectangles_mut()
+                        .unwrap() += 1;
+                };
+            }
+            PaintShape::Text(_) => {
+                self.batches.extend(self.current.take().into_iter());
+                self.batches.push(BatchedRender::default_for_shape(shape));
+            }
+        }
+
+        // if Self::try_incr(shape, &mut el).is_some() {
+        //     return;
+        // }
+
+        // let mut old_batch = BatchedRender::default_for_shape(shape);
+
+        // std::mem::swap(el, &mut old_batch);
+
+        // Self::try_incr(shape, &mut el).unwrap();
+
+        // self.batches.push(old_batch);
+    }
+
+    fn finalize(mut self) -> Vec<BatchedRender> {
+        self.batches.extend(self.current.into_iter());
+        self.batches
+    }
+
+    // fn try_incr(shape: &PaintShape, el: &mut BatchedRender) -> Option<()> {
+    //     match shape {
+    //         PaintShape::Rectangle(_) => {
+    //             *el.as_rectangles_mut()? += 1;
+    //         }
+    //         PaintShape::Text(_) => {
+    //             return None;
+    //         }
+    //     };
+
+    //     Some(())
+    // }
+}
+
+#[derive(EnumAsInner, Debug)]
+enum BatchedRender {
+    Rectangles(u64),
+    TextBox,
+}
+
+impl BatchedRender {
+    pub fn default_for_shape(shape: &PaintShape) -> Self {
+        match shape {
+            PaintShape::Rectangle(_) => Self::Rectangles(Default::default()),
+            PaintShape::Text(_) => Self::TextBox,
+        }
+    }
+}
+
+// struct BatchedRenderIterator<T: Iterator<Item = BatchedRender>> {
+//     inner: T,
+// }
+
+struct BatchRenderer<
+    T: Iterator<Item = BatchedRender>,
+    K: Iterator<Item = BatchedAtlasRenderBoxesEntry>,
+> {
+    inner: T,
+    text_box_iterator: BatchedAtlasRenderBoxIterator<K>,
+}
+
+// impl<T: Iterator<Item = BatchedRender>, K: Iterator<Item = BatchedAtlasRenderBoxesEntry>>
+//     BatchRenderer<T, K>
+// {
+//     pub fn next<'a: 'b, 'b>(
+//         &mut self,
+//         render_pass: &'a mut wgpu::RenderPass<'b>,
+//         resources: &'b mut FontManagerRenderResources<'b>,
+//         scene: &'a mut Scene<impl Element>,
+//     ) -> Option<()> {
+//         match self.inner.next()? {
+//             BatchedRender::Rectangles(num_boxes) => {
+//                 scene.shape_renderer.render_boxes(render_pass, num_boxes);
+//             }
+//             BatchedRender::TextBox => {
+//                 for text_box_batch in &mut self.text_box_iterator {
+//                     scene
+//                         .font_manager
+//                         .render(render_pass, resources, &text_box_batch)
+//                 }
+//             }
+//         };
+
+//         Some(())
 //     }
 // }
 
-// struct ElementTree {
-//     elements: FxHashMap<ElementId, Box<dyn Element>>,
-//     children: FxHashMap<ElementId, Vec<ElementId>>,
-// }
+fn prepare_batch_renderer(
+    scene: &mut Scene<impl Element>,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    shapes: Vec<PaintShape>,
+    scale_fac: f64,
+) -> BatchRenderer<
+    impl Iterator<Item = BatchedRender>,
+    impl Iterator<Item = BatchedAtlasRenderBoxesEntry>,
+> {
+    // let mut batches = Vec::new();
+    let mut batcher = BatchedRenderCollector::new();
+
+    let mut rects = Vec::new();
+    let mut boxes = Vec::new();
+
+    for shape in shapes.into_iter().rev() {
+        batcher.add_shape(&shape);
+
+        match shape {
+            shape::PaintShape::Rectangle(paint_rect) => rects.extend(
+                BoxShaderVertex::from_paint_rect(paint_rect.to_physical(scale_fac)),
+            ),
+            shape::PaintShape::Text(text_box) => boxes.push(text_box),
+        }
+    }
+
+    let num_rects = rects.len();
+
+    scene
+        .shape_renderer
+        .prepare_boxes(device, queue, rects.into_iter());
+
+    let text_box_iterator = scene.font_manager.prepare(boxes);
+
+    BatchRenderer {
+        inner: batcher.finalize().into_iter(),
+        text_box_iterator: text_box_iterator,
+    }
+}
