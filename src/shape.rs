@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, num::NonZeroU64, ops::Range};
+use std::{fmt::Debug, marker::PhantomData, num::NonZeroU64, ops::Range};
 
 use bytemuck::Pod;
 use palette::Srgba;
@@ -13,14 +13,14 @@ use crate::{
     },
 };
 
-pub struct RenderResources<T: Sized + Pod> {
+pub struct RenderResources<T: Sized + Pod + Debug> {
     pub render_pipeline: wgpu::RenderPipeline,
     pub bind_group: wgpu::BindGroup,
 
     pub gpu_buffer: DynamicGPUQuadBuffer<T>,
 }
 
-impl<T: Sized + Pod> RenderResources<T> {
+impl<T: Sized + Pod + Debug> RenderResources<T> {
     pub fn render_quads<'a>(
         &'a self,
         render_pass: &mut wgpu::RenderPass<'a>,
@@ -172,10 +172,7 @@ impl WgpuDescriptor<7> for BoxShaderVertex {
 impl BoxShaderVertex {
     pub fn from_paint_rect(
         paint_rect: PaintRectangle<f32, PhysicalUnit>,
-    ) -> impl Iterator<Item = [Self; 4]> {
-        // let fill_rect = None;
-        // let stroke_rect = None;
-
+    ) -> (impl Iterator<Item = [Self; 4]>, u64) {
         let fill_rect = paint_rect
             .fill
             .map(|f| Self::from_rect_stroked(paint_rect.rect, f, None, None));
@@ -196,7 +193,11 @@ impl BoxShaderVertex {
             },
         );
 
-        [blur_rect, fill_rect, stroke_rect].into_iter().flatten()
+        let rects = [blur_rect, fill_rect, stroke_rect];
+
+        let num_rects = rects.iter().filter(|x| x.is_some()).count();
+
+        (rects.into_iter().flatten(), num_rects as u64)
     }
 
     fn from_rect_stroked(

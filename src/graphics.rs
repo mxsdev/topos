@@ -1,5 +1,6 @@
 use std::{
     cell::{RefCell, RefMut},
+    fmt::Debug,
     marker::PhantomData,
     ops::Range,
     rc::Rc,
@@ -11,7 +12,7 @@ use wgpu::RenderPass;
 
 use crate::util::{MapRange, ScaleRange};
 
-pub struct DynamicGPUQuadBuffer<T: Sized + Pod> {
+pub struct DynamicGPUQuadBuffer<T: Sized + Pod + Debug> {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
 
@@ -23,7 +24,7 @@ pub struct DynamicGPUQuadBuffer<T: Sized + Pod> {
     _data: PhantomData<Vec<T>>,
 }
 
-impl<T: Sized + Pod> DynamicGPUQuadBuffer<T> {
+impl<T: Sized + Pod + Debug> DynamicGPUQuadBuffer<T> {
     const MIN_CAP_QUADS: u64 = 16;
 
     const QUAD_VERTEX_BYTES: u64 = std::mem::size_of::<T>() as u64 * 4;
@@ -87,48 +88,21 @@ impl<T: Sized + Pod> DynamicGPUQuadBuffer<T> {
         render_pass.set_pipeline(&render_pipeline);
         render_pass.set_bind_group(0, &bind_group, &[]);
 
-        // render_pass.set_vertex_buffer(
-        //     0,
-        //     self.vertex_buffer
-        //         .slice(quads.scale(Self::QUAD_VERTEX_BYTES)),
-        // );
+        render_pass.set_vertex_buffer(
+            0,
+            self.vertex_buffer
+                .slice(quads.scale(Self::QUAD_VERTEX_BYTES)),
+        );
 
-        // render_pass.set_index_buffer(
-        //     self.index_buffer.slice(quads.scale(Self::QUAD_INDEX_BYTES)),
-        //     wgpu::IndexFormat::Uint16,
-        // );
-
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-
-        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        render_pass.set_index_buffer(
+            self.index_buffer.slice(quads.scale(Self::QUAD_INDEX_BYTES)),
+            wgpu::IndexFormat::Uint16,
+        );
 
         let num_quads = (quads.end - quads.start) as u32;
 
-        render_pass.draw_indexed(0..18, 0, instances);
+        render_pass.draw_indexed(0..num_quads * 6, 0, instances);
     }
-
-    // pub fn render_all_quads<'a>(
-    //     &'a self,
-    //     render_pipeline: &'a wgpu::RenderPipeline,
-    //     bind_group: &'a wgpu::BindGroup,
-    //     render_pass: &mut wgpu::RenderPass<'a>,
-    //     instances: Range<u32>,
-    // ) {
-    //     self.render_quads(
-    //         render_pipeline,
-    //         bind_group,
-    //         render_pass,
-    //         0..self.num_quads,
-    //         instances,
-    //     );
-    // }
-
-    // fn draw_all_quads<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, instances: Range<u32>) {
-    //     render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-    //     render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-
-    //     render_pass.draw_indexed(0..(self.num_quads * 6) as u32, 0, instances);
-    // }
 
     pub fn write_all_quads(&self, queue: &wgpu::Queue, quads: impl Iterator<Item = [T; 4]>) {
         let (vertex_size, index_size) = Self::buffer_sizes(self.num_quads);

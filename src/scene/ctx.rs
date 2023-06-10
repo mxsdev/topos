@@ -15,25 +15,6 @@ use crate::{
 
 use super::{layout::ElementPlacement, scene};
 
-// #[derive(Default)]
-// pub(super) struct SceneContextInternal {
-//     input: InputState,
-// }
-
-// impl SceneContextInternal {
-//     pub fn new() -> Self {
-//         Self::default()
-//     }
-
-//     pub fn set_input(&mut self, input: InputState) {
-//         self.input = input;
-//     }
-
-//     // pub fn set_placement(&mut self, placement: ElementPlacement) {
-//     //     self.placement = placement
-//     // }
-// }
-
 pub struct SceneContext {
     // internal: Rc<RefCell<SceneContextInternal>>,
     input: Rc<RefCell<InputState>>,
@@ -109,21 +90,4 @@ impl SceneContext {
             self.shapes.extend(ctx.shapes.into_iter());
         }
     }
-
-    // pub fn place_child(&mut self, pos: Pos2, child: ChildUI) {
-    //     let ChildUI { shapes, size } = child;
-
-    //     self.shapes.extend(shapes.into_iter().map(|mut z| {
-    //         z.translate_mut(pos.x, pos.y);
-    //         z
-    //     }));
-    // }
 }
-
-// impl Deref for SceneContext {
-//     type Target = SceneContextInternal;
-
-//     fn deref(&self) -> &Self::Target {
-//         self.scene
-//     }
-// }

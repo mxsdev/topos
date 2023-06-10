@@ -110,13 +110,19 @@ impl<Root: Element + 'static> Scene<Root> {
         let mut text_boxes = Vec::new();
 
         for shape in shapes.into_iter().rev() {
-            batcher.add_shape(&shape);
-
             match shape {
-                shape::PaintShape::Rectangle(paint_rect) => rects.extend(
-                    BoxShaderVertex::from_paint_rect(paint_rect.to_physical(scale_fac)),
-                ),
-                shape::PaintShape::Text(text_box) => text_boxes.push(text_box),
+                shape::PaintShape::Rectangle(paint_rect) => {
+                    let (draw_rects, num_rects) =
+                        BoxShaderVertex::from_paint_rect(paint_rect.to_physical(scale_fac));
+
+                    batcher.add_rects(num_rects);
+
+                    rects.extend(draw_rects)
+                }
+                shape::PaintShape::Text(text_box) => {
+                    batcher.add_text_box();
+                    text_boxes.push(text_box)
+                }
             }
         }
 
@@ -193,42 +199,22 @@ impl BatchedRenderCollector {
         Default::default()
     }
 
-    fn add_shape(&mut self, shape: &PaintShape) {
-        match shape {
-            PaintShape::Rectangle(_) => {
-                let el = self
-                    .current
-                    .get_or_insert(BatchedRender::default_for_shape(shape));
+    fn add_rects(&mut self, quantity: u64) {
+        let el = self
+            .current
+            .get_or_insert(BatchedRender::Rectangles(Default::default()));
 
-                if let Some(num_rects) = el.as_rectangles_mut() {
-                    *num_rects += 1;
-                } else {
-                    self.batches.extend(self.current.take().into_iter());
+        if let Some(num_rects) = el.as_rectangles_mut() {
+            *num_rects += quantity;
+        } else {
+            self.batches.extend(self.current.take().into_iter());
+            self.current = Some(BatchedRender::Rectangles(quantity));
+        };
+    }
 
-                    *self
-                        .current
-                        .insert(BatchedRender::default_for_shape(shape))
-                        .as_rectangles_mut()
-                        .unwrap() += 1;
-                };
-            }
-            PaintShape::Text(_) => {
-                self.batches.extend(self.current.take().into_iter());
-                self.batches.push(BatchedRender::default_for_shape(shape));
-            }
-        }
-
-        // if Self::try_incr(shape, &mut el).is_some() {
-        //     return;
-        // }
-
-        // let mut old_batch = BatchedRender::default_for_shape(shape);
-
-        // std::mem::swap(el, &mut old_batch);
-
-        // Self::try_incr(shape, &mut el).unwrap();
-
-        // self.batches.push(old_batch);
+    fn add_text_box(&mut self) {
+        self.batches.extend(self.current.take().into_iter());
+        self.batches.push(BatchedRender::TextBox);
     }
 
     fn finalize(mut self) -> Vec<BatchedRender> {
@@ -303,43 +289,41 @@ struct BatchRenderer<
 //     }
 // }
 
-fn prepare_batch_renderer(
-    scene: &mut Scene<impl Element>,
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    shapes: Vec<PaintShape>,
-    scale_fac: f64,
-) -> BatchRenderer<
-    impl Iterator<Item = BatchedRender>,
-    impl Iterator<Item = BatchedAtlasRenderBoxesEntry>,
-> {
-    // let mut batches = Vec::new();
-    let mut batcher = BatchedRenderCollector::new();
+// fn prepare_batch_renderer(
+//     scene: &mut Scene<impl Element>,
+//     device: &wgpu::Device,
+//     queue: &wgpu::Queue,
+//     shapes: Vec<PaintShape>,
+//     scale_fac: f64,
+// ) -> BatchRenderer<
+//     impl Iterator<Item = BatchedRender>,
+//     impl Iterator<Item = BatchedAtlasRenderBoxesEntry>,
+// > {
+//     // let mut batches = Vec::new();
+//     let mut batcher = BatchedRenderCollector::new();
 
-    let mut rects = Vec::new();
-    let mut boxes = Vec::new();
+//     let mut rects = Vec::new();
+//     let mut boxes = Vec::new();
 
-    for shape in shapes.into_iter().rev() {
-        batcher.add_shape(&shape);
+//     for shape in shapes.into_iter().rev() {
+//         match shape {
+//             shape::PaintShape::Rectangle(paint_rect) => rects.extend(
+//                 BoxShaderVertex::from_paint_rect(paint_rect.to_physical(scale_fac)),
+//             ),
+//             shape::PaintShape::Text(text_box) => boxes.push(text_box),
+//         }
+//     }
 
-        match shape {
-            shape::PaintShape::Rectangle(paint_rect) => rects.extend(
-                BoxShaderVertex::from_paint_rect(paint_rect.to_physical(scale_fac)),
-            ),
-            shape::PaintShape::Text(text_box) => boxes.push(text_box),
-        }
-    }
+//     let num_rects = rects.len();
 
-    let num_rects = rects.len();
+//     scene
+//         .shape_renderer
+//         .prepare_boxes(device, queue, rects.into_iter());
 
-    scene
-        .shape_renderer
-        .prepare_boxes(device, queue, rects.into_iter());
+//     let text_box_iterator = scene.font_manager.prepare(boxes);
 
-    let text_box_iterator = scene.font_manager.prepare(boxes);
-
-    BatchRenderer {
-        inner: batcher.finalize().into_iter(),
-        text_box_iterator: text_box_iterator,
-    }
-}
+//     BatchRenderer {
+//         inner: batcher.finalize().into_iter(),
+//         text_box_iterator: text_box_iterator,
+//     }
+// }
