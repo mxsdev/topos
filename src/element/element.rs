@@ -1,7 +1,13 @@
 use std::borrow::BorrowMut;
+use std::marker::PhantomData;
+use std::ops::{Deref, DerefMut};
+use std::time::UNIX_EPOCH;
+
+use uuid::Uuid;
 
 use crate::refbox::{self, coerce_ref, RefBox};
 
+use crate::scene::scene::SceneResources;
 use crate::{
     scene::{ctx::SceneContext, layout::LayoutPass, update::UpdatePass, PaintPass},
     util::{LogicalUnit, Pos2, Size2},
@@ -20,19 +26,34 @@ pub struct SizeConstraint<F = f32> {
     pub max: Size2<F>,
 }
 
-pub type ElementId = usize;
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
+pub struct ElementId {
+    inner: Uuid,
+}
+
+impl ElementId {
+    pub fn new() -> Self {
+        Self {
+            inner: Uuid::new_v4(),
+        }
+    }
+}
+
+pub trait RootConstructor: Element {
+    fn new(resources: &SceneResources) -> Self;
+}
 
 pub trait Element {
     fn layout(&mut self, constraints: SizeConstraint, layout_pass: &mut LayoutPass) -> Size2;
     fn ui(&mut self, ctx: &mut SceneContext, pos: Pos2);
 
-    fn id(&self) -> ElementId
-    where
-        Self: Sized,
-    {
-        let (id, _) = (self as *const dyn Element).to_raw_parts();
-        id as ElementId
-    }
+    // fn id(&self) -> ElementId
+    // where
+    //     Self: Sized,
+    // {
+    //     let (id, _) = (self as *const dyn Element).to_raw_parts();
+    //     id as ElementId
+    // }
 
     // fn ui(&mut self, ctx: &mut SceneContext, constraint: SizeConstraint) -> Size2;
 
@@ -55,7 +76,31 @@ pub trait Element {
     // fn on_hover_exit(&mut self) {}
 }
 
-pub type ElementRef<T: Element + ?Sized> = T;
+pub struct ElementRef<T: Element> {
+    element: T,
+    id: ElementId,
+}
+
+impl<T: Element> From<T> for ElementRef<T> {
+    fn from(value: T) -> Self {
+        ElementRef {
+            element: value,
+            id: ElementId::new(),
+        }
+    }
+}
+
+impl<T: Element> ElementRef<T> {
+    pub fn get(&mut self) -> &mut T {
+        &mut self.element
+    }
+
+    pub fn id(&self) -> ElementId {
+        self.id
+    }
+}
+
+// pub type ElementRef<T: Element + ?Sized> = T;
 
 // pub struct ElementRef<T: Element + ?Sized> {
 //     element: RefBox<T>,

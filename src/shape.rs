@@ -277,21 +277,24 @@ pub struct PaintRectangle<F: CanScale = f32, U = LogicalUnit> {
     pub blur: Option<PaintBlur>,
 }
 
-pub enum PaintShape {
-    Rectangle(PaintRectangle),
-    Text(PlacedTextBox),
-}
-
-impl Into<PaintShape> for PaintRectangle {
-    fn into(self) -> PaintShape {
-        PaintShape::Rectangle(self)
+custom_derive! {
+    #[derive(EnumFromInner)]
+    pub enum PaintShape {
+        Rectangle(PaintRectangle),
+        Text(PlacedTextBox),
     }
 }
+
+// impl Into<PaintShape> for PaintRectangle {
+//     fn into(self) -> PaintShape {
+//         PaintShape::Rectangle(self)
+//     }
+// }
 
 impl<F: CanScale> LogicalToPhysical for PaintRectangle<F, LogicalUnit> {
     type PhysicalResult = PaintRectangle<F, PhysicalUnit>;
 
-    fn to_physical(&self, scale_factor: f64) -> Self::PhysicalResult {
+    fn to_physical(&self, scale_factor: impl CanScale) -> Self::PhysicalResult {
         Self::PhysicalResult {
             fill: self.fill,
             stroke_color: self.stroke_color,

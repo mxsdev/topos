@@ -1,9 +1,11 @@
 use std::{
     cell::{RefCell, RefMut},
+    ops::DerefMut,
     rc::Rc,
-    sync::Arc,
+    sync::{Arc, Mutex, MutexGuard},
 };
 
+use cosmic_text::FontSystem;
 use enum_as_inner::EnumAsInner;
 use rustc_hash::FxHashMap;
 use swash::scale;
@@ -13,12 +15,12 @@ use crate::{
         self, BatchedAtlasRender, BatchedAtlasRenderBoxIterator, BatchedAtlasRenderBoxesEntry,
         FontManagerRenderResources,
     },
-    element::{Element, ElementEvent, ElementRef, SizeConstraint},
+    element::{Element, ElementEvent, ElementRef, RootConstructor, SizeConstraint},
     input::{input_state::InputState, winit::WinitState},
     scene::update::UpdatePass,
     shape::{self, BoxShaderVertex, PaintRectangle, PaintShape},
     surface::{RenderSurface, RenderingContext},
-    util::{LogicalToPhysical, PhysicalToLogical, Pos2, Size2, ToEuclid},
+    util::{LogicalToPhysical, LogicalToPhysicalInto, PhysicalToLogical, Pos2, Size2, ToEuclid},
 };
 
 use super::{
@@ -27,7 +29,23 @@ use super::{
     PaintPass,
 };
 
-pub struct Scene<Root: Element + 'static> {
+#[derive(Clone)]
+pub struct SceneResources {
+    font_system: Arc<Mutex<FontSystem>>,
+    scale_factor: f32,
+}
+
+impl SceneResources {
+    pub fn font_system(&self) -> impl DerefMut<Target = FontSystem> + '_ {
+        self.font_system.lock().unwrap()
+    }
+
+    pub fn scale_factor(&self) -> f32 {
+        self.scale_factor
+    }
+}
+
+pub struct Scene<Root: RootConstructor + 'static> {
     font_manager: atlas::FontManager,
     shape_renderer: shape::ShapeRenderer,
 
@@ -37,21 +55,27 @@ pub struct Scene<Root: Element + 'static> {
     root: ElementRef<Root>,
 }
 
-impl<Root: Element + 'static> Scene<Root> {
-    pub fn new(rendering_context: Arc<RenderingContext>, root: Root) -> Self {
+impl<Root: RootConstructor + 'static> Scene<Root> {
+    pub fn new(rendering_context: Arc<RenderingContext>, scale_fac: f64) -> Self {
         let shape_renderer = shape::ShapeRenderer::new(&rendering_context);
         let font_manager = atlas::FontManager::new(rendering_context);
 
         // let mut elements: Vec<Box<dyn Element>> = Default::default();
         // elements.push(Box::new(TestElement::new()));
 
+        let scene_resources = SceneResources {
+            font_system: font_manager.get_font_system_ref(),
+            scale_factor: scale_fac as f32,
+        };
+
+        let root = Root::new(&scene_resources).into();
+
         Self {
             font_manager,
             shape_renderer,
 
             last_mouse_pos: None,
-
-            root: root.into(),
+            root,
         }
     }
 
@@ -92,15 +116,19 @@ impl<Root: Element + 'static> Scene<Root> {
         };
 
         // layout pass
-        let mut layout_pass = LayoutPass::create(&mut self.root);
-        self.root.layout(default_constraints, &mut layout_pass);
+        let scene_resources = self.generate_scene_resources(scale_fac as f32);
+
+        let mut layout_pass = LayoutPass::new(&mut self.root, scene_resources);
+        self.root
+            .get()
+            .layout(default_constraints, &mut layout_pass);
 
         let scene_layout = layout_pass.finish();
 
         // render pass
         let mut scene_context = SceneContext::new(input, scene_layout, scale_fac as f32);
 
-        self.root.ui(&mut scene_context, Pos2::zero());
+        self.root.get().ui(&mut scene_context, Pos2::zero());
 
         let (shapes, input) = scene_context.drain();
 
@@ -117,11 +145,11 @@ impl<Root: Element + 'static> Scene<Root> {
 
                     batcher.add_rects(num_rects);
 
-                    rects.extend(draw_rects)
+                    rects.extend(draw_rects);
                 }
                 shape::PaintShape::Text(text_box) => {
                     batcher.add_text_box();
-                    text_boxes.push(text_box)
+                    text_boxes.push(text_box.to_physical(scale_fac));
                 }
             }
         }
@@ -185,6 +213,13 @@ impl<Root: Element + 'static> Scene<Root> {
         input
 
         // Ok(())
+    }
+
+    fn generate_scene_resources(&self, scale_factor: f32) -> SceneResources {
+        SceneResources {
+            font_system: self.font_manager.get_font_system_ref(),
+            scale_factor,
+        }
     }
 }
 

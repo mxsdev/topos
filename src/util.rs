@@ -66,34 +66,57 @@ impl<P> ToEuclid for winit::dpi::LogicalSize<P> {
 
 pub trait LogicalToPhysical {
     type PhysicalResult;
-    fn to_physical(&self, scale_factor: f64) -> Self::PhysicalResult;
+    fn to_physical(&self, scale_factor: impl CanScale) -> Self::PhysicalResult;
+}
+
+pub trait LogicalToPhysicalInto {
+    type PhysicalResult;
+    fn to_physical(self, scale_factor: impl CanScale) -> Self::PhysicalResult;
 }
 
 pub trait PhysicalToLogical {
     type LogicalResult;
-    fn to_logical(&self, scale_factor: f64) -> Self::LogicalResult;
+    fn to_logical(&self, scale_factor: impl CanScale) -> Self::LogicalResult;
 }
 
 pub trait CanScale: Float {
-    fn from_scale_fac(scale_factor: f64) -> Self;
+    fn from_scale_fac(scale_factor: impl CanScale) -> Self;
+    fn as_f32(self) -> f32;
+    fn as_f64(self) -> f64;
 }
 
 impl CanScale for f64 {
-    fn from_scale_fac(scale_factor: f64) -> Self {
-        scale_factor
+    fn from_scale_fac(scale_factor: impl CanScale) -> Self {
+        scale_factor.as_f64()
+    }
+
+    fn as_f32(self) -> f32 {
+        self as f32
+    }
+
+    fn as_f64(self) -> f64 {
+        self
     }
 }
 
 impl CanScale for f32 {
-    fn from_scale_fac(scale_factor: f64) -> Self {
-        scale_factor as Self
+    fn from_scale_fac(scale_factor: impl CanScale) -> Self {
+        scale_factor.as_f32()
+    }
+
+    fn as_f32(self) -> f32 {
+        self
+    }
+
+    fn as_f64(self) -> f64 {
+        self as f64
     }
 }
 
 impl<F: CanScale> LogicalToPhysical for F {
     type PhysicalResult = F;
 
-    fn to_physical(&self, scale_factor: f64) -> Self::PhysicalResult {
+    fn to_physical(&self, scale_factor: impl CanScale) -> Self::PhysicalResult {
         *self * F::from_scale_fac(scale_factor)
     }
 }
@@ -101,7 +124,7 @@ impl<F: CanScale> LogicalToPhysical for F {
 impl<F: CanScale> LogicalToPhysical for Pos2<F> {
     type PhysicalResult = PhysicalPos2<F>;
 
-    fn to_physical(&self, scale_factor: f64) -> Self::PhysicalResult {
+    fn to_physical(&self, scale_factor: impl CanScale) -> Self::PhysicalResult {
         let scale_factor = F::from_scale_fac(scale_factor);
         Self::PhysicalResult::new(self.x * scale_factor, self.y * scale_factor)
     }
@@ -110,7 +133,7 @@ impl<F: CanScale> LogicalToPhysical for Pos2<F> {
 impl<F: CanScale> LogicalToPhysical for Vec2<F> {
     type PhysicalResult = PhysicalVec2<F>;
 
-    fn to_physical(&self, scale_factor: f64) -> Self::PhysicalResult {
+    fn to_physical(&self, scale_factor: impl CanScale) -> Self::PhysicalResult {
         let scale_factor = F::from_scale_fac(scale_factor);
         Self::PhysicalResult::new(self.x * scale_factor, self.y * scale_factor)
     }
@@ -119,7 +142,7 @@ impl<F: CanScale> LogicalToPhysical for Vec2<F> {
 impl<F: CanScale> LogicalToPhysical for Size2<F> {
     type PhysicalResult = PhysicalSize2<F>;
 
-    fn to_physical(&self, scale_factor: f64) -> Self::PhysicalResult {
+    fn to_physical(&self, scale_factor: impl CanScale) -> Self::PhysicalResult {
         let scale_factor = F::from_scale_fac(scale_factor);
         Self::PhysicalResult::new(self.width * scale_factor, self.height * scale_factor)
     }
@@ -128,7 +151,7 @@ impl<F: CanScale> LogicalToPhysical for Size2<F> {
 impl<F: CanScale> LogicalToPhysical for Rect<F> {
     type PhysicalResult = PhysicalRect<F>;
 
-    fn to_physical(&self, scale_factor: f64) -> Self::PhysicalResult {
+    fn to_physical(&self, scale_factor: impl CanScale) -> Self::PhysicalResult {
         Self::PhysicalResult::new(
             self.min.to_physical(scale_factor),
             self.max.to_physical(scale_factor),
@@ -139,7 +162,7 @@ impl<F: CanScale> LogicalToPhysical for Rect<F> {
 impl<F: CanScale> LogicalToPhysical for RoundedRect<F> {
     type PhysicalResult = PhysicalRoundedRect<F>;
 
-    fn to_physical(&self, scale_factor: f64) -> Self::PhysicalResult {
+    fn to_physical(&self, scale_factor: impl CanScale) -> Self::PhysicalResult {
         Self::PhysicalResult::new(
             self.rect.to_physical(scale_factor),
             self.radius.map(|r| r.to_physical(scale_factor)),
@@ -150,7 +173,7 @@ impl<F: CanScale> LogicalToPhysical for RoundedRect<F> {
 impl<F: CanScale> PhysicalToLogical for PhysicalSize2<F> {
     type LogicalResult = Size2<F>;
 
-    fn to_logical(&self, scale_factor: f64) -> Self::LogicalResult {
+    fn to_logical(&self, scale_factor: impl CanScale) -> Self::LogicalResult {
         let scale_factor = F::from_scale_fac(scale_factor);
         Self::LogicalResult::new(self.width / scale_factor, self.height / scale_factor)
     }

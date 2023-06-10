@@ -1,7 +1,7 @@
 use accesskit::Rect;
 
 #[repr(u32)]
-#[derive(Clone, Copy, Eq, PartialEq, Hash)]
+#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
 pub(crate) enum GlyphContentType {
     Color = 0,
     Mask = 1,
@@ -16,10 +16,10 @@ impl GlyphContentType {
     }
 }
 
-pub struct TextBox {
-    buffer: cosmic_text::Buffer,
-    clip_rect: Option<Rect>,
-}
+// pub struct TextBox {
+//     buffer: cosmic_text::Buffer,
+//     clip_rect: Option<Rect>,
+// }
 
 // pub struct TextView {}
 

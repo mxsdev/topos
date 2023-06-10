@@ -8,13 +8,13 @@ use winit::{
 };
 
 use crate::{
-    element::Element,
+    element::{Element, RootConstructor},
     input::{self, input_state::InputState, winit::WinitState},
     scene::scene::Scene,
     surface::RenderSurface,
 };
 
-pub struct App<Root: Element + 'static> {
+pub struct App<Root: RootConstructor + 'static> {
     event_loop: EventLoop<()>,
     window: winit::window::Window,
 
@@ -25,7 +25,7 @@ pub struct App<Root: Element + 'static> {
     input_state: InputState,
 }
 
-impl<Root: Element + 'static> App<Root> {
+impl<Root: RootConstructor + 'static> App<Root> {
     pub fn run(mut self) {
         use std::time::*;
 
@@ -72,7 +72,7 @@ impl<Root: Element + 'static> App<Root> {
                         (last_render_duration, last_render_time)
                     {
                         if let Some(frame_time) = get_window_frame_time(&self.window) {
-                            let elapsed_time = Instant::now().duration_since(last_render_time);
+                            let elapsed_time = last_render_time.elapsed();
 
                             let buffer_duration = last_render_duration + Duration::from_micros(0);
 
@@ -87,7 +87,7 @@ impl<Root: Element + 'static> App<Root> {
 
                         let texture_block_start = Instant::now();
                         let output = self.render_surface.surface().get_current_texture();
-                        let texture_block_time = Instant::now().duration_since(texture_block_start);
+                        let texture_block_time = texture_block_start.elapsed();
                         // log::trace!("texture block time: {:?}", texture_block_time);
 
                         match output {
@@ -105,7 +105,7 @@ impl<Root: Element + 'static> App<Root> {
                                 let end = Instant::now();
 
                                 last_render_time = Some(start);
-                                last_render_duration = Some(end.duration_since(start));
+                                last_render_duration = Some(start.elapsed());
                             }
                             // Reconfigure the surface if lost
                             Err(wgpu::SurfaceError::Lost) => self.render_surface.reconfigure(),
@@ -115,7 +115,7 @@ impl<Root: Element + 'static> App<Root> {
                             Err(e) => eprintln!("{:?}", e),
                         }
 
-                        let render_time = Instant::now().duration_since(render_start_time);
+                        let render_time = render_start_time.elapsed();
                         // log::trace!("render_time: {:?}", render_time);
                     }
                 }
@@ -136,14 +136,14 @@ impl<Root: Element + 'static> App<Root> {
         });
     }
 
-    pub async fn new(root: Root) -> Self {
+    pub async fn new() -> Self {
         let event_loop = EventLoop::new();
         let window = WindowBuilder::new().build(&event_loop).unwrap();
 
         let render_surface = RenderSurface::new(&window).await;
         let rendering_context = render_surface.clone_rendering_context();
 
-        let scene = Scene::new(rendering_context, root);
+        let scene = Scene::new(rendering_context, window.scale_factor());
 
         let winit_state = WinitState::new(&window);
         let input_state = InputState::default().into();

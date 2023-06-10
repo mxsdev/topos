@@ -8,6 +8,8 @@ use std::{
 
 use euclid::size2;
 
+use itertools::Itertools;
+use palette::Srgba;
 use rayon::prelude::*;
 
 use cosmic_text::{FontSystem, LayoutGlyph};
@@ -22,7 +24,10 @@ use crate::{
     num::NextPowerOfTwo,
     surface::{ParamsBuffer, RenderingContext},
     text::GlyphContentType,
-    util::{PhysicalPos2, PhysicalRect, PhysicalSize2, PhysicalVec2, WgpuDescriptor},
+    util::{
+        CanScale, LogicalToPhysical, LogicalToPhysicalInto, LogicalUnit, PhysicalPos2,
+        PhysicalRect, PhysicalSize2, PhysicalUnit, PhysicalVec2, Pos2, Rect, WgpuDescriptor,
+    },
 };
 
 type GlyphCacheKey = cosmic_text::CacheKey;
@@ -31,6 +36,7 @@ pub struct GlyphToRender {
     size: PhysicalSize2<u32>,
     draw_rect: PhysicalRect,
     alloc: AtlasAllocation, // uv: Option<Size2>,
+    color: Srgba,
     clip_rect: Option<PhysicalRect>,
 }
 
@@ -160,37 +166,39 @@ impl FontAtlas {
                      alloc: AtlasAllocation { rectangle: uv, .. },
                      draw_rect,
                      size,
+                     color,
                      ..
                  }| {
                     let alloc_pos = PhysicalPos2::new(uv.min.x as u32, uv.min.y as u32);
                     let uv = PhysicalRect::new(alloc_pos, alloc_pos + *size);
+                    let color = (*color).into();
 
                     [
                         FontVertex {
                             pos: [draw_rect.min.x, draw_rect.min.y],
                             uv: [uv.min.x as u32, uv.min.y as u32],
-                            color: [1., 1., 1., 1.],
+                            color,
                             content_type: self.atlas_type as u32,
                             depth: 0.,
                         },
                         FontVertex {
                             pos: [draw_rect.max.x, draw_rect.min.y],
                             uv: [uv.max.x as u32, uv.min.y as u32],
-                            color: [1., 1., 1., 1.],
+                            color,
                             content_type: self.atlas_type as u32,
                             depth: 0.,
                         },
                         FontVertex {
                             pos: [draw_rect.min.x, draw_rect.max.y],
                             uv: [uv.min.x as u32, uv.max.y as u32],
-                            color: [1., 1., 1., 1.],
+                            color,
                             content_type: self.atlas_type as u32,
                             depth: 0.,
                         },
                         FontVertex {
                             pos: [draw_rect.max.x, draw_rect.max.y],
                             uv: [uv.max.x as u32, uv.max.y as u32],
-                            color: [1., 1., 1., 1.],
+                            color,
                             content_type: self.atlas_type as u32,
                             depth: 0.,
                         },
@@ -368,7 +376,7 @@ impl FontAtlas {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct AtlasId(GlyphContentType, u32);
 
 #[derive(Clone, Copy)]
@@ -398,6 +406,41 @@ struct FontAtlasManager {
     rendering_context: Arc<RenderingContext>,
 }
 
+pub struct PlacedTextBox<F = f32, U = LogicalUnit> {
+    glyphs: Vec<PlacedGlyph>,
+    clip_rect: Option<euclid::Box2D<F, U>>,
+    color: Srgba,
+    pub pos: euclid::Point2D<F, U>,
+}
+
+impl<U> PlacedTextBox<f32, U> {
+    pub fn from_buffer(
+        buffer: &cosmic_text::Buffer,
+        pos: euclid::Point2D<f32, U>,
+        color: Srgba,
+    ) -> Self {
+        Self {
+            glyphs: PlacedGlyph::from_buffer(buffer).collect(),
+            clip_rect: None,
+            pos,
+            color,
+        }
+    }
+}
+
+impl<F: CanScale> LogicalToPhysicalInto for PlacedTextBox<F, LogicalUnit> {
+    type PhysicalResult = PlacedTextBox<F, PhysicalUnit>;
+
+    fn to_physical(self, scale_factor: impl CanScale) -> Self::PhysicalResult {
+        Self::PhysicalResult {
+            clip_rect: self.clip_rect.map(|x| x.to_physical(scale_factor)),
+            color: self.color,
+            glyphs: self.glyphs,
+            pos: self.pos.to_physical(scale_factor),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct PlacedGlyph {
     // pub glyph: &'a LayoutGlyph,
@@ -406,12 +449,6 @@ pub struct PlacedGlyph {
     pub line_offset: f32,
     pub cache_key: GlyphCacheKey,
     pub depth: f32,
-}
-
-pub struct PlacedTextBox {
-    glyphs: Vec<PlacedGlyph>,
-    clip_rect: Option<PhysicalRect>,
-    pub pos: PhysicalPos2,
 }
 
 impl PlacedGlyph {
@@ -453,6 +490,7 @@ macro_rules! get_coll_mut {
     };
 }
 
+#[derive(Debug)]
 pub struct BatchedAtlasRender {
     pub atlas_id: AtlasId,
     pub num_quads: u64,
@@ -467,6 +505,7 @@ impl BatchedAtlasRender {
     }
 }
 
+#[derive(Debug)]
 pub enum BatchedAtlasRenderBoxesEntry {
     Batch(BatchedAtlasRender),
     Done,
@@ -506,6 +545,9 @@ impl BatchedAtlasRenderBoxes {
     }
 
     fn finish_text_box(&mut self) {
+        self.batches
+            .extend(self.render_batch.take().into_iter().map(Into::into));
+
         self.batches.push(BatchedAtlasRenderBoxesEntry::Done)
     }
 
@@ -551,7 +593,7 @@ impl FontAtlasManager {
 
     pub fn prepare<'a>(
         &mut self,
-        boxes: impl Iterator<Item = PlacedTextBox>,
+        boxes: impl Iterator<Item = PlacedTextBox<f32, PhysicalUnit>>,
     ) -> BatchedAtlasRenderBoxIterator<impl Iterator<Item = BatchedAtlasRenderBoxesEntry>> {
         // convert to renderable glyphs
         let mut partition = FxHashMap::<
@@ -563,6 +605,7 @@ impl FontAtlasManager {
                 AtlasAllocation,
                 Option<PhysicalRect>,
                 PhysicalPos2,
+                Srgba,
             )>,
         >::default();
 
@@ -592,6 +635,7 @@ impl FontAtlasManager {
                                 *allocation,
                                 text_box.clip_rect,
                                 text_box.pos,
+                                text_box.color,
                             ))
                     }
                     None => log::debug!("Glyph {} not cached", glyph.cache_key.glyph_id),
@@ -606,30 +650,27 @@ impl FontAtlasManager {
             let render_context = self.rendering_context.clone();
 
             if let Some(atlas) = self.get_atlas_mut(atlas_id) {
-                let glyphs_to_render =
-                    layout_glyphs
-                        .iter()
-                        .map(|(g, size, placement, alloc, clip_rect, pos)| {
-                            // Log::trace!("{}", g.y_int);
+                let glyphs_to_render = layout_glyphs.iter().map(
+                    |(g, size, placement, alloc, clip_rect, pos, color)| {
+                        let glyph_pos = *pos
+                            + PhysicalVec2::new(
+                                g.x_int as f32 + placement.x as f32,
+                                g.y_int as f32 - placement.y as f32 + g.line_offset,
+                            );
 
-                            let glyph_pos = *pos
-                                + PhysicalVec2::new(
-                                    g.x_int as f32 + placement.x as f32,
-                                    g.y_int as f32 - placement.y as f32 + g.line_offset,
-                                );
+                        let rect_size = PhysicalSize2::new(size.width as f32, size.height as f32);
 
-                            let rect_size =
-                                PhysicalSize2::new(size.width as f32, size.height as f32);
+                        let draw_rect = PhysicalRect::new(glyph_pos, glyph_pos + rect_size);
 
-                            let draw_rect = PhysicalRect::new(glyph_pos, glyph_pos + rect_size);
-
-                            GlyphToRender {
-                                alloc: *alloc,
-                                draw_rect,
-                                size: *size,
-                                clip_rect: *clip_rect,
-                            }
-                        });
+                        GlyphToRender {
+                            alloc: *alloc,
+                            draw_rect,
+                            size: *size,
+                            clip_rect: *clip_rect,
+                            color: *color,
+                        }
+                    },
+                );
 
                 atlas.prepare(&render_context, glyphs_to_render.collect());
             }
@@ -717,7 +758,6 @@ impl FontAtlasManager {
             .flatten()
             .next()
             .or_else(|| {
-                log::trace!("glyph size = {:?}", glyph_size);
                 let size = u32::max(glyph_size.width, glyph_size.height).next_power_of_2();
                 let atlas_id = self.create_atlas(kind, size);
 
@@ -792,7 +832,7 @@ impl FontManager {
 
     pub fn prepare<'a>(
         &mut self,
-        text_boxes: Vec<PlacedTextBox>,
+        text_boxes: Vec<PlacedTextBox<f32, PhysicalUnit>>,
     ) -> BatchedAtlasRenderBoxIterator<impl Iterator<Item = BatchedAtlasRenderBoxesEntry>> {
         self.generate_textures(
             text_boxes
@@ -806,6 +846,10 @@ impl FontManager {
             .write()
             .unwrap()
             .prepare(text_boxes.into_iter())
+    }
+
+    pub fn get_font_system_ref(&self) -> Arc<Mutex<FontSystem>> {
+        self.font_system.clone()
     }
 
     pub fn get_font_system(&mut self) -> MutexGuard<'_, cosmic_text::FontSystem> {

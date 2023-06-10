@@ -7,7 +7,7 @@ use std::{
 use euclid::{default, Translation2D};
 
 use crate::{
-    element::{Element, SizeConstraint},
+    element::{Element, ElementRef, SizeConstraint},
     input::input_state::InputState,
     shape::PaintShape,
     util::{Pos2, Size2, Translate2DMut},
@@ -73,20 +73,20 @@ impl SceneContext {
         self.shapes.push(shape.into())
     }
 
-    pub fn add_buffer(&mut self, buffer: &cosmic_text::Buffer) {}
+    // pub fn add_buffer(&mut self, buffer: &cosmic_text::Buffer) {}
 
     pub fn input(&mut self) -> RefMut<InputState> {
         self.input.borrow_mut()
     }
 
-    pub fn render_child(&mut self, element: &mut impl Element) {
+    pub fn render_child(&mut self, element: &mut ElementRef<impl Element>) {
         let mut ctx = self.clone();
 
         let scene_layout = self.scene_layout.borrow();
         let placement = scene_layout.get(&element.id());
 
         if let Some(pos) = placement {
-            element.ui(&mut ctx, *pos);
+            element.get().ui(&mut ctx, *pos);
             self.shapes.extend(ctx.shapes.into_iter());
         }
     }

@@ -4,6 +4,11 @@
 // #![feature(new_uninit)]
 // #![feature(maybe_uninit_write_slice)]
 
+#[macro_use]
+extern crate custom_derive;
+#[macro_use]
+extern crate enum_derive;
+
 mod app;
 mod atlas;
 mod buffer;
@@ -28,7 +33,7 @@ use pollster::FutureExt;
 use test::{TestRect, TestRoot};
 
 pub async fn run() {
-    app::App::new(TestRoot::new()).await.run();
+    app::App::<TestRoot>::new().await.run();
 }
 
 fn main() {
