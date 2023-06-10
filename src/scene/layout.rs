@@ -1,39 +1,47 @@
 use std::ops::DerefMut;
 
 use cosmic_text::FontSystem;
-use ordered_hash_map::OrderedHashMap;
 use rustc_hash::FxHashMap;
 
 use crate::{
-    element::{Element, ElementId, ElementRef, SizeConstraint},
+    element::{Element, ElementId, ElementRef, ElementWeakref, SizeConstraint},
+    input::input_state::InputState,
     util::{Pos2, Size2, Vec2},
 };
 
-use super::scene::SceneResources;
+use super::{ctx::SceneContext, scene::SceneResources};
 
-pub type ElementPlacement = FxHashMap<ElementId, Pos2>;
-// pub type ElementPlacement = Vec<(ElementWeakref<dyn Element>, Pos2)>;
+pub struct SceneLayout {
+    elements: Vec<(ElementWeakref<dyn Element>, Pos2)>,
+}
+
+impl SceneLayout {
+    pub(super) fn do_input_pass(&mut self, input: &mut InputState) {
+        for (element, pos) in self.elements.iter_mut().rev() {
+            if let Some(mut element) = element.try_get() {
+                element.input(input, *pos)
+            }
+        }
+    }
+
+    pub(super) fn do_ui_pass(&mut self, ctx: &mut SceneContext) {
+        for (element, pos) in self.elements.iter_mut() {
+            if let Some(mut element) = element.try_get() {
+                element.ui(ctx, *pos)
+            }
+        }
+    }
+}
 
 pub struct LayoutPass {
-    // pub(super) elements: Vec<ElementRef<'a>>,
-    // result: FxHashMap<ElementRef<'a>, u32>,
-    id: ElementId,
-    // element: ElementWeakref<dyn Element>,
+    element: ElementWeakref<dyn Element>,
     placement: Option<Vec2>,
-    children: OrderedHashMap<ElementId, LayoutPass>,
+
+    children: Vec<LayoutPass>,
+    children_map: FxHashMap<ElementId, usize>,
 
     scene_resources: SceneResources,
 }
-
-// type ElementRef<'a> = &'a mut dyn Element;
-
-// pub struct LayoutHandle<'a> {
-//     element_ref: ElementRef<'a>,
-//     pub size: Size2,
-//     // id: usize,
-// }
-
-struct LayoutNode {}
 
 impl LayoutPass {
     pub(super) fn new(
@@ -41,10 +49,11 @@ impl LayoutPass {
         scene_resources: SceneResources,
     ) -> Self {
         Self {
-            id: root.id(),
             placement: Default::default(),
             children: Default::default(),
+            children_map: Default::default(),
             scene_resources,
+            element: root.get_weak_dyn(),
         }
     }
 
@@ -52,44 +61,88 @@ impl LayoutPass {
         Self::new(child, self.scene_resources.clone())
     }
 
+    pub fn layout_and_place_child(
+        &mut self,
+        child: &mut ElementRef<impl Element + 'static>,
+        constraints: SizeConstraint,
+        pos: Pos2,
+    ) -> Size2 {
+        let (size, idx) = self.layout_child_inner(child, constraints);
+        self.place_child_inner(child, pos, idx);
+
+        size
+    }
+
+    fn layout_child_inner(
+        &mut self,
+        child: &mut ElementRef<impl Element + 'static>,
+        constraints: SizeConstraint,
+    ) -> (Size2, usize) {
+        let mut child_node = self.create(child);
+
+        let size = child.get().layout(constraints, &mut child_node);
+
+        let idx = self.children.len();
+
+        self.children.push(child_node);
+        self.children_map.insert(child.id(), idx);
+
+        (size, idx)
+    }
+
     pub fn layout_child(
         &mut self,
         child: &mut ElementRef<impl Element + 'static>,
         constraints: SizeConstraint,
     ) -> Size2 {
-        let mut child_node = self.create(child);
+        self.layout_child_inner(child, constraints).0
+    }
 
-        let size = child.get().layout(constraints, &mut child_node);
-
-        self.children.insert(child.id(), child_node);
-
-        size
+    fn place_child_inner(&mut self, element: &ElementRef<impl Element>, pos: Pos2, idx: usize) {
+        self.children[idx].placement = Some(pos.to_vector());
     }
 
     pub fn place_child(&mut self, element: &ElementRef<impl Element>, pos: Pos2) {
-        if let Some(child) = self.children.get_mut(&element.id()) {
-            child.placement = Some(pos.to_vector());
+        if let Some(idx) = self.children_map.get(&element.id()) {
+            self.place_child_inner(element, pos, *idx)
         }
     }
 
-    fn populate_placement(self, mut pos: Pos2, memo: &mut ElementPlacement) {
+    pub(super) fn do_layout_pass(
+        mut self,
+        screen_size: Size2,
+        root: &mut ElementRef<impl Element>,
+    ) -> SceneLayout {
+        let default_constraints = SizeConstraint {
+            min: Size2::zero(),
+            max: screen_size,
+        };
+
+        root.get().layout(default_constraints, &mut self);
+
+        self.finish()
+    }
+
+    fn finish_rec(self, mut pos: Pos2, scene_layout: &mut SceneLayout) {
         if let Some(placement) = self.placement {
             pos += placement;
         }
 
-        for child in self.children.into_values() {
-            child.populate_placement(pos, memo);
-        }
+        scene_layout.elements.push((self.element, pos));
 
-        memo.insert(self.id, pos);
+        for child in self.children.into_iter() {
+            child.finish_rec(pos, scene_layout);
+        }
     }
 
-    pub(super) fn finish(self) -> ElementPlacement {
-        let mut memo = Default::default();
+    pub fn finish(self) -> SceneLayout {
+        let mut layout = SceneLayout {
+            elements: Default::default(),
+        };
 
-        self.populate_placement(Pos2::zero(), &mut memo);
+        self.finish_rec(Pos2::default(), &mut layout);
 
-        memo
+        layout
     }
 
     pub fn scale_factor(&self) -> f32 {

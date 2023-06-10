@@ -1,4 +1,4 @@
-use cosmic_text::{Attrs, Family, Metrics, Style};
+use cosmic_text::{Attrs, Metrics, Style};
 use palette::Srgba;
 
 use crate::{
@@ -43,38 +43,37 @@ impl RootConstructor for TestRoot {
 impl Element for TestRoot {
     fn layout(&mut self, constraints: SizeConstraint, layout_pass: &mut LayoutPass) -> Size2 {
         for rect in self.rects.iter_mut() {
-            layout_pass.layout_child(rect, constraints);
-            layout_pass.place_child(rect, Pos2::zero());
+            layout_pass.layout_and_place_child(rect, constraints, Pos2::zero());
         }
 
-        layout_pass.layout_child(
+        layout_pass.layout_and_place_child(
             &mut self.text_box,
             SizeConstraint {
                 min: Size2::zero(),
                 max: Size2::new(100., 500.),
             },
+            Pos2::zero(),
         );
-        layout_pass.place_child(&mut self.text_box, Pos2::new(0., 0.));
 
         constraints.max
     }
 
-    fn ui(&mut self, ctx: &mut SceneContext, pos: Pos2) {
-        let mut send_to_front = None::<usize>;
+    fn ui(&mut self, _ctx: &mut SceneContext, _pos: Pos2) {
+        let mut send_to_back = None::<usize>;
 
-        ctx.render_child(&mut self.text_box);
+        // ctx.render_child(&mut self.text_box);
 
         for (i, rect) in self.rects.iter_mut().enumerate() {
-            ctx.render_child(rect);
+            // ctx.render_child(rect);
 
             if rect.get().clicked {
-                send_to_front = Some(i);
+                send_to_back = Some(i);
             }
         }
 
-        if let Some(idx) = send_to_front {
+        if let Some(idx) = send_to_back {
             let rect = self.rects.remove(idx);
-            self.rects.insert(0, rect);
+            self.rects.push(rect);
         }
     }
 }

@@ -23,11 +23,7 @@ use crate::{
     util::{LogicalToPhysical, LogicalToPhysicalInto, PhysicalToLogical, Pos2, Size2, ToEuclid},
 };
 
-use super::{
-    ctx::SceneContext,
-    layout::{ElementPlacement, LayoutPass},
-    PaintPass,
-};
+use super::{ctx::SceneContext, layout::LayoutPass, PaintPass};
 
 #[derive(Clone)]
 pub struct SceneResources {
@@ -91,7 +87,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         &mut self,
         render_surface: &RenderSurface,
         output: wgpu::SurfaceTexture,
-        input: InputState,
+        mut input: InputState,
     ) -> InputState {
         let view = output
             .texture
@@ -104,40 +100,33 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
             label: Some("Render Encoder"),
         });
 
-        let size = render_surface
+        let screen_size = render_surface
             .get_size()
             .to_euclid()
             .to_f32()
             .to_logical(scale_fac);
 
-        let default_constraints = SizeConstraint {
-            min: Size2::zero(),
-            max: size,
-        };
-
         // layout pass
         let scene_resources = self.generate_scene_resources(scale_fac as f32);
 
-        let mut layout_pass = LayoutPass::new(&mut self.root, scene_resources);
-        self.root
-            .get()
-            .layout(default_constraints, &mut layout_pass);
+        let layout_pass = LayoutPass::new(&mut self.root, scene_resources);
 
-        let scene_layout = layout_pass.finish();
+        let mut scene_layout = layout_pass.do_layout_pass(screen_size, &mut self.root);
+
+        scene_layout.do_input_pass(&mut input);
+
+        let mut scene_context = SceneContext::new(scale_fac as f32);
+        scene_layout.do_ui_pass(&mut scene_context);
 
         // render pass
-        let mut scene_context = SceneContext::new(input, scene_layout, scale_fac as f32);
-
-        self.root.get().ui(&mut scene_context, Pos2::zero());
-
-        let (shapes, input) = scene_context.drain();
+        let shapes = scene_context.drain();
 
         let mut batcher = BatchedRenderCollector::new();
 
         let mut rects = Vec::new();
         let mut text_boxes = Vec::new();
 
-        for shape in shapes.into_iter().rev() {
+        for shape in shapes.into_iter() {
             match shape {
                 shape::PaintShape::Rectangle(paint_rect) => {
                     let (draw_rects, num_rects) =

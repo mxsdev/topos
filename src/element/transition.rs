@@ -1,6 +1,6 @@
 use keyframe::EasingFunction;
 
-use crate::scene::ctx::SceneContext;
+use crate::scene::{ctx::SceneContext, input::HasInput};
 
 pub struct Transition {
     easing_func: Option<Box<dyn EasingFunction>>,
@@ -19,7 +19,7 @@ impl Transition {
         }
     }
 
-    pub fn update(&mut self, ctx: &mut SceneContext) {
+    pub fn update(&mut self, ctx: &mut impl HasInput) {
         let dt = ctx.input().stable_dt.min(0.1);
         let fac = dt / self.time;
 
