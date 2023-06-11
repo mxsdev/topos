@@ -89,65 +89,63 @@ fn vs_main(
 
     var out_pos = vertex_in.pos;
 
-    if vertex_in.rounding > 0. || vertex_in.stroke_width > 0. || vertex_in.blur_radius > 0. {
-        vertex_out.dims = vertex_in.dims;
+    vertex_out.dims = vertex_in.dims;
 
-        var v = vertex_in.vertex_idx % 4u;
+    var v = vertex_in.vertex_idx % 4u;
 
-        var px = vertex_in.dims.x + padding;
-        var py = vertex_in.dims.y + padding;
+    var px = vertex_in.dims.x + padding;
+    var py = vertex_in.dims.y + padding;
 
-        switch v {
-            case 0u: {
-                vertex_out.rel_pos = vec2<f32>(
-                    -px,
-                    py,
-                );
+    switch v {
+        case 0u: {
+            vertex_out.rel_pos = vec2<f32>(
+                -px,
+                py,
+            );
 
-                out_pos += vec2<f32>(
-                    -padding,
-                    -padding,
-                );
-            }
-
-            case 1u: {
-                vertex_out.rel_pos = vec2<f32>(
-                    px,
-                    py,
-                );
-
-                out_pos += vec2<f32>(
-                    padding,
-                    -padding,
-                );
-            }
-            
-            case 2u: {
-                vertex_out.rel_pos = vec2<f32>(
-                    -px,
-                    -py,
-                );
-
-                out_pos += vec2<f32>(
-                    -padding,
-                    padding,
-                );
-            }
-
-            case 3u: {
-                vertex_out.rel_pos = vec2<f32>(
-                    px,
-                    -py,
-                );
-
-                out_pos += vec2<f32>(
-                    padding,
-                    padding,
-                );
-            }
-
-            default: { }
+            out_pos += vec2<f32>(
+                -padding,
+                -padding,
+            );
         }
+
+        case 1u: {
+            vertex_out.rel_pos = vec2<f32>(
+                px,
+                py,
+            );
+
+            out_pos += vec2<f32>(
+                padding,
+                -padding,
+            );
+        }
+        
+        case 2u: {
+            vertex_out.rel_pos = vec2<f32>(
+                -px,
+                -py,
+            );
+
+            out_pos += vec2<f32>(
+                -padding,
+                padding,
+            );
+        }
+
+        case 3u: {
+            vertex_out.rel_pos = vec2<f32>(
+                px,
+                -py,
+            );
+
+            out_pos += vec2<f32>(
+                padding,
+                padding,
+            );
+        }
+
+        default: { }
     }
 
     vertex_out.position = vec4<f32>(

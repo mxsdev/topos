@@ -196,8 +196,6 @@ impl BoxShaderVertex {
             },
         );
 
-        log::trace!("{:?}", blur_rect);
-
         let rects = [blur_rect, fill_rect, stroke_rect];
 
         let num_rects = rects.iter().filter(|x| x.is_some()).count();
