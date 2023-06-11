@@ -9,26 +9,40 @@ use crate::{
     util::{Pos2, Size2, Vec2},
 };
 
-use super::{ctx::SceneContext, scene::SceneResources};
+use super::{
+    ctx::SceneContext,
+    scene::{self, SceneResources},
+};
 
 pub struct SceneLayout {
-    elements: Vec<(ElementWeakref<dyn Element>, Pos2)>,
+    element: ElementWeakref<dyn Element>,
+    pos: Pos2,
+
+    children: Vec<SceneLayout>,
 }
 
 impl SceneLayout {
     pub(super) fn do_input_pass(&mut self, input: &mut InputState) {
-        for (element, pos) in self.elements.iter_mut().rev() {
-            if let Some(mut element) = element.try_get() {
-                element.input(input, *pos)
-            }
+        for child in self.children.iter_mut().rev() {
+            child.do_input_pass(input);
+        }
+
+        if let Some(mut element) = self.element.try_get() {
+            element.input(input, self.pos);
         }
     }
 
     pub(super) fn do_ui_pass(&mut self, ctx: &mut SceneContext) {
-        for (element, pos) in self.elements.iter_mut() {
-            if let Some(mut element) = element.try_get() {
-                element.ui(ctx, *pos)
-            }
+        if let Some(mut element) = self.element.try_get() {
+            element.ui(ctx, self.pos);
+        }
+
+        for child in self.children.iter_mut() {
+            child.do_ui_pass(ctx);
+        }
+
+        if let Some(mut element) = self.element.try_get() {
+            element.ui_post(ctx, self.pos);
         }
     }
 }
@@ -123,26 +137,26 @@ impl LayoutPass {
         self.finish()
     }
 
-    fn finish_rec(self, mut pos: Pos2, scene_layout: &mut SceneLayout) {
+    fn finish_rec(self, mut pos: Pos2) -> SceneLayout {
         if let Some(placement) = self.placement {
             pos += placement;
         }
 
-        scene_layout.elements.push((self.element, pos));
+        let mut scene_layout = SceneLayout {
+            children: Default::default(),
+            element: self.element,
+            pos,
+        };
 
         for child in self.children.into_iter() {
-            child.finish_rec(pos, scene_layout);
+            scene_layout.children.push(child.finish_rec(pos));
         }
+
+        scene_layout
     }
 
     pub fn finish(self) -> SceneLayout {
-        let mut layout = SceneLayout {
-            elements: Default::default(),
-        };
-
-        self.finish_rec(Pos2::default(), &mut layout);
-
-        layout
+        self.finish_rec(Pos2::zero())
     }
 
     pub fn scale_factor(&self) -> f32 {

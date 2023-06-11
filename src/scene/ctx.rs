@@ -39,7 +39,11 @@ impl SceneContext {
     }
 
     pub fn push_clip_rect(&mut self, rect: impl Into<Option<Rect>>) {
-        let rect = rect.into();
+        let rect: Option<Rect> = rect.into();
+
+        let rect = rect
+            .and_then(|x| Some(x.intersection_unchecked(&self.current_clip_rect()?)))
+            .or(rect);
 
         self.add_shape(PaintShape::ClipRect(rect));
         self.clip_rects.push(rect);
@@ -48,9 +52,11 @@ impl SceneContext {
     pub fn pop_clip_rect(&mut self) {
         self.clip_rects.pop();
 
-        self.add_shape(PaintShape::ClipRect(
-            self.clip_rects.last().copied().flatten(),
-        ))
+        self.add_shape(PaintShape::ClipRect(self.current_clip_rect()))
+    }
+
+    fn current_clip_rect(&self) -> Option<Rect> {
+        self.clip_rects.last().copied().flatten()
     }
 
     // pub fn add_buffer(&mut self, buffer: &cosmic_text::Buffer) {}

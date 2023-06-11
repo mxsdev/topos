@@ -222,7 +222,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
                     BatchedRender::ClipRect(Some(rect)) => render_pass.set_scissor_rect(
                         rect.min.x,
-                        rect.min.x,
+                        rect.min.y,
                         rect.width(),
                         rect.height(),
                     ),

@@ -5,7 +5,7 @@ use crate::{
     atlas::PlacedTextBox,
     element::{Element, SizeConstraint},
     scene::{ctx::SceneContext, layout::LayoutPass, scene::SceneResources},
-    util::{LogicalToPhysical, Pos2, Size2},
+    util::{FromMinSize, LogicalToPhysical, Pos2, Rect, Size2, Vec2},
 };
 
 pub struct TextBox {

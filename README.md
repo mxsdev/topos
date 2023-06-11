@@ -6,6 +6,7 @@
  - [ ] Clip rects
  - [ ] Use linear color space
  - [ ] Layout (`Placer` struct, flexbox)
+ - [ ] Focus
  - [ ] Lines, Bezier, Fills (maybe just linearize for now)
  - [ ] Scrolling
  - [ ] Pixel Alignment (PhysicalRect as `u32`)

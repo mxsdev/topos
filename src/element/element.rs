@@ -36,6 +36,7 @@ pub trait Element {
     fn layout(&mut self, constraints: SizeConstraint, layout_pass: &mut LayoutPass) -> Size2;
     fn input(&mut self, input: &mut InputState, pos: Pos2) {}
     fn ui(&mut self, ctx: &mut SceneContext, pos: Pos2);
+    fn ui_post(&mut self, ctx: &mut SceneContext, pos: Pos2) {}
 }
 
 pub struct ElementRef<T: Element + ?Sized> {
