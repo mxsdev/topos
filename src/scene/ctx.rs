@@ -8,7 +8,10 @@ use euclid::{default, Translation2D};
 
 use crate::{
     element::{Element, ElementRef, SizeConstraint},
-    input::input_state::InputState,
+    input::{
+        input_state::InputState,
+        output::{CursorIcon, PlatformOutput},
+    },
     shape::PaintShape,
     util::{Pos2, Rect, Size2, Translate2DMut},
 };
@@ -16,9 +19,11 @@ use crate::{
 pub struct SceneContext {
     // internal: Rc<RefCell<SceneContextInternal>>,
     // input: Rc<RefCell<InputState>>,
-    shapes: Vec<PaintShape>,
+    pub(super) shapes: Vec<PaintShape>,
     clip_rects: Vec<Option<Rect>>,
     scale_factor: f32,
+
+    pub(super) output: PlatformOutput,
 }
 
 impl SceneContext {
@@ -27,11 +32,8 @@ impl SceneContext {
             shapes: Default::default(),
             clip_rects: Default::default(),
             scale_factor,
+            output: Default::default(),
         }
-    }
-
-    pub(super) fn drain(self) -> Vec<PaintShape> {
-        self.shapes
     }
 
     pub fn add_shape(&mut self, shape: impl Into<PaintShape>) {
@@ -57,6 +59,24 @@ impl SceneContext {
 
     fn current_clip_rect(&self) -> Option<Rect> {
         self.clip_rects.last().copied().flatten()
+    }
+
+    pub fn output(&mut self) -> &mut PlatformOutput {
+        &mut self.output
+    }
+
+    pub fn set_cursor(&mut self, cursor_icon: CursorIcon) {
+        self.output.set_cursor(cursor_icon)
+    }
+
+    pub fn start_window_drag(&mut self) {
+        self.output.start_window_drag()
+    }
+
+    /// Open the given url in a web browser.
+    /// If egui is running in a browser, the same tab will be reused.
+    pub fn open_url(&mut self, url: impl ToString) {
+        self.output.open_url(url)
     }
 
     // pub fn add_buffer(&mut self, buffer: &cosmic_text::Buffer) {}

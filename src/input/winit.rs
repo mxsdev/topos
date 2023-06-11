@@ -624,6 +624,7 @@ impl WinitState {
             mutable_text_under_cursor: _, // only used in eframe web
             text_cursor_pos,
             accesskit_update,
+            drag_window,
         } = platform_output;
 
         // self.current_pixels_per_point = egui_ctx.pixels_per_point(); // someone can have changed it to scale the UI
@@ -645,6 +646,13 @@ impl WinitState {
         if let Some(accesskit) = self.accesskit.as_ref() {
             if let Some(update) = accesskit_update {
                 accesskit.update_if_active(|| update);
+            }
+        }
+
+        if drag_window {
+            match window.drag_window() {
+                Ok(()) => {}
+                Err(e) => log::error!("{e}"),
             }
         }
     }

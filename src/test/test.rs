@@ -4,7 +4,7 @@ use num_traits::Signed;
 use crate::{
     color::ColorRgba,
     element::transition::Transition,
-    input::{input_state::InputState, PointerButton},
+    input::{input_state::InputState, output::CursorIcon, PointerButton},
     scene::{ctx::SceneContext, update::UpdatePass, PaintPass},
     shape::{PaintBlur, PaintRectangle},
     util::{FromMinSize, Pos2, Rect, RoundedRect, Size2, Translate2D, Translate2DMut, Vec2},

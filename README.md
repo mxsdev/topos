@@ -5,7 +5,7 @@
  - [x] Custom fonts
  - [x] Clip rects
  - [x] Use linear color space
- - [ ] Platform output (cursor, window stuff)
+ - [x] Platform output (cursor, window stuff)
  - [ ] Lines, Bezier, Fills (maybe just linearize for now)
  - [ ] Layout (`Placer` struct, flexbox)
  - [ ] Focus

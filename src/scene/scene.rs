@@ -16,7 +16,7 @@ use crate::{
         FontManagerRenderResources,
     },
     element::{Element, ElementEvent, ElementRef, RootConstructor, SizeConstraint},
-    input::{input_state::InputState, winit::WinitState},
+    input::{input_state::InputState, output::PlatformOutput, winit::WinitState},
     scene::update::UpdatePass,
     shape::{self, BoxShaderVertex, PaintRectangle, PaintShape},
     surface::{RenderSurface, RenderingContext},
@@ -96,7 +96,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         render_surface: &RenderSurface,
         output: wgpu::SurfaceTexture,
         mut input: InputState,
-    ) -> InputState {
+    ) -> (InputState, PlatformOutput) {
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -125,7 +125,11 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         scene_layout.do_ui_pass(&mut scene_context);
 
         // render pass
-        let shapes = scene_context.drain();
+        let SceneContext {
+            shapes,
+            output: platform_output,
+            ..
+        } = scene_context;
 
         let mut batcher = BatchedRenderCollector::new();
 
@@ -240,7 +244,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         queue.submit(std::iter::once(encoder.finish()));
         output.present();
 
-        input
+        (input, platform_output)
 
         // Ok(())
     }

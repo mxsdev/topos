@@ -3,6 +3,7 @@ use cosmic_text::{Attrs, Family, Metrics, Style, Weight};
 use crate::{
     color::ColorRgba,
     element::{Element, ElementRef, RootConstructor, SizeConstraint},
+    input::input_state::InputState,
     scene::{ctx::SceneContext, layout::LayoutPass, scene::SceneResources},
     util::{FromMinSize, Pos2, Rect, Size2},
 };
@@ -12,6 +13,8 @@ use super::{TestRect, TextBox};
 pub struct TestRoot {
     rects: Vec<ElementRef<TestRect>>,
     text_box: ElementRef<TextBox>,
+
+    clicked: bool,
 }
 
 impl RootConstructor for TestRoot {
@@ -31,6 +34,8 @@ impl RootConstructor for TestRoot {
                 TestRect::new(Pos2::new(60., 60.)).into(),
             ],
             text_box: text_box.into(),
+
+            clicked: false,
         }
     }
 }
@@ -51,6 +56,10 @@ impl Element for TestRoot {
         );
 
         constraints.max
+    }
+
+    fn input(&mut self, input: &mut InputState, pos: Pos2) {
+        self.clicked = input.pointer.primary_clicked();
     }
 
     fn ui(&mut self, ctx: &mut SceneContext, _pos: Pos2) {

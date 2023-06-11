@@ -8,10 +8,10 @@ use crate::util::Pos2;
 #[derive(Default, Clone, PartialEq)]
 pub struct PlatformOutput {
     /// Set the cursor to this icon.
-    pub cursor_icon: CursorIcon,
+    pub(super) cursor_icon: CursorIcon,
 
     /// If set, open this url.
-    pub open_url: Option<OpenUrl>,
+    pub(super) open_url: Option<OpenUrl>,
 
     /// If set, put this text in the system clipboard. Ignore if empty.
     ///
@@ -24,22 +24,32 @@ pub struct PlatformOutput {
     /// }
     /// # });
     /// ```
-    pub copied_text: String,
+    pub(super) copied_text: String,
 
     /// Events that may be useful to e.g. a screen reader.
-    pub events: Vec<OutputEvent>,
+    pub(super) events: Vec<OutputEvent>,
 
     /// Is there a mutable [`TextEdit`](crate::TextEdit) under the cursor?
     /// Use by `eframe` web to show/hide mobile keyboard and IME agent.
-    pub mutable_text_under_cursor: bool,
+    pub(super) mutable_text_under_cursor: bool,
 
     /// Screen-space position of text edit cursor (used for IME).
-    pub text_cursor_pos: Option<Pos2>,
+    pub(super) text_cursor_pos: Option<Pos2>,
 
-    pub accesskit_update: Option<accesskit::TreeUpdate>,
+    pub(super) accesskit_update: Option<accesskit::TreeUpdate>,
+
+    pub(super) drag_window: bool,
 }
 
 impl PlatformOutput {
+    pub fn set_cursor(&mut self, cursor_icon: CursorIcon) {
+        self.cursor_icon = cursor_icon
+    }
+
+    pub fn start_window_drag(&mut self) {
+        self.drag_window = true;
+    }
+
     /// Open the given url in a web browser.
     /// If egui is running in a browser, the same tab will be reused.
     pub fn open_url(&mut self, url: impl ToString) {
@@ -74,6 +84,7 @@ impl PlatformOutput {
             mutable_text_under_cursor,
             text_cursor_pos,
             accesskit_update,
+            drag_window,
         } = newer;
 
         self.cursor_icon = cursor_icon;
@@ -92,6 +103,7 @@ impl PlatformOutput {
             // so overwrite rather than appending.
             self.accesskit_update = accesskit_update;
         }
+        self.drag_window = drag_window;
     }
 
     /// Take everything ephemeral (everything except `cursor_icon` currently)

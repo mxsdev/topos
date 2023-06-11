@@ -99,8 +99,13 @@ impl<Root: RootConstructor + 'static> App<Root> {
                                 let input_state = std::mem::take(&mut self.input_state)
                                     .begin_frame(raw_input, true);
 
-                                self.input_state =
+                                let (result_input, result_output) =
                                     self.scene.render(&self.render_surface, output, input_state);
+
+                                self.input_state = result_input;
+
+                                self.winit_state
+                                    .handle_platform_output(&self.window, result_output);
 
                                 let end = Instant::now();
 
