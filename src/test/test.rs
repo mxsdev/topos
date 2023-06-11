@@ -34,6 +34,7 @@ impl TestRect {
                 // Rect::new(Pos2::new(20., 20.), Pos2::new(200., 100.)),
                 Rect::from_min_size(pos, Size2::new(180., 180.)),
                 Some(10.),
+                // None,
             ),
             hovered: false,
             dragging: false,
@@ -64,7 +65,7 @@ impl Element for TestRect {
             fill: Some(fill),
             stroke_color: Some(ColorRgba::new(0., 0., 0., 1.)),
             stroke_width: Some(1.),
-            blur: Some(PaintBlur::new(10., ColorRgba::new(0., 0., 0., 0.5))),
+            blur: Some(PaintBlur::new(30., ColorRgba::new(0., 0., 0., 0.75))),
         });
     }
 

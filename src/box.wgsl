@@ -89,7 +89,7 @@ fn vs_main(
 
     var out_pos = vertex_in.pos;
 
-    if vertex_in.rounding > 0. || vertex_in.stroke_width > 0. {
+    if vertex_in.rounding > 0. || vertex_in.stroke_width > 0. || vertex_in.blur_radius > 0. {
         vertex_out.dims = vertex_in.dims;
 
         var v = vertex_in.vertex_idx % 4u;
@@ -179,7 +179,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         return vec4<f32>(in.color.rgb, alpha * in.color.a);
     }
 
-    if in.rounding <= 0. {
+    if in.rounding <= 0. && in.stroke_width <= 0. {
         // TODO: strokes for non-rounded rects
         return in.color;
     }
@@ -188,11 +188,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // draw fill
     if in.stroke_width <= 0. {
-        var alpha = clamp(-dist, -0.5, 0.5) + 0.5;
+        var alpha = smoothstep(0., 1., -dist+0.5);
         return vec4<f32>(in.color.rgb, alpha * in.color.a);
     } 
 
     // draw stroke
-    var alpha = 1. - (clamp(abs(dist) - in.stroke_width / 2., 0., 0.5) * 2.);
+    var alpha = 1. - (smoothstep(0., 0.5, abs(dist) - in.stroke_width / 2.) * 2.);
     return vec4<f32>(in.color.rgb, alpha * in.color.a);
 }
