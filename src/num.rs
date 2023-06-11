@@ -2,6 +2,28 @@ use std::ops::Shl;
 
 use num_traits::{Float, Num, One};
 
+pub trait MaxNum {
+    fn max_num(self, other: Self) -> Self;
+}
+
+// impl<T: Ord> MaxNum for T {
+//     fn max_num(self, other: Self) -> Self {
+//         self.max(other)
+//     }
+// }
+
+impl MaxNum for f32 {
+    fn max_num(self, other: Self) -> Self {
+        self.max(other)
+    }
+}
+
+impl MaxNum for f64 {
+    fn max_num(self, other: Self) -> Self {
+        self.max(other)
+    }
+}
+
 pub trait Two {
     const TWO: Self;
 }

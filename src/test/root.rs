@@ -4,7 +4,7 @@ use palette::Srgba;
 use crate::{
     element::{Element, ElementRef, RootConstructor, SizeConstraint},
     scene::{ctx::SceneContext, layout::LayoutPass, scene::SceneResources},
-    util::{Pos2, Size2},
+    util::{FromMinSize, Pos2, Rect, Size2},
 };
 
 use super::{TestRect, TextBox};
@@ -53,7 +53,7 @@ impl Element for TestRoot {
         constraints.max
     }
 
-    fn ui(&mut self, _ctx: &mut SceneContext, _pos: Pos2) {
+    fn ui(&mut self, ctx: &mut SceneContext, _pos: Pos2) {
         let mut send_to_back = None::<usize>;
 
         // ctx.render_child(&mut self.text_box);

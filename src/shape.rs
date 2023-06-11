@@ -1,14 +1,16 @@
 use std::{fmt::Debug, marker::PhantomData, num::NonZeroU64, ops::Range};
 
 use bytemuck::Pod;
-use palette::Srgba;
+use num_traits::Num;
+use palette::{num::PartialCmp, Srgba};
 
 use crate::{
     atlas::PlacedTextBox,
     graphics::DynamicGPUQuadBuffer,
+    num::{MaxNum, Two},
     surface::{ParamsBuffer, RenderingContext},
     util::{
-        CanScale, LogicalToPhysical, LogicalUnit, PhysicalUnit, RoundedBox2D, Translate2DMut,
+        CanScale, LogicalToPhysical, LogicalUnit, PhysicalUnit, Rect, RoundedBox2D, Translate2DMut,
         WgpuDescriptor,
     },
 };
@@ -253,7 +255,7 @@ impl BoxShaderVertex {
     }
 }
 
-pub struct PaintBlur<F: CanScale = f32, U = LogicalUnit> {
+pub struct PaintBlur<F = f32, U = LogicalUnit> {
     pub blur_radius: F,
     pub color: Srgba,
     _unit: PhantomData<U>,
@@ -269,12 +271,12 @@ impl<F: CanScale, U> PaintBlur<F, U> {
     }
 }
 
-pub struct PaintRectangle<F: CanScale = f32, U = LogicalUnit> {
+pub struct PaintRectangle<F = f32, U = LogicalUnit> {
     pub rect: RoundedBox2D<F, U>,
     pub fill: Option<Srgba>,
     pub stroke_color: Option<Srgba>,
     pub stroke_width: Option<F>,
-    pub blur: Option<PaintBlur>,
+    pub blur: Option<PaintBlur<F, U>>,
 }
 
 custom_derive! {
@@ -282,14 +284,25 @@ custom_derive! {
     pub enum PaintShape {
         Rectangle(PaintRectangle),
         Text(PlacedTextBox),
+        ClipRect(Option<Rect>),
     }
 }
 
-// impl Into<PaintShape> for PaintRectangle {
-//     fn into(self) -> PaintShape {
-//         PaintShape::Rectangle(self)
-//     }
-// }
+impl<F: Num + Copy + Default + Two + MaxNum, U> PaintRectangle<F, U> {
+    pub fn get_bounding_box(&self) -> euclid::Box2D<F, U> {
+        let fac = [
+            self.stroke_width.map(|w| w / F::TWO),
+            self.blur.as_ref().map(|b| b.blur_radius),
+            Some(F::one() / F::TWO), // feathering
+        ]
+        .into_iter()
+        .flatten()
+        .reduce(MaxNum::max_num)
+        .unwrap_or_default();
+
+        self.rect.rect.inflate(fac, fac)
+    }
+}
 
 impl<F: CanScale> LogicalToPhysical for PaintRectangle<F, LogicalUnit> {
     type PhysicalResult = PaintRectangle<F, PhysicalUnit>;
@@ -319,6 +332,11 @@ impl Translate2DMut<f32, LogicalUnit> for PaintShape {
         match self {
             PaintShape::Rectangle(rect) => rect.translate_mut(x, y),
             PaintShape::Text(text_box) => text_box.pos.translate_mut(x, y),
+            PaintShape::ClipRect(rect) => {
+                if let Some(rect) = rect.as_mut() {
+                    rect.translate_mut(x, y)
+                }
+            }
         }
     }
 }

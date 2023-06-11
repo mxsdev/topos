@@ -80,12 +80,12 @@ fn vs_main(
 ) -> VertexOutput {
     var vertex_out: VertexOutput;
 
-    var padding = FEATHERING + vertex_in.stroke_width + vertex_in.blur_radius * 3.;
+    var padding = FEATHERING + vertex_in.stroke_width + vertex_in.blur_radius;
 
     vertex_out.color = vertex_in.color;
     vertex_out.rounding = vertex_in.rounding;
     vertex_out.stroke_width = vertex_in.stroke_width;
-    vertex_out.blur_radius = vertex_in.blur_radius;
+    vertex_out.blur_radius = vertex_in.blur_radius / 3.;
 
     var out_pos = vertex_in.pos;
 

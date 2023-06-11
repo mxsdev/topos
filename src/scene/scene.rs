@@ -20,7 +20,10 @@ use crate::{
     scene::update::UpdatePass,
     shape::{self, BoxShaderVertex, PaintRectangle, PaintShape},
     surface::{RenderSurface, RenderingContext},
-    util::{LogicalToPhysical, LogicalToPhysicalInto, PhysicalToLogical, Pos2, Size2, ToEuclid},
+    util::{
+        LogicalToPhysical, LogicalToPhysicalInto, PhysicalRect, PhysicalToLogical, Pos2,
+        RoundToInt, Size2, ToEuclid,
+    },
 };
 
 use super::{ctx::SceneContext, layout::LayoutPass, PaintPass};
@@ -105,11 +108,9 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
             label: Some("Render Encoder"),
         });
 
-        let screen_size = render_surface
-            .get_size()
-            .to_euclid()
-            .to_f32()
-            .to_logical(scale_fac);
+        let physical_screen_size = render_surface.get_size().to_euclid();
+
+        let screen_size = physical_screen_size.to_f32().to_logical(scale_fac);
 
         // layout pass
         let scene_resources = self.generate_scene_resources(scale_fac as f32);
@@ -131,11 +132,27 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         let mut rects = Vec::new();
         let mut text_boxes = Vec::new();
 
+        let mut last_clip_rect = None;
+
         for shape in shapes.into_iter() {
             match shape {
                 shape::PaintShape::Rectangle(paint_rect) => {
+                    let physical_paint_rect = paint_rect.to_physical(scale_fac);
+
+                    // physical_paint_rect.rect.rect = physical_paint_rect.rect.rect.round();
+
+                    if let Some(clip_rect) = last_clip_rect {
+                        if physical_paint_rect
+                            .get_bounding_box()
+                            .intersection(&clip_rect)
+                            .is_none()
+                        {
+                            continue;
+                        }
+                    }
+
                     let (draw_rects, num_rects) =
-                        BoxShaderVertex::from_paint_rect(paint_rect.to_physical(scale_fac));
+                        BoxShaderVertex::from_paint_rect(physical_paint_rect);
 
                     batcher.add_rects(num_rects);
 
@@ -143,7 +160,17 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
                 }
                 shape::PaintShape::Text(text_box) => {
                     batcher.add_text_box();
-                    text_boxes.push(text_box.to_physical(scale_fac));
+                    text_boxes.push(
+                        text_box
+                            .to_physical(scale_fac)
+                            .with_clip_rect(last_clip_rect),
+                    );
+                }
+                shape::PaintShape::ClipRect(rect) => {
+                    let physical_rect = rect.map(|r| r.to_physical(scale_fac));
+                    last_clip_rect = physical_rect;
+
+                    batcher.set_clip_rect(physical_rect.map(|r| r.round_to_int()))
                 }
             }
         }
@@ -165,11 +192,10 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            // r: 0.1, g: 0.2, b: 0.3, a: 1.0,
-                            r: 0.,
-                            g: 0.,
-                            b: 0.,
-                            a: 1.,
+                            r: 0.1,
+                            g: 0.2,
+                            b: 0.3,
+                            a: 1.0,
                         }),
                         store: true,
                     },
@@ -194,12 +220,21 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
                         }
                     }
 
-                    _ => {}
+                    BatchedRender::ClipRect(Some(rect)) => render_pass.set_scissor_rect(
+                        rect.min.x,
+                        rect.min.x,
+                        rect.width(),
+                        rect.height(),
+                    ),
+
+                    BatchedRender::ClipRect(None) => render_pass.set_scissor_rect(
+                        0,
+                        0,
+                        physical_screen_size.width,
+                        physical_screen_size.height,
+                    ),
                 }
             }
-
-            // self.shape_renderer
-            //     .render_boxes(&mut render_pass, num_rects as u64);
         }
 
         queue.submit(std::iter::once(encoder.finish()));
@@ -216,6 +251,13 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
             scale_factor,
         }
     }
+}
+
+#[derive(EnumAsInner, Debug)]
+enum BatchedRender {
+    Rectangles(u64),
+    TextBox,
+    ClipRect(Option<PhysicalRect<u32>>),
 }
 
 #[derive(Default)]
@@ -237,18 +279,33 @@ impl BatchedRenderCollector {
         if let Some(num_rects) = el.as_rectangles_mut() {
             *num_rects += quantity;
         } else {
-            self.batches.extend(self.current.take().into_iter());
+            self.write_current();
             self.current = Some(BatchedRender::Rectangles(quantity));
         };
     }
 
     fn add_text_box(&mut self) {
-        self.batches.extend(self.current.take().into_iter());
+        self.write_current();
         self.batches.push(BatchedRender::TextBox);
     }
 
+    fn set_clip_rect(&mut self, rect: Option<PhysicalRect<u32>>) {
+        if let Some(BatchedRender::ClipRect(current_rect)) = self.current {
+            if current_rect == rect {
+                return;
+            }
+        }
+
+        self.write_current();
+        self.current = Some(BatchedRender::ClipRect(rect));
+    }
+
+    fn write_current(&mut self) {
+        self.batches.extend(self.current.take().into_iter());
+    }
+
     fn finalize(mut self) -> Vec<BatchedRender> {
-        self.batches.extend(self.current.into_iter());
+        self.write_current();
         self.batches
     }
 
@@ -264,21 +321,6 @@ impl BatchedRenderCollector {
 
     //     Some(())
     // }
-}
-
-#[derive(EnumAsInner, Debug)]
-enum BatchedRender {
-    Rectangles(u64),
-    TextBox,
-}
-
-impl BatchedRender {
-    pub fn default_for_shape(shape: &PaintShape) -> Self {
-        match shape {
-            PaintShape::Rectangle(_) => Self::Rectangles(Default::default()),
-            PaintShape::Text(_) => Self::TextBox,
-        }
-    }
 }
 
 // struct BatchedRenderIterator<T: Iterator<Item = BatchedRender>> {

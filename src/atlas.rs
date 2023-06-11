@@ -9,7 +9,7 @@ use std::{
 use euclid::size2;
 
 use itertools::Itertools;
-use palette::Srgba;
+use palette::{rgb::Rgba, Srgba};
 use rayon::prelude::*;
 
 use cosmic_text::{FontSystem, LayoutGlyph};
@@ -37,7 +37,7 @@ pub struct GlyphToRender {
     draw_rect: PhysicalRect,
     alloc: AtlasAllocation, // uv: Option<Size2>,
     color: Srgba,
-    clip_rect: Option<PhysicalRect>,
+    // clip_rect: Option<PhysicalRect>,
 }
 
 #[repr(C)]
@@ -428,6 +428,13 @@ impl<U> PlacedTextBox<f32, U> {
     }
 }
 
+impl<F, U> PlacedTextBox<F, U> {
+    pub fn with_clip_rect(mut self, rect: impl Into<Option<euclid::Box2D<F, U>>>) -> Self {
+        self.clip_rect = rect.into();
+        self
+    }
+}
+
 impl<F: CanScale> LogicalToPhysicalInto for PlacedTextBox<F, LogicalUnit> {
     type PhysicalResult = PlacedTextBox<F, PhysicalUnit>;
 
@@ -596,24 +603,13 @@ impl FontAtlasManager {
         boxes: impl Iterator<Item = PlacedTextBox<f32, PhysicalUnit>>,
     ) -> BatchedAtlasRenderBoxIterator<impl Iterator<Item = BatchedAtlasRenderBoxesEntry>> {
         // convert to renderable glyphs
-        let mut partition = FxHashMap::<
-            AtlasId,
-            Vec<(
-                PlacedGlyph,
-                PhysicalSize2<u32>,
-                PhysicalPos2<i32>,
-                AtlasAllocation,
-                Option<PhysicalRect>,
-                PhysicalPos2,
-                Srgba,
-            )>,
-        >::default();
+        let mut partition = FxHashMap::<AtlasId, Vec<GlyphToRender>>::default();
 
         let mut render_batches = BatchedAtlasRenderBoxes::new();
 
         for text_box in boxes {
-            for glyph in text_box.glyphs {
-                let alloc = self.glyphs.get(&glyph.cache_key);
+            for g in text_box.glyphs {
+                let alloc = self.glyphs.get(&g.cache_key);
 
                 match alloc {
                     Some(GlyphCacheEntry::GlyphAllocation(GlyphAllocation {
@@ -623,36 +619,14 @@ impl FontAtlasManager {
                         placement,
                         ..
                     })) => {
-                        render_batches.new_quad(*atlas_id);
+                        let PlacedTextBox {
+                            clip_rect,
+                            color,
+                            pos,
+                            ..
+                        } = text_box;
 
-                        partition
-                            .entry(*atlas_id)
-                            .or_insert_with(|| Vec::new())
-                            .push((
-                                glyph,
-                                *size,
-                                *placement,
-                                *allocation,
-                                text_box.clip_rect,
-                                text_box.pos,
-                                text_box.color,
-                            ))
-                    }
-                    None => log::debug!("Glyph {} not cached", glyph.cache_key.glyph_id),
-                    Some(GlyphCacheEntry::Noop) => {}
-                }
-            }
-
-            render_batches.finish_text_box();
-        }
-
-        for (atlas_id, layout_glyphs) in partition.into_iter() {
-            let render_context = self.rendering_context.clone();
-
-            if let Some(atlas) = self.get_atlas_mut(atlas_id) {
-                let glyphs_to_render = layout_glyphs.iter().map(
-                    |(g, size, placement, alloc, clip_rect, pos, color)| {
-                        let mut glyph_pos = *pos
+                        let mut glyph_pos = pos
                             + PhysicalVec2::new(
                                 g.x_int as f32 + placement.x as f32,
                                 g.y_int as f32 - placement.y as f32 + g.line_offset,
@@ -664,17 +638,40 @@ impl FontAtlasManager {
 
                         let draw_rect = PhysicalRect::new(glyph_pos, glyph_pos + rect_size);
 
-                        GlyphToRender {
-                            alloc: *alloc,
+                        if clip_rect
+                            .map(|clip_rect| clip_rect.intersection(&draw_rect).is_none())
+                            .unwrap_or_default()
+                        {
+                            continue;
+                        }
+
+                        let glyph_to_render = GlyphToRender {
+                            alloc: *allocation,
                             draw_rect,
                             size: *size,
-                            clip_rect: *clip_rect,
-                            color: *color,
-                        }
-                    },
-                );
+                            color,
+                        };
 
-                atlas.prepare(&render_context, glyphs_to_render.collect());
+                        render_batches.new_quad(*atlas_id);
+
+                        partition
+                            .entry(*atlas_id)
+                            .or_insert_with(|| Vec::new())
+                            .push(glyph_to_render);
+                    }
+                    None => log::debug!("Glyph {} not cached", g.cache_key.glyph_id),
+                    Some(GlyphCacheEntry::Noop) => {}
+                }
+            }
+
+            render_batches.finish_text_box();
+        }
+
+        for (atlas_id, layout_glyphs) in partition.into_iter() {
+            let render_context = self.rendering_context.clone();
+
+            if let Some(atlas) = self.get_atlas_mut(atlas_id) {
+                atlas.prepare(&render_context, layout_glyphs);
             }
         }
 

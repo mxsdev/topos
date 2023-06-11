@@ -10,40 +10,24 @@ use crate::{
     element::{Element, ElementRef, SizeConstraint},
     input::input_state::InputState,
     shape::PaintShape,
-    util::{Pos2, Size2, Translate2DMut},
+    util::{Pos2, Rect, Size2, Translate2DMut},
 };
 
 pub struct SceneContext {
     // internal: Rc<RefCell<SceneContextInternal>>,
     // input: Rc<RefCell<InputState>>,
     shapes: Vec<PaintShape>,
+    clip_rects: Vec<Option<Rect>>,
     scale_factor: f32,
 }
 
-pub struct ChildUI {
-    shapes: Vec<PaintShape>,
-    pub size: Size2,
-}
-
-impl Clone for SceneContext {
-    fn clone(&self) -> Self {
-        Self {
-            shapes: Default::default(),
-            scale_factor: self.scale_factor,
-        }
-    }
-}
-
 impl SceneContext {
-    fn new_inner(scale_factor: f32) -> Self {
+    pub(super) fn new(scale_factor: f32) -> Self {
         Self {
             shapes: Default::default(),
+            clip_rects: Default::default(),
             scale_factor,
         }
-    }
-
-    pub(super) fn new(scale_factor: f32) -> Self {
-        Self::new_inner(scale_factor)
     }
 
     pub(super) fn drain(self) -> Vec<PaintShape> {
@@ -52,6 +36,21 @@ impl SceneContext {
 
     pub fn add_shape(&mut self, shape: impl Into<PaintShape>) {
         self.shapes.push(shape.into())
+    }
+
+    pub fn push_clip_rect(&mut self, rect: impl Into<Option<Rect>>) {
+        let rect = rect.into();
+
+        self.add_shape(PaintShape::ClipRect(rect));
+        self.clip_rects.push(rect);
+    }
+
+    pub fn pop_clip_rect(&mut self) {
+        self.clip_rects.pop();
+
+        self.add_shape(PaintShape::ClipRect(
+            self.clip_rects.last().copied().flatten(),
+        ))
     }
 
     // pub fn add_buffer(&mut self, buffer: &cosmic_text::Buffer) {}

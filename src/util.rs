@@ -1,7 +1,7 @@
 use std::ops::{Deref, DerefMut, Range};
 
 use euclid::{Box2D, Point2D, Size2D, Translation2D, Vector2D};
-use num_traits::{Float, Num, Signed};
+use num_traits::{Float, Num, Signed, ToPrimitive};
 use swash::scale;
 
 use crate::element::boundary::Boundary;
@@ -64,6 +64,27 @@ impl<P> ToEuclid for winit::dpi::LogicalSize<P> {
     }
 }
 
+pub trait RoundToInt {
+    type IntegralResult;
+    fn round_to_int(self) -> Self::IntegralResult;
+}
+
+impl RoundToInt for f32 {
+    type IntegralResult = u32;
+
+    fn round_to_int(self) -> Self::IntegralResult {
+        self.round().to_u32().unwrap_or_default()
+    }
+}
+
+impl RoundToInt for f64 {
+    type IntegralResult = u64;
+
+    fn round_to_int(self) -> Self::IntegralResult {
+        self.round().to_u64().unwrap_or_default()
+    }
+}
+
 pub trait LogicalToPhysical {
     type PhysicalResult;
     fn to_physical(&self, scale_factor: impl CanScale) -> Self::PhysicalResult;
@@ -121,12 +142,30 @@ impl<F: CanScale> LogicalToPhysical for F {
     }
 }
 
+impl<F: RoundToInt, U> RoundToInt for euclid::Point2D<F, U> {
+    type IntegralResult = euclid::Point2D<F::IntegralResult, U>;
+
+    fn round_to_int(self) -> Self::IntegralResult {
+        Self::IntegralResult::new(self.x.round_to_int(), self.y.round_to_int())
+    }
+}
+
 impl<F: CanScale> LogicalToPhysical for Pos2<F> {
     type PhysicalResult = PhysicalPos2<F>;
 
     fn to_physical(&self, scale_factor: impl CanScale) -> Self::PhysicalResult {
-        let scale_factor = F::from_scale_fac(scale_factor);
-        Self::PhysicalResult::new(self.x * scale_factor, self.y * scale_factor)
+        Self::PhysicalResult::new(
+            self.x.to_physical(scale_factor),
+            self.y.to_physical(scale_factor),
+        )
+    }
+}
+
+impl<F: RoundToInt, U> RoundToInt for euclid::Vector2D<F, U> {
+    type IntegralResult = euclid::Vector2D<F::IntegralResult, U>;
+
+    fn round_to_int(self) -> Self::IntegralResult {
+        Self::IntegralResult::new(self.x.round_to_int(), self.y.round_to_int())
     }
 }
 
@@ -134,8 +173,18 @@ impl<F: CanScale> LogicalToPhysical for Vec2<F> {
     type PhysicalResult = PhysicalVec2<F>;
 
     fn to_physical(&self, scale_factor: impl CanScale) -> Self::PhysicalResult {
-        let scale_factor = F::from_scale_fac(scale_factor);
-        Self::PhysicalResult::new(self.x * scale_factor, self.y * scale_factor)
+        Self::PhysicalResult::new(
+            self.x.to_physical(scale_factor),
+            self.y.to_physical(scale_factor),
+        )
+    }
+}
+
+impl<F: RoundToInt, U> RoundToInt for euclid::Size2D<F, U> {
+    type IntegralResult = euclid::Size2D<F::IntegralResult, U>;
+
+    fn round_to_int(self) -> Self::IntegralResult {
+        Self::IntegralResult::new(self.width.round_to_int(), self.height.round_to_int())
     }
 }
 
@@ -143,8 +192,18 @@ impl<F: CanScale> LogicalToPhysical for Size2<F> {
     type PhysicalResult = PhysicalSize2<F>;
 
     fn to_physical(&self, scale_factor: impl CanScale) -> Self::PhysicalResult {
-        let scale_factor = F::from_scale_fac(scale_factor);
-        Self::PhysicalResult::new(self.width * scale_factor, self.height * scale_factor)
+        Self::PhysicalResult::new(
+            self.width.to_physical(scale_factor),
+            self.height.to_physical(scale_factor),
+        )
+    }
+}
+
+impl<F: RoundToInt, U> RoundToInt for euclid::Box2D<F, U> {
+    type IntegralResult = euclid::Box2D<F::IntegralResult, U>;
+
+    fn round_to_int(self) -> Self::IntegralResult {
+        Self::IntegralResult::new(self.min.round_to_int(), self.max.round_to_int())
     }
 }
 

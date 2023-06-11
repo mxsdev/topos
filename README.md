@@ -4,9 +4,9 @@
 
  - [x] Custom fonts
  - [ ] Clip rects
- - [ ] Rounded clip rects
+ - [ ] Use linear color space
  - [ ] Layout (`Placer` struct, flexbox)
- - [ ] Lines (just linearize for now)
+ - [ ] Lines, Bezier, Fills (maybe just linearize for now)
  - [ ] Scrolling
  - [ ] Pixel Alignment (PhysicalRect as `u32`)
  - [ ] Sharp box strokes
@@ -15,3 +15,4 @@
  - [ ] Menus
  - [ ] Multi-window support
  - [ ] Figure out proper framepacing
+ - [ ] Rounded clip rects
