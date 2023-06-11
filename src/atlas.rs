@@ -652,11 +652,13 @@ impl FontAtlasManager {
             if let Some(atlas) = self.get_atlas_mut(atlas_id) {
                 let glyphs_to_render = layout_glyphs.iter().map(
                     |(g, size, placement, alloc, clip_rect, pos, color)| {
-                        let glyph_pos = *pos
+                        let mut glyph_pos = *pos
                             + PhysicalVec2::new(
                                 g.x_int as f32 + placement.x as f32,
                                 g.y_int as f32 - placement.y as f32 + g.line_offset,
                             );
+
+                        glyph_pos = glyph_pos.round();
 
                         let rect_size = PhysicalSize2::new(size.width as f32, size.height as f32);
 

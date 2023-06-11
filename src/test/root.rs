@@ -1,4 +1,4 @@
-use cosmic_text::{Attrs, Metrics, Style};
+use cosmic_text::{Attrs, Family, Metrics, Style, Weight};
 use palette::Srgba;
 
 use crate::{
@@ -16,17 +16,12 @@ pub struct TestRoot {
 
 impl RootConstructor for TestRoot {
     fn new(resources: &SceneResources) -> Self {
-        let attrs = Attrs::new();
-
-        // attrs.family(Family::Name("SF Pro"));
-        attrs.style(Style::Italic);
-
         let text_box = TextBox::new(
             resources,
-            Metrics::new(30., 40.),
+            Metrics::new(40., 50.),
             Srgba::new(1., 1., 1., 1.),
-            "Hello world!".into(),
-            attrs,
+            "Hello world".into(),
+            Attrs::new().family(Family::Name("Test Calibre")), // .weight(Weight::BOLD)
         );
 
         Self {

@@ -50,7 +50,6 @@ impl Element for TextBox {
         let size = constraints.max;
 
         let scale_factor = layout_pass.scale_factor();
-
         let new_metrics = self.logical_metrics.scale(scale_factor);
 
         let mut font_system = layout_pass.font_system();

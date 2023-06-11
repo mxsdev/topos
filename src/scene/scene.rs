@@ -5,7 +5,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
 };
 
-use cosmic_text::FontSystem;
+use cosmic_text::{fontdb::Query, Attrs, Family, FontSystem};
 use enum_as_inner::EnumAsInner;
 use rustc_hash::FxHashMap;
 use swash::scale;
@@ -54,7 +54,12 @@ pub struct Scene<Root: RootConstructor + 'static> {
 impl<Root: RootConstructor + 'static> Scene<Root> {
     pub fn new(rendering_context: Arc<RenderingContext>, scale_fac: f64) -> Self {
         let shape_renderer = shape::ShapeRenderer::new(&rendering_context);
-        let font_manager = atlas::FontManager::new(rendering_context);
+        let mut font_manager = atlas::FontManager::new(rendering_context);
+
+        {
+            let mut font_system = font_manager.get_font_system();
+            font_system.db_mut().load_system_fonts();
+        }
 
         // let mut elements: Vec<Box<dyn Element>> = Default::default();
         // elements.push(Box::new(TestElement::new()));
@@ -160,10 +165,11 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.2,
-                            b: 0.3,
-                            a: 1.0,
+                            // r: 0.1, g: 0.2, b: 0.3, a: 1.0,
+                            r: 0.,
+                            g: 0.,
+                            b: 0.,
+                            a: 1.,
                         }),
                         store: true,
                     },
