@@ -1,7 +1,7 @@
 use cosmic_text::{Attrs, Family, Metrics, Style, Weight};
-use palette::Srgba;
 
 use crate::{
+    color::ColorRgba,
     element::{Element, ElementRef, RootConstructor, SizeConstraint},
     scene::{ctx::SceneContext, layout::LayoutPass, scene::SceneResources},
     util::{FromMinSize, Pos2, Rect, Size2},
@@ -19,7 +19,7 @@ impl RootConstructor for TestRoot {
         let text_box = TextBox::new(
             resources,
             Metrics::new(40., 50.),
-            Srgba::new(1., 1., 1., 1.),
+            ColorRgba::new(1., 1., 1., 1.),
             "Hello world".into(),
             Attrs::new().family(Family::Name("Test Calibre")), // .weight(Weight::BOLD)
         );

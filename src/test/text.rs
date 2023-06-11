@@ -1,5 +1,6 @@
+use crate::color::ColorRgba;
+
 use cosmic_text::{Attrs, FontSystem, Metrics};
-use palette::Srgba;
 
 use crate::{
     atlas::PlacedTextBox,
@@ -12,7 +13,7 @@ pub struct TextBox {
     buffer: cosmic_text::Buffer,
 
     logical_metrics: Metrics,
-    color: Srgba,
+    color: ColorRgba,
 
     text: String,
     attrs: Attrs<'static>,
@@ -22,7 +23,7 @@ impl TextBox {
     pub fn new(
         scene_resources: &SceneResources,
         metrics: Metrics,
-        color: Srgba,
+        color: ColorRgba,
         text: String,
         attrs: Attrs<'static>,
     ) -> Self {

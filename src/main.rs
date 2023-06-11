@@ -12,6 +12,7 @@ extern crate enum_derive;
 mod app;
 mod atlas;
 mod buffer;
+mod color;
 mod debug;
 mod element;
 mod graphics;

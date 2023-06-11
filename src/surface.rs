@@ -1,6 +1,5 @@
 use std::sync::{Arc, Mutex, RwLock};
 
-use palette::Srgba;
 use swash::scale;
 use wgpu::util::DeviceExt;
 use winit::dpi::PhysicalSize;

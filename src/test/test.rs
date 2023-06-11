@@ -1,8 +1,8 @@
 use keyframe::{functions::BezierCurve, mint::Vector2};
 use num_traits::Signed;
-use palette::{rgb::Rgb, Srgba};
 
 use crate::{
+    color::ColorRgba,
     element::transition::Transition,
     input::{input_state::InputState, PointerButton},
     scene::{ctx::SceneContext, update::UpdatePass, PaintPass},
@@ -48,23 +48,23 @@ impl TestRect {
 impl Element for TestRect {
     fn ui(&mut self, ctx: &mut SceneContext, pos: Pos2) {
         use palette::Mix;
-        let fill = Srgba::mix(
-            Srgba::new(1., 0., 0., 1.),
-            Srgba::new(0., 1., 0., 1.),
+        let fill = ColorRgba::mix(
+            ColorRgba::new(1., 0., 0., 1.),
+            ColorRgba::new(0., 1., 0., 1.),
             self.transition.fac(),
         );
 
         // let fill = match self.hovered {
-        //     true => Srgba::new(1., 0., 0., 1.),
-        //     false => Srgba::new(0., 1., 0., 1.),
+        //     true => ColorRgba::new(1., 0., 0., 1.),
+        //     false => ColorRgba::new(0., 1., 0., 1.),
         // };
 
         ctx.add_shape(PaintRectangle {
             rect: self.rect.translate_vec(Vec2::new(0., 0.)),
             fill: Some(fill),
-            stroke_color: Some(Srgba::new(0., 0., 0., 1.)),
+            stroke_color: Some(ColorRgba::new(0., 0., 0., 1.)),
             stroke_width: Some(1.),
-            blur: Some(PaintBlur::new(10., Srgba::new(0., 0., 0., 0.5))),
+            blur: Some(PaintBlur::new(10., ColorRgba::new(0., 0., 0., 0.5))),
         });
     }
 

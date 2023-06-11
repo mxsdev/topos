@@ -3,11 +3,12 @@
 ## TODO
 
  - [x] Custom fonts
- - [ ] Clip rects
- - [ ] Use linear color space
+ - [x] Clip rects
+ - [x] Use linear color space
+ - [ ] Platform output (cursor, window stuff)
+ - [ ] Lines, Bezier, Fills (maybe just linearize for now)
  - [ ] Layout (`Placer` struct, flexbox)
  - [ ] Focus
- - [ ] Lines, Bezier, Fills (maybe just linearize for now)
  - [ ] Scrolling
  - [ ] Pixel Alignment (PhysicalRect as `u32`)
  - [ ] Sharp box strokes

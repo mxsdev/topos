@@ -1,3 +1,5 @@
+use crate::color::ColorRgba;
+
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
@@ -8,8 +10,6 @@ use std::{
 
 use euclid::size2;
 
-use itertools::Itertools;
-use palette::{rgb::Rgba, Srgba};
 use rayon::prelude::*;
 
 use cosmic_text::{FontSystem, LayoutGlyph};
@@ -36,7 +36,7 @@ pub struct GlyphToRender {
     size: PhysicalSize2<u32>,
     draw_rect: PhysicalRect,
     alloc: AtlasAllocation, // uv: Option<Size2>,
-    color: Srgba,
+    color: ColorRgba,
     // clip_rect: Option<PhysicalRect>,
 }
 
@@ -409,7 +409,7 @@ struct FontAtlasManager {
 pub struct PlacedTextBox<F = f32, U = LogicalUnit> {
     glyphs: Vec<PlacedGlyph>,
     clip_rect: Option<euclid::Box2D<F, U>>,
-    color: Srgba,
+    color: ColorRgba,
     pub pos: euclid::Point2D<F, U>,
 }
 
@@ -417,7 +417,7 @@ impl<U> PlacedTextBox<f32, U> {
     pub fn from_buffer(
         buffer: &cosmic_text::Buffer,
         pos: euclid::Point2D<f32, U>,
-        color: Srgba,
+        color: ColorRgba,
     ) -> Self {
         Self {
             glyphs: PlacedGlyph::from_buffer(buffer).collect(),

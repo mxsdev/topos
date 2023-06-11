@@ -1,8 +1,9 @@
+use crate::color::ColorRgba;
+
 use std::{fmt::Debug, marker::PhantomData, num::NonZeroU64, ops::Range};
 
 use bytemuck::Pod;
 use num_traits::Num;
-use palette::{num::PartialCmp, Srgba};
 
 use crate::{
     atlas::PlacedTextBox,
@@ -204,7 +205,7 @@ impl BoxShaderVertex {
 
     fn from_rect_stroked(
         rect: RoundedBox2D<f32, PhysicalUnit>,
-        color: Srgba,
+        color: ColorRgba,
         stroke_width: Option<f32>,
         blur_radius: Option<f32>,
     ) -> [Self; 4] {
@@ -257,12 +258,12 @@ impl BoxShaderVertex {
 
 pub struct PaintBlur<F = f32, U = LogicalUnit> {
     pub blur_radius: F,
-    pub color: Srgba,
+    pub color: ColorRgba,
     _unit: PhantomData<U>,
 }
 
 impl<F: CanScale, U> PaintBlur<F, U> {
-    pub fn new(blur_radius: F, color: Srgba) -> Self {
+    pub fn new(blur_radius: F, color: ColorRgba) -> Self {
         Self {
             blur_radius,
             color,
@@ -273,8 +274,8 @@ impl<F: CanScale, U> PaintBlur<F, U> {
 
 pub struct PaintRectangle<F = f32, U = LogicalUnit> {
     pub rect: RoundedBox2D<F, U>,
-    pub fill: Option<Srgba>,
-    pub stroke_color: Option<Srgba>,
+    pub fill: Option<ColorRgba>,
+    pub stroke_color: Option<ColorRgba>,
     pub stroke_width: Option<F>,
     pub blur: Option<PaintBlur<F, U>>,
 }
