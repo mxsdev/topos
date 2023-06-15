@@ -6,7 +6,7 @@
  - [x] Clip rects
  - [x] Use linear color space
  - [x] Platform output (cursor, window stuff)
- - [ ] Lines, Bezier, Fills (maybe just linearize for now)
+ - [ ] Lines, Bezier, Fills (maybe just linearize/tessellate for now)
  - [ ] Layout (`Placer` struct, flexbox)
  - [ ] Focus
  - [ ] Scrolling

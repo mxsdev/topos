@@ -1,4 +1,4 @@
-use crate::color::ColorRgba;
+use crate::{color::ColorRgba, surface::SurfaceDependent};
 
 use std::{
     cell::RefCell,
@@ -276,6 +276,7 @@ impl FontAtlas {
             device,
             params_buffer,
             texture_format,
+            num_samples,
             ..
         }: &RenderingContext,
     ) -> (wgpu::RenderPipeline, wgpu::BindGroup) {
@@ -347,7 +348,10 @@ impl FontAtlas {
                 cull_mode: None,
             },
             depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
+            multisample: wgpu::MultisampleState {
+                count: *num_samples.read().unwrap(),
+                ..Default::default()
+            },
             multiview: None,
         });
 
@@ -373,6 +377,21 @@ impl FontAtlas {
         });
 
         (render_pipeline, bind_group)
+    }
+}
+
+impl SurfaceDependent for FontAtlas {
+    fn reconfigure(
+        &mut self,
+        context: &RenderingContext,
+        size: winit::dpi::PhysicalSize<u32>,
+        scale_factor: f64,
+    ) {
+        let (render_pipeline, bind_group) =
+            Self::render_pipeline(&self.shader, &self.sampler, &self.texture_view, context);
+
+        self.render_pipeline = render_pipeline;
+        self.bind_group = bind_group;
     }
 }
 
@@ -808,6 +827,25 @@ impl FontAtlasManager {
     pub fn get_glyph_uv() {}
 }
 
+impl SurfaceDependent for FontAtlasManager {
+    fn reconfigure(
+        &mut self,
+        context: &RenderingContext,
+        size: winit::dpi::PhysicalSize<u32>,
+        scale_factor: f64,
+    ) {
+        for atlas in [
+            self.color_atlases.values_mut(),
+            self.mask_atlases.values_mut(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            atlas.reconfigure(context, size, scale_factor);
+        }
+    }
+}
+
 pub struct FontManager {
     font_system: Arc<Mutex<FontSystem>>,
     atlas_manager: Arc<RwLock<FontAtlasManager>>,
@@ -973,4 +1011,18 @@ fn rasterize_glyph(
 
         render.render(&mut scaler, cache_key.glyph_id)
     })
+}
+
+impl SurfaceDependent for FontManager {
+    fn reconfigure(
+        &mut self,
+        context: &RenderingContext,
+        size: winit::dpi::PhysicalSize<u32>,
+        scale_factor: f64,
+    ) {
+        self.atlas_manager
+            .write()
+            .unwrap()
+            .reconfigure(context, size, scale_factor)
+    }
 }

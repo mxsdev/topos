@@ -19,6 +19,7 @@ mod graphics;
 mod hash;
 mod history;
 mod input;
+mod mesh;
 mod num;
 mod scene;
 mod shape;
@@ -32,9 +33,11 @@ pub use refbox;
 
 use pollster::FutureExt;
 use test::{TestRect, TestRoot};
+use winit::event_loop::EventLoop;
 
 pub async fn run() {
-    app::App::<TestRoot>::new().await.run();
+    let event_loop = EventLoop::new();
+    app::App::<TestRoot>::new(&event_loop).await.run(event_loop);
 }
 
 fn main() {

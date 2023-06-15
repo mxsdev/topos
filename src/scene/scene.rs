@@ -19,7 +19,7 @@ use crate::{
     input::{input_state::InputState, output::PlatformOutput, winit::WinitState},
     scene::update::UpdatePass,
     shape::{self, BoxShaderVertex, PaintRectangle, PaintShape},
-    surface::{RenderSurface, RenderingContext},
+    surface::{RenderAttachment, RenderSurface, RenderingContext, SurfaceDependent},
     util::{
         LogicalToPhysical, LogicalToPhysicalInto, PhysicalRect, PhysicalToLogical, Pos2,
         RoundToInt, Size2, ToEuclid,
@@ -48,9 +48,6 @@ pub struct Scene<Root: RootConstructor + 'static> {
     font_manager: atlas::FontManager,
     shape_renderer: shape::ShapeRenderer,
 
-    last_mouse_pos: Option<Pos2>,
-
-    // elements: Vec<Box<dyn Element>>,
     root: ElementRef<Root>,
 }
 
@@ -64,9 +61,6 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
             font_system.db_mut().load_system_fonts();
         }
 
-        // let mut elements: Vec<Box<dyn Element>> = Default::default();
-        // elements.push(Box::new(TestElement::new()));
-
         let scene_resources = SceneResources {
             font_system: font_manager.get_font_system_ref(),
             scale_factor: scale_fac as f32,
@@ -77,27 +71,21 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         Self {
             font_manager,
             shape_renderer,
-
-            last_mouse_pos: None,
             root,
         }
     }
 
-    // fn iter_elements(&mut self) -> impl Iterator<Item = &mut Box<dyn Element>> {
-    //     self.elements.iter_mut()
-    // }
-
-    // pub fn handle_window_event(&mut self, event: winit::event::Event<()>, sf: f64) {
-    //     use winit::event::*;
-    // }
-
     pub fn render(
         &mut self,
         render_surface: &RenderSurface,
-        output: wgpu::SurfaceTexture,
+        RenderAttachment {
+            window_texture,
+            msaa_view,
+            ..
+        }: RenderAttachment,
         mut input: InputState,
     ) -> (InputState, PlatformOutput) {
-        let view = output
+        let window_view = window_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -143,8 +131,6 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
                 shape::PaintShape::Rectangle(paint_rect) => {
                     let physical_paint_rect = paint_rect.to_physical(scale_fac);
 
-                    // physical_paint_rect.rect.rect = physical_paint_rect.rect.rect.round();
-
                     if let Some(clip_rect) = last_clip_rect {
                         if physical_paint_rect
                             .get_bounding_box()
@@ -189,19 +175,31 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         let font_resources = self.font_manager.render_resources();
 
         {
+            let load_op = wgpu::LoadOp::Clear(wgpu::Color {
+                r: 0.1,
+                g: 0.2,
+                b: 0.3,
+                a: 1.0,
+            });
+
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.2,
-                            b: 0.3,
-                            a: 1.0,
-                        }),
-                        store: true,
+                color_attachments: &[Some(match &msaa_view {
+                    None => wgpu::RenderPassColorAttachment {
+                        view: &window_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: load_op,
+                            store: true,
+                        },
+                    },
+                    Some(msaa_view) => wgpu::RenderPassColorAttachment {
+                        view: msaa_view,
+                        resolve_target: Some(&window_view),
+                        ops: wgpu::Operations {
+                            load: load_op,
+                            store: false,
+                        },
                     },
                 })],
                 depth_stencil_attachment: None,
@@ -242,11 +240,9 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         }
 
         queue.submit(std::iter::once(encoder.finish()));
-        output.present();
+        window_texture.present();
 
         (input, platform_output)
-
-        // Ok(())
     }
 
     fn generate_scene_resources(&self, scale_factor: f32) -> SceneResources {
@@ -254,6 +250,14 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
             font_system: self.font_manager.get_font_system_ref(),
             scale_factor,
         }
+    }
+
+    pub fn get_dependents_mut<'a>(&mut self) -> impl Iterator<Item = &mut dyn SurfaceDependent> {
+        [
+            &mut self.font_manager as &mut dyn SurfaceDependent,
+            &mut self.shape_renderer,
+        ]
+        .into_iter()
     }
 }
 
@@ -312,24 +316,7 @@ impl BatchedRenderCollector {
         self.write_current();
         self.batches
     }
-
-    // fn try_incr(shape: &PaintShape, el: &mut BatchedRender) -> Option<()> {
-    //     match shape {
-    //         PaintShape::Rectangle(_) => {
-    //             *el.as_rectangles_mut()? += 1;
-    //         }
-    //         PaintShape::Text(_) => {
-    //             return None;
-    //         }
-    //     };
-
-    //     Some(())
-    // }
 }
-
-// struct BatchedRenderIterator<T: Iterator<Item = BatchedRender>> {
-//     inner: T,
-// }
 
 struct BatchRenderer<
     T: Iterator<Item = BatchedRender>,
@@ -338,68 +325,3 @@ struct BatchRenderer<
     inner: T,
     text_box_iterator: BatchedAtlasRenderBoxIterator<K>,
 }
-
-// impl<T: Iterator<Item = BatchedRender>, K: Iterator<Item = BatchedAtlasRenderBoxesEntry>>
-//     BatchRenderer<T, K>
-// {
-//     pub fn next<'a: 'b, 'b>(
-//         &mut self,
-//         render_pass: &'a mut wgpu::RenderPass<'b>,
-//         resources: &'b mut FontManagerRenderResources<'b>,
-//         scene: &'a mut Scene<impl Element>,
-//     ) -> Option<()> {
-//         match self.inner.next()? {
-//             BatchedRender::Rectangles(num_boxes) => {
-//                 scene.shape_renderer.render_boxes(render_pass, num_boxes);
-//             }
-//             BatchedRender::TextBox => {
-//                 for text_box_batch in &mut self.text_box_iterator {
-//                     scene
-//                         .font_manager
-//                         .render(render_pass, resources, &text_box_batch)
-//                 }
-//             }
-//         };
-
-//         Some(())
-//     }
-// }
-
-// fn prepare_batch_renderer(
-//     scene: &mut Scene<impl Element>,
-//     device: &wgpu::Device,
-//     queue: &wgpu::Queue,
-//     shapes: Vec<PaintShape>,
-//     scale_fac: f64,
-// ) -> BatchRenderer<
-//     impl Iterator<Item = BatchedRender>,
-//     impl Iterator<Item = BatchedAtlasRenderBoxesEntry>,
-// > {
-//     // let mut batches = Vec::new();
-//     let mut batcher = BatchedRenderCollector::new();
-
-//     let mut rects = Vec::new();
-//     let mut boxes = Vec::new();
-
-//     for shape in shapes.into_iter().rev() {
-//         match shape {
-//             shape::PaintShape::Rectangle(paint_rect) => rects.extend(
-//                 BoxShaderVertex::from_paint_rect(paint_rect.to_physical(scale_fac)),
-//             ),
-//             shape::PaintShape::Text(text_box) => boxes.push(text_box),
-//         }
-//     }
-
-//     let num_rects = rects.len();
-
-//     scene
-//         .shape_renderer
-//         .prepare_boxes(device, queue, rects.into_iter());
-
-//     let text_box_iterator = scene.font_manager.prepare(boxes);
-
-//     BatchRenderer {
-//         inner: batcher.finalize().into_iter(),
-//         text_box_iterator: text_box_iterator,
-//     }
-// }

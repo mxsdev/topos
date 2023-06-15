@@ -8,14 +8,13 @@ use winit::{
 };
 
 use crate::{
-    element::{Element, RootConstructor},
-    input::{self, input_state::InputState, winit::WinitState},
+    element::RootConstructor,
+    input::{input_state::InputState, winit::WinitState},
     scene::scene::Scene,
     surface::RenderSurface,
 };
 
 pub struct App<Root: RootConstructor + 'static> {
-    event_loop: EventLoop<()>,
     window: winit::window::Window,
 
     render_surface: RenderSurface,
@@ -26,13 +25,13 @@ pub struct App<Root: RootConstructor + 'static> {
 }
 
 impl<Root: RootConstructor + 'static> App<Root> {
-    pub fn run(mut self) {
+    pub fn run(mut self, event_loop: EventLoop<()>) {
         use std::time::*;
 
         let mut last_render_duration: Option<Duration> = None;
         let mut last_render_time: Option<Instant> = None;
 
-        self.event_loop.run(move |event, _, control_flow| {
+        event_loop.run(move |event, _, control_flow| {
             match event {
                 Event::WindowEvent {
                     ref event,
@@ -50,16 +49,12 @@ impl<Root: RootConstructor + 'static> App<Root> {
                         ..
                     } => *control_flow = ControlFlow::Exit,
 
-                    WindowEvent::Resized(physical_size) => {
-                        self.render_surface.resize(*physical_size, None)
-                    }
+                    WindowEvent::Resized(physical_size) => self.resize(*physical_size, None),
 
                     WindowEvent::ScaleFactorChanged {
                         new_inner_size,
                         scale_factor,
-                    } => self
-                        .render_surface
-                        .resize(**new_inner_size, Some(*scale_factor)),
+                    } => self.resize(**new_inner_size, Some(*scale_factor)),
 
                     e => {
                         let _ = self.winit_state.on_event(e);
@@ -86,7 +81,8 @@ impl<Root: RootConstructor + 'static> App<Root> {
                         let render_start_time = Instant::now();
 
                         let texture_block_start = Instant::now();
-                        let output = self.render_surface.surface().get_current_texture();
+                        // let output = self.render_surface.surface().get_current_texture();
+                        let output = self.render_surface.get_output();
                         let texture_block_time = texture_block_start.elapsed();
                         // log::trace!("texture block time: {:?}", texture_block_time);
 
@@ -107,13 +103,13 @@ impl<Root: RootConstructor + 'static> App<Root> {
                                 self.winit_state
                                     .handle_platform_output(&self.window, result_output);
 
-                                let end = Instant::now();
-
                                 last_render_time = Some(start);
                                 last_render_duration = Some(start.elapsed());
                             }
                             // Reconfigure the surface if lost
-                            Err(wgpu::SurfaceError::Lost) => self.render_surface.reconfigure(),
+                            Err(wgpu::SurfaceError::Lost) => self
+                                .render_surface
+                                .reconfigure(self.scene.get_dependents_mut()),
                             // The system is out of memory, we should probably quit
                             Err(wgpu::SurfaceError::OutOfMemory) => panic!("out of memory"),
                             // All other errors (Outdated, Timeout) should be resolved by the next frame
@@ -141,9 +137,8 @@ impl<Root: RootConstructor + 'static> App<Root> {
         });
     }
 
-    pub async fn new() -> Self {
-        let event_loop = EventLoop::new();
-        let window = WindowBuilder::new().build(&event_loop).unwrap();
+    pub async fn new(event_loop: &EventLoop<()>) -> Self {
+        let window = WindowBuilder::new().build(event_loop).unwrap();
 
         let render_surface = RenderSurface::new(&window).await;
         let rendering_context = render_surface.clone_rendering_context();
@@ -154,7 +149,6 @@ impl<Root: RootConstructor + 'static> App<Root> {
         let input_state = InputState::default().into();
 
         Self {
-            event_loop,
             window,
 
             render_surface,
@@ -166,17 +160,13 @@ impl<Root: RootConstructor + 'static> App<Root> {
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>, scale_factor: Option<f64>) {
-        self.render_surface.resize(new_size, scale_factor);
-    }
-
-    pub fn get_size(&self) -> winit::dpi::PhysicalSize<u32> {
-        self.render_surface.get_size()
+        self.render_surface
+            .resize(new_size, scale_factor, self.scene.get_dependents_mut());
     }
 }
 
 fn get_window_frame_time(window: &winit::window::Window) -> Option<std::time::Duration> {
     let monitor = window.current_monitor()?;
-    // let monitor = unsafe { monitor_tao.as_winit() };
 
     let frame_rate = monitor.refresh_rate_millihertz()? as f64 / 1000.;
 

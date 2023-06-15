@@ -1,5 +1,7 @@
+use core::num;
 use std::sync::{Arc, Mutex, RwLock};
 
+use euclid::default;
 use swash::scale;
 use wgpu::util::DeviceExt;
 use winit::dpi::PhysicalSize;
@@ -29,11 +31,32 @@ struct ScreenDescriptor {
     scale_factor: f64,
 }
 
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum MultisampleMode {
+    None,
+    MSAA2x,
+    #[default]
+    MSAA4x,
+}
+
+impl MultisampleMode {
+    pub const fn num_samples(&self) -> u32 {
+        match self {
+            MultisampleMode::None => 1,
+            MultisampleMode::MSAA2x => 2,
+            MultisampleMode::MSAA4x => 4,
+        }
+    }
+}
+
 pub struct RenderSurface {
     surface: wgpu::Surface,
     screen_descriptor: ScreenDescriptor,
     config: wgpu::SurfaceConfiguration,
     rendering_context: Arc<RenderingContext>,
+
+    multisampled_framebuffer: Option<wgpu::Texture>,
+    multisample_mode: MultisampleMode,
 }
 
 pub struct RenderingContext {
@@ -41,6 +64,22 @@ pub struct RenderingContext {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub texture_format: wgpu::TextureFormat,
+    pub num_samples: RwLock<u32>,
+}
+
+pub trait SurfaceDependent {
+    fn reconfigure(
+        &mut self,
+        context: &RenderingContext,
+        size: winit::dpi::PhysicalSize<u32>,
+        scale_factor: f64,
+    );
+}
+
+pub struct RenderAttachment {
+    pub window_texture: wgpu::SurfaceTexture,
+    pub msaa_view: Option<wgpu::TextureView>,
+    pub num_samples: u32,
 }
 
 impl RenderSurface {
@@ -128,33 +167,91 @@ impl RenderSurface {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
+        let multisample_mode = MultisampleMode::default();
+
         let rendering_context = RenderingContext {
             device,
             params_buffer,
             queue,
             texture_format,
+            num_samples: RwLock::new(multisample_mode.num_samples()),
         }
         .into();
 
-        Self {
+        let mut render_surface = Self {
             config,
             rendering_context,
             screen_descriptor,
             surface,
+
+            multisample_mode,
+            multisampled_framebuffer: None,
+        };
+
+        render_surface.configure_multisampled_framebuffer();
+
+        render_surface
+    }
+
+    fn configure_multisampled_framebuffer(&mut self) {
+        let num_samples = self.multisample_mode.num_samples();
+
+        self.multisampled_framebuffer = (num_samples > 1).then(|| {
+            let multisampled_frame_descriptor = &wgpu::TextureDescriptor {
+                size: wgpu::Extent3d {
+                    width: self.config.width,
+                    height: self.config.height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: num_samples,
+                dimension: wgpu::TextureDimension::D2,
+                format: self.config.format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                label: None,
+                view_formats: &[],
+            };
+
+            self.rendering_context
+                .device
+                .create_texture(&multisampled_frame_descriptor)
+        });
+    }
+
+    fn reconfigure_dependents<'a>(
+        &self,
+        dependents: impl Iterator<Item = &'a mut dyn SurfaceDependent>,
+    ) {
+        for child in dependents {
+            child.reconfigure(
+                &self.rendering_context,
+                self.screen_descriptor.size,
+                self.scale_factor(),
+            );
         }
     }
 
-    pub fn reconfigure(&mut self) {
-        self.resize(self.get_size(), None)
+    pub fn reconfigure<'a>(
+        &mut self,
+        dependents: impl Iterator<Item = &'a mut dyn SurfaceDependent>,
+    ) {
+        self.resize(self.get_size(), None, dependents)
     }
 
-    pub fn resize(&mut self, new_size: PhysicalSize<u32>, scale_factor: Option<f64>) {
+    pub fn resize<'a>(
+        &mut self,
+        new_size: PhysicalSize<u32>,
+        scale_factor: Option<f64>,
+        dependents: impl Iterator<Item = &'a mut dyn SurfaceDependent>,
+    ) {
         if new_size.width > 0 && new_size.height > 0 {
             self.screen_descriptor.size = new_size;
             self.config.width = new_size.width;
             self.config.height = new_size.height;
             self.surface
                 .configure(&self.rendering_context.device, &self.config);
+
+            self.configure_multisampled_framebuffer();
 
             if let Some(scale_factor) = scale_factor {
                 self.screen_descriptor.scale_factor = scale_factor;
@@ -164,8 +261,24 @@ impl RenderSurface {
                 &self.rendering_context.params_buffer,
                 0,
                 bytemuck::bytes_of(&Into::<[u32; 2]>::into(new_size)),
-            )
+            );
+
+            self.reconfigure_dependents(dependents)
         }
+    }
+
+    pub fn get_output(&self) -> Result<RenderAttachment, wgpu::SurfaceError> {
+        let window_texture = self.surface.get_current_texture()?;
+        let msaa_view = self
+            .multisampled_framebuffer
+            .as_ref()
+            .map(|tex| tex.create_view(&wgpu::TextureViewDescriptor::default()));
+
+        Ok(RenderAttachment {
+            window_texture,
+            msaa_view,
+            num_samples: self.multisample_mode.num_samples(),
+        })
     }
 
     pub fn surface(&self) -> &wgpu::Surface {

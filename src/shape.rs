@@ -1,4 +1,4 @@
-use crate::color::ColorRgba;
+use crate::{color::ColorRgba, surface::SurfaceDependent};
 
 use std::{fmt::Debug, marker::PhantomData, num::NonZeroU64, ops::Range};
 
@@ -16,37 +16,20 @@ use crate::{
     },
 };
 
-pub struct RenderResources<T: Sized + Pod + Debug> {
+pub struct RenderResources {
     pub render_pipeline: wgpu::RenderPipeline,
     pub bind_group: wgpu::BindGroup,
-
-    pub gpu_buffer: DynamicGPUQuadBuffer<T>,
-}
-
-impl<T: Sized + Pod + Debug> RenderResources<T> {
-    pub fn render_quads<'a>(
-        &'a self,
-        render_pass: &mut wgpu::RenderPass<'a>,
-        quads: u64,
-        instances: Range<u32>,
-    ) {
-        self.gpu_buffer.render_quads(
-            &self.render_pipeline,
-            &self.bind_group,
-            render_pass,
-            quads,
-            instances,
-        )
-    }
 }
 
 pub struct ShapeRenderer {
-    box_resources: RenderResources<BoxShaderVertex>,
+    box_resources: RenderResources,
+    gpu_buffer: DynamicGPUQuadBuffer<BoxShaderVertex>,
 }
 
 impl ShapeRenderer {
     pub fn new(rendering_context: &RenderingContext) -> Self {
         Self {
+            gpu_buffer: DynamicGPUQuadBuffer::new(&rendering_context.device),
             box_resources: Self::create_box_resources(rendering_context),
         }
     }
@@ -58,7 +41,7 @@ impl ShapeRenderer {
         queue: &wgpu::Queue,
         boxes: impl ExactSizeIterator<Item = [BoxShaderVertex; 4]>,
     ) {
-        let buf = &mut self.box_resources.gpu_buffer;
+        let buf = &mut self.gpu_buffer;
 
         buf.set_num_quads(device, boxes.len() as u64);
 
@@ -66,8 +49,13 @@ impl ShapeRenderer {
     }
 
     pub fn render_boxes<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, num_boxes: u64) {
-        self.box_resources
-            .render_quads(render_pass, num_boxes, 0..1);
+        self.gpu_buffer.render_quads(
+            &self.box_resources.render_pipeline,
+            &self.box_resources.bind_group,
+            render_pass,
+            num_boxes,
+            0..1,
+        );
     }
 
     fn create_box_resources(
@@ -75,9 +63,10 @@ impl ShapeRenderer {
             device,
             texture_format,
             params_buffer,
+            num_samples,
             ..
         }: &RenderingContext,
-    ) -> RenderResources<BoxShaderVertex> {
+    ) -> RenderResources {
         let shader = device.create_shader_module(wgpu::include_wgsl!("box.wgsl"));
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -127,7 +116,10 @@ impl ShapeRenderer {
                 cull_mode: None,
             },
             depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
+            multisample: wgpu::MultisampleState {
+                count: *num_samples.read().unwrap(),
+                ..Default::default()
+            },
             multiview: None,
         });
 
@@ -143,8 +135,18 @@ impl ShapeRenderer {
         RenderResources {
             render_pipeline,
             bind_group,
-            gpu_buffer: DynamicGPUQuadBuffer::new(device),
         }
+    }
+}
+
+impl SurfaceDependent for ShapeRenderer {
+    fn reconfigure(
+        &mut self,
+        context: &RenderingContext,
+        _size: winit::dpi::PhysicalSize<u32>,
+        _scale_factor: f64,
+    ) {
+        self.box_resources = Self::create_box_resources(context)
     }
 }
 

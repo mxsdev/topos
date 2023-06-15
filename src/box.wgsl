@@ -1,4 +1,4 @@
-const FEATHERING = 0.5;
+const FEATHERING = 1.;
 
 struct VertexInput {
     @builtin(vertex_index) vertex_idx: u32,
