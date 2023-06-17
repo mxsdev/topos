@@ -37,6 +37,8 @@ pub enum MultisampleMode {
     MSAA2x,
     #[default]
     MSAA4x,
+    MSAA8x,
+    MSAA16x,
 }
 
 impl MultisampleMode {
@@ -45,6 +47,8 @@ impl MultisampleMode {
             MultisampleMode::None => 1,
             MultisampleMode::MSAA2x => 2,
             MultisampleMode::MSAA4x => 4,
+            MultisampleMode::MSAA8x => 8,
+            MultisampleMode::MSAA16x => 16,
         }
     }
 }

@@ -17,6 +17,7 @@ use crate::{
     },
     element::{Element, ElementEvent, ElementRef, RootConstructor, SizeConstraint},
     input::{input_state::InputState, output::PlatformOutput, winit::WinitState},
+    mesh::{self, PaintMesh},
     scene::update::UpdatePass,
     shape::{self, BoxShaderVertex, PaintRectangle, PaintShape},
     surface::{RenderAttachment, RenderSurface, RenderingContext, SurfaceDependent},
@@ -47,6 +48,7 @@ impl SceneResources {
 pub struct Scene<Root: RootConstructor + 'static> {
     font_manager: atlas::FontManager,
     shape_renderer: shape::ShapeRenderer,
+    mesh_renderer: mesh::MeshRenderer,
 
     root: ElementRef<Root>,
 }
@@ -54,6 +56,7 @@ pub struct Scene<Root: RootConstructor + 'static> {
 impl<Root: RootConstructor + 'static> Scene<Root> {
     pub fn new(rendering_context: Arc<RenderingContext>, scale_fac: f64) -> Self {
         let shape_renderer = shape::ShapeRenderer::new(&rendering_context);
+        let mesh_renderer = mesh::MeshRenderer::new(&rendering_context);
         let mut font_manager = atlas::FontManager::new(rendering_context);
 
         {
@@ -71,6 +74,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         Self {
             font_manager,
             shape_renderer,
+            mesh_renderer,
             root,
         }
     }
@@ -124,6 +128,10 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         let mut rects = Vec::new();
         let mut text_boxes = Vec::new();
 
+        let mut meshes = Vec::new();
+        let mut num_mesh_vertices = 0;
+        let mut num_mesh_indices = 0;
+
         let mut last_clip_rect = None;
 
         for shape in shapes.into_iter() {
@@ -156,6 +164,17 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
                             .with_clip_rect(last_clip_rect),
                     );
                 }
+                shape::PaintShape::Mesh(paint_mesh) => {
+                    let num_indices = paint_mesh.indices.len();
+                    let num_vertices = paint_mesh.vertices.len();
+
+                    batcher.add_mesh_indices(num_indices as u64);
+
+                    num_mesh_indices += num_indices;
+                    num_mesh_vertices += num_vertices;
+
+                    meshes.push(paint_mesh);
+                }
                 shape::PaintShape::ClipRect(rect) => {
                     let physical_rect = rect.map(|r| r.to_physical(scale_fac));
                     last_clip_rect = physical_rect;
@@ -167,6 +186,14 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
         self.shape_renderer
             .prepare_boxes(device, queue, rects.into_iter());
+
+        self.mesh_renderer.prepare_meshes(
+            device,
+            queue,
+            meshes.into_iter().map(|m| m.as_gpu_mesh(scale_fac)),
+            num_mesh_vertices as u64,
+            num_mesh_indices as u64,
+        );
 
         let mut text_box_iterator = self.font_manager.prepare(text_boxes);
 
@@ -206,6 +233,8 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
             });
 
             for x in batches {
+                // log::trace!("{:?}", x);
+
                 match x {
                     BatchedRender::Rectangles(num_boxes) => {
                         self.shape_renderer
@@ -221,6 +250,10 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
                             )
                         }
                     }
+
+                    BatchedRender::MeshIndices(num_indices) => self
+                        .mesh_renderer
+                        .render_indices(&mut render_pass, num_indices),
 
                     BatchedRender::ClipRect(Some(rect)) => render_pass.set_scissor_rect(
                         rect.min.x,
@@ -256,6 +289,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         [
             &mut self.font_manager as &mut dyn SurfaceDependent,
             &mut self.shape_renderer,
+            &mut self.mesh_renderer,
         ]
         .into_iter()
     }
@@ -266,6 +300,7 @@ enum BatchedRender {
     Rectangles(u64),
     TextBox,
     ClipRect(Option<PhysicalRect<u32>>),
+    MeshIndices(u64),
 }
 
 #[derive(Default)]
@@ -277,6 +312,19 @@ struct BatchedRenderCollector {
 impl BatchedRenderCollector {
     fn new() -> Self {
         Default::default()
+    }
+
+    fn add_mesh_indices(&mut self, indices: u64) {
+        let el = self
+            .current
+            .get_or_insert(BatchedRender::MeshIndices(Default::default()));
+
+        if let Some(num_indices) = el.as_mesh_indices_mut() {
+            *num_indices += indices;
+        } else {
+            self.write_current();
+            self.current = Some(BatchedRender::MeshIndices(indices));
+        };
     }
 
     fn add_rects(&mut self, quantity: u64) {

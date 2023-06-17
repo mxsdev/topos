@@ -1,4 +1,4 @@
-use crate::{color::ColorRgba, surface::SurfaceDependent};
+use crate::{color::ColorRgba, mesh::PaintMesh, surface::SurfaceDependent, util::Pos2};
 
 use std::{fmt::Debug, marker::PhantomData, num::NonZeroU64, ops::Range};
 
@@ -288,6 +288,7 @@ custom_derive! {
         Rectangle(PaintRectangle),
         Text(PlacedTextBox),
         ClipRect(Option<Rect>),
+        Mesh(PaintMesh),
     }
 }
 
@@ -339,6 +340,11 @@ impl Translate2DMut<f32, LogicalUnit> for PaintShape {
                 if let Some(rect) = rect.as_mut() {
                     rect.translate_mut(x, y)
                 }
+            }
+            PaintShape::Mesh(PaintMesh { vertices, .. }) => {
+                vertices.iter_mut().for_each(|v| {
+                    v.pos.translate_mut(x, y);
+                });
             }
         }
     }

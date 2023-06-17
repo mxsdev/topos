@@ -1026,6 +1026,15 @@ dependencies = [
 
 [[package]]
 name = "float_next_after"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fc612c5837986b7104a87a0df74a5460931f1c5274be12f8d0f40aa2f30d632"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
+name = "float_next_after"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8bf7cc16383c4b8d58b9905a8509f02926ce3058053c056376248d958c9df1e8"
@@ -1803,6 +1812,68 @@ name = "log"
 version = "0.4.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "518ef76f2f87365916b142844c16d8fefd85039bc5699050210a7778ee1cd1de"
+
+[[package]]
+name = "lyon"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91e7f9cda98b5430809e63ca5197b06c7d191bf7e26dfc467d5a3f0290e2a74f"
+dependencies = [
+ "lyon_algorithms",
+ "lyon_extra",
+ "lyon_tessellation",
+]
+
+[[package]]
+name = "lyon_algorithms"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "00a0349cd8f0270781bb93a824b63df6178e3b4a27794e7be3ce3763f5a44d6e"
+dependencies = [
+ "lyon_path",
+ "num-traits",
+]
+
+[[package]]
+name = "lyon_extra"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9ce2ae38f2480094ec1f0d5df51a75581fa84f0e8f32a0edb1d264630c99f3b"
+dependencies = [
+ "lyon_path",
+]
+
+[[package]]
+name = "lyon_geom"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74df1ff0a0147282eb10699537a03baa7d31972b58984a1d44ce0624043fe8ad"
+dependencies = [
+ "arrayvec",
+ "euclid",
+ "num-traits",
+]
+
+[[package]]
+name = "lyon_path"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7da8358c012e5651e4619cfd0b5b75c0f77866181a01b0909aab4bae14adf660"
+dependencies = [
+ "lyon_geom",
+ "num-traits",
+]
+
+[[package]]
+name = "lyon_tessellation"
+version = "1.0.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d2124218d5428149f9e09520b9acc024334a607e671f032d06567b61008977c"
+dependencies = [
+ "float_next_after 0.1.5",
+ "lyon_path",
+ "thiserror",
+]
 
 [[package]]
 name = "macro-attr"
@@ -2820,6 +2891,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6637bab7722d379c8b41ba849228d680cc12d0a45ba1fa2b48f2a30577a06731"
 
 [[package]]
+name = "svg"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "02d815ad337e8449d2374d4248448645edfe74e699343dd5719139d93fa87112"
+
+[[package]]
 name = "svg_fmt"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3089,11 +3166,12 @@ dependencies = [
  "env_logger",
  "etagere",
  "euclid",
- "float_next_after",
+ "float_next_after 1.0.0",
  "futures",
  "itertools",
  "keyframe",
  "log",
+ "lyon",
  "macro-attr",
  "num-traits",
  "ordered_hash_map",
@@ -3104,6 +3182,7 @@ dependencies = [
  "rayon",
  "refbox",
  "rustc-hash",
+ "svg",
  "swash",
  "tao",
  "uuid",
