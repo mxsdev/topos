@@ -125,6 +125,10 @@ impl<Root: RootConstructor + 'static> App<Root> {
 
                     let render_time = render_start_time.elapsed();
                     // log::trace!("render_time: {:?}", render_time);
+
+                    if let Some((new_size, scale_fac)) = self.queued_resize.take() {
+                        self.resize(new_size, scale_fac);
+                    }
                 }
                 Event::MainEventsCleared => {
                     // RedrawRequested will only trigger once, unless we manually
@@ -169,6 +173,14 @@ impl<Root: RootConstructor + 'static> App<Root> {
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>, scale_factor: Option<f64>) {
+        if self.swap_chain.is_some() {
+            self.queued_resize = Some((
+                new_size,
+                scale_factor.or(self.queued_resize.map(|(_, sf)| sf).flatten()),
+            ));
+            return;
+        }
+
         self.render_surface
             .resize(new_size, scale_factor, self.scene.get_dependents_mut());
     }
