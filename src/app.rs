@@ -11,7 +11,7 @@ use crate::{
     element::RootConstructor,
     input::{input_state::InputState, winit::WinitState},
     scene::scene::Scene,
-    surface::RenderSurface,
+    surface::{RenderAttachment, RenderSurface},
 };
 
 pub struct App<Root: RootConstructor + 'static> {
@@ -22,6 +22,9 @@ pub struct App<Root: RootConstructor + 'static> {
 
     winit_state: WinitState,
     input_state: InputState,
+
+    swap_chain: Option<RenderAttachment>,
+    queued_resize: Option<(winit::dpi::PhysicalSize<u32>, Option<f64>)>,
 }
 
 impl<Root: RootConstructor + 'static> App<Root> {
@@ -61,7 +64,30 @@ impl<Root: RootConstructor + 'static> App<Root> {
                     }
                 },
                 Event::RedrawRequested(window_id) if window_id == self.window.id() => {
-                    let mut do_render = true;
+                    let output = match self.swap_chain.take() {
+                        None => {
+                            match self.render_surface.get_output() {
+                                Ok(output) => {
+                                    self.swap_chain = output.into();
+                                    last_render_time = Instant::now().into();
+                                }
+                                // Reconfigure the surface if lost
+                                Err(wgpu::SurfaceError::Lost) => self
+                                    .render_surface
+                                    .reconfigure(self.scene.get_dependents_mut()),
+                                // The system is out of memory, we should probably quit
+                                Err(wgpu::SurfaceError::OutOfMemory) => panic!("out of memory"),
+                                // All other errors (Outdated, Timeout) should be resolved by the next frame
+                                Err(e) => {
+                                    eprintln!("{:?}", e);
+                                }
+                            }
+
+                            return;
+                        }
+
+                        Some(output) => output,
+                    };
 
                     if let (Some(last_render_duration), Some(last_render_time)) =
                         (last_render_duration, last_render_time)
@@ -69,56 +95,36 @@ impl<Root: RootConstructor + 'static> App<Root> {
                         if let Some(frame_time) = get_window_frame_time(&self.window) {
                             let elapsed_time = last_render_time.elapsed();
 
-                            let buffer_duration = last_render_duration + Duration::from_micros(0);
+                            let buffer_duration = last_render_duration + Duration::from_micros(200);
 
                             if elapsed_time < (frame_time.saturating_sub(buffer_duration)) {
-                                do_render = false;
+                                self.swap_chain = Some(output);
+                                return;
                             }
                         }
                     }
 
-                    if do_render {
-                        let render_start_time = Instant::now();
+                    let render_start_time = Instant::now();
 
-                        let texture_block_start = Instant::now();
-                        // let output = self.render_surface.surface().get_current_texture();
-                        let output = self.render_surface.get_output();
-                        let texture_block_time = texture_block_start.elapsed();
-                        // log::trace!("texture block time: {:?}", texture_block_time);
+                    let start = Instant::now();
 
-                        match output {
-                            Ok(output) => {
-                                let start = Instant::now();
+                    let raw_input = self.winit_state.take_egui_input();
 
-                                let raw_input = self.winit_state.take_egui_input();
+                    let input_state =
+                        std::mem::take(&mut self.input_state).begin_frame(raw_input, true);
 
-                                let input_state = std::mem::take(&mut self.input_state)
-                                    .begin_frame(raw_input, true);
+                    let (result_input, result_output) =
+                        self.scene.render(&self.render_surface, output, input_state);
 
-                                let (result_input, result_output) =
-                                    self.scene.render(&self.render_surface, output, input_state);
+                    self.input_state = result_input;
 
-                                self.input_state = result_input;
+                    self.winit_state
+                        .handle_platform_output(&self.window, result_output);
 
-                                self.winit_state
-                                    .handle_platform_output(&self.window, result_output);
+                    last_render_duration = Some(start.elapsed());
 
-                                last_render_time = Some(start);
-                                last_render_duration = Some(start.elapsed());
-                            }
-                            // Reconfigure the surface if lost
-                            Err(wgpu::SurfaceError::Lost) => self
-                                .render_surface
-                                .reconfigure(self.scene.get_dependents_mut()),
-                            // The system is out of memory, we should probably quit
-                            Err(wgpu::SurfaceError::OutOfMemory) => panic!("out of memory"),
-                            // All other errors (Outdated, Timeout) should be resolved by the next frame
-                            Err(e) => eprintln!("{:?}", e),
-                        }
-
-                        let render_time = render_start_time.elapsed();
-                        // log::trace!("render_time: {:?}", render_time);
-                    }
+                    let render_time = render_start_time.elapsed();
+                    // log::trace!("render_time: {:?}", render_time);
                 }
                 Event::MainEventsCleared => {
                     // RedrawRequested will only trigger once, unless we manually
@@ -156,6 +162,9 @@ impl<Root: RootConstructor + 'static> App<Root> {
 
             winit_state,
             input_state,
+
+            swap_chain: None,
+            queued_resize: None,
         }
     }
 

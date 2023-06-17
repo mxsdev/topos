@@ -7,7 +7,7 @@
  - [x] Use linear color space
  - [x] Platform output (cursor, window stuff)
  - [x] Lines, Bezier, Fills (maybe just linearize/tessellate for now)
- - [ ] Proper framepacing
+ - [x] Proper framepacing
  - [ ] Layout (`Placer` struct, flexbox)
  - [ ] Focus
  - [ ] Scrolling
@@ -21,3 +21,4 @@
  - [ ] Rounded clip rects
  - [ ] Move away from MSAA
  - [ ] Move away from Tessellation for glyphs/strokes
+ - [ ] Improve framepacing (better statistical determination of render times)
