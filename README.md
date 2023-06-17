@@ -6,7 +6,7 @@
  - [x] Clip rects
  - [x] Use linear color space
  - [x] Platform output (cursor, window stuff)
- - [ ] Lines, Bezier, Fills (maybe just linearize/tessellate for now)
+ - [x] Lines, Bezier, Fills (maybe just linearize/tessellate for now)
  - [ ] Layout (`Placer` struct, flexbox)
  - [ ] Focus
  - [ ] Scrolling
@@ -18,3 +18,5 @@
  - [ ] Multi-window support
  - [ ] Figure out proper framepacing
  - [ ] Rounded clip rects
+ - [ ] Move away from MSAA
+ - [ ] Move away from Tessellation for glyphs/strokes
