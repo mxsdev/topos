@@ -78,11 +78,7 @@ impl Element for TestRoot {
     fn ui(&mut self, ctx: &mut SceneContext, _pos: Pos2) {
         let mut send_to_back = None::<usize>;
 
-        // ctx.render_child(&mut self.text_box);
-
         for (i, rect) in self.rects.iter_mut().enumerate() {
-            // ctx.render_child(rect);
-
             if rect.get().clicked {
                 send_to_back = Some(i);
             }
