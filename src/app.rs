@@ -8,14 +8,14 @@ use winit::{
 };
 
 use crate::{
-    element::RootConstructor,
+    element::{ElementRef, RootConstructor},
     input::{input_state::InputState, winit::WinitState},
     scene::scene::Scene,
     surface::{RenderAttachment, RenderSurface},
 };
 
 pub struct App<Root: RootConstructor + 'static> {
-    window: winit::window::Window,
+    swap_chain: Option<RenderAttachment>,
 
     render_surface: RenderSurface,
     scene: Scene<Root>,
@@ -23,16 +23,33 @@ pub struct App<Root: RootConstructor + 'static> {
     winit_state: WinitState,
     input_state: InputState,
 
-    swap_chain: Option<RenderAttachment>,
     queued_resize: Option<(winit::dpi::PhysicalSize<u32>, Option<f64>)>,
+
+    window: winit::window::Window,
 }
 
+#[derive(Debug)]
+pub enum ToposEvent {
+    Exit(i32),
+    AccessKitActionRequest(accesskit_winit::ActionRequestEvent),
+}
+
+impl From<accesskit_winit::ActionRequestEvent> for ToposEvent {
+    fn from(value: accesskit_winit::ActionRequestEvent) -> Self {
+        Self::AccessKitActionRequest(value)
+    }
+}
+
+pub type ToposEventLoop = EventLoop<ToposEvent>;
+
 impl<Root: RootConstructor + 'static> App<Root> {
-    pub fn run(mut self, event_loop: EventLoop<()>) {
+    pub fn run(mut self, event_loop: ToposEventLoop) {
         use std::time::*;
 
         let mut last_render_duration: Option<Duration> = None;
         let mut last_render_time: Option<Instant> = None;
+
+        let main_proxy = event_loop.create_proxy();
 
         event_loop.run(move |event, _, control_flow| {
             match event {
@@ -40,29 +57,34 @@ impl<Root: RootConstructor + 'static> App<Root> {
                     ref event,
                     window_id,
                     ..
-                } if window_id == self.window.id() => match event {
-                    WindowEvent::CloseRequested
-                    | WindowEvent::KeyboardInput {
-                        input:
-                            KeyboardInput {
-                                state: ElementState::Pressed,
-                                virtual_keycode: Some(winit::event::VirtualKeyCode::Escape),
-                                ..
-                            },
-                        ..
-                    } => *control_flow = ControlFlow::Exit,
+                } if window_id == self.window.id() => {
+                    let _ = self.winit_state.on_event(event, &self.window);
 
-                    WindowEvent::Resized(physical_size) => self.resize(*physical_size, None),
+                    match event {
+                        WindowEvent::CloseRequested
+                        | WindowEvent::KeyboardInput {
+                            input:
+                                KeyboardInput {
+                                    state: ElementState::Pressed,
+                                    virtual_keycode: Some(winit::event::VirtualKeyCode::Escape),
+                                    ..
+                                },
+                            ..
+                        } => {
+                            main_proxy.send_event(ToposEvent::Exit(0)).unwrap();
+                        }
 
-                    WindowEvent::ScaleFactorChanged {
-                        new_inner_size,
-                        scale_factor,
-                    } => self.resize(**new_inner_size, Some(*scale_factor)),
+                        WindowEvent::Resized(physical_size) => self.resize(*physical_size, None),
 
-                    e => {
-                        let _ = self.winit_state.on_event(e);
+                        WindowEvent::ScaleFactorChanged {
+                            new_inner_size,
+                            scale_factor,
+                        } => self.resize(**new_inner_size, Some(*scale_factor)),
+
+                        _ => {}
                     }
-                },
+                }
+
                 Event::RedrawRequested(window_id) if window_id == self.window.id() => {
                     let output = match self.swap_chain.take() {
                         None => {
@@ -130,32 +152,51 @@ impl<Root: RootConstructor + 'static> App<Root> {
                         self.resize(new_size, scale_fac);
                     }
                 }
+
                 Event::MainEventsCleared => {
                     // RedrawRequested will only trigger once, unless we manually
                     // request it.
                     self.window.request_redraw()
                 }
 
-                // Event::UserEvent(UserEvent::AccessKitActionRequest(
-                //     accesskit_winit::ActionRequestEvent { request, .. },
-                // )) => {
-                //     self.winit_state
-                //         .on_accesskit_action_request(request.clone());
-                // }
+                Event::UserEvent(ToposEvent::Exit(code)) => {
+                    // should do any de-init logic here
+
+                    *control_flow = ControlFlow::ExitWithCode(code);
+                }
+
+                Event::UserEvent(ToposEvent::AccessKitActionRequest(
+                    accesskit_winit::ActionRequestEvent { request, .. },
+                )) => {
+                    self.winit_state
+                        .on_accesskit_action_request(request.clone());
+                }
+
                 _ => {}
             }
         });
     }
 
-    pub async fn new(event_loop: &EventLoop<()>) -> Self {
+    pub async fn new(event_loop: &ToposEventLoop) -> Self {
         let window = WindowBuilder::new().build(event_loop).unwrap();
 
         let render_surface = RenderSurface::new(&window).await;
         let rendering_context = render_surface.clone_rendering_context();
 
-        let scene = Scene::new(rendering_context, window.scale_factor());
+        let mut scene = Scene::new(rendering_context, window.scale_factor());
 
-        let winit_state = WinitState::new(&window);
+        let winit_state_proxy = event_loop.create_proxy();
+
+        let root_id = scene.root_id().as_access_id();
+        let root_node = scene.root_access_node();
+
+        let winit_state =
+            WinitState::new(&window, winit_state_proxy, move || accesskit::TreeUpdate {
+                tree: Some(accesskit::Tree::new(root_id)),
+                nodes: vec![(root_id, root_node)],
+                ..Default::default()
+            });
+
         let input_state = InputState::default().into();
 
         Self {

@@ -46,6 +46,10 @@ impl PlatformOutput {
         self.cursor_icon = cursor_icon
     }
 
+    pub fn accesskit_update(&mut self) -> &mut accesskit::TreeUpdate {
+        self.accesskit_update.get_or_insert_with(Default::default)
+    }
+
     pub fn start_window_drag(&mut self) {
         self.drag_window = true;
     }

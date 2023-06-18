@@ -6,7 +6,10 @@ use super::{
 
 // use crate::data::input::*;
 // use crate::{emath::*, util::History};
-use std::collections::{BTreeMap, HashSet};
+use std::{
+    collections::{BTreeMap, HashSet},
+    rc::Rc,
+};
 
 use rustc_hash::FxHashMap;
 // pub use crate::data::input::Key;
@@ -119,6 +122,7 @@ pub struct InputState {
     pub keys_down: HashSet<Key>,
     // /// In-order events received this frame
     // pub events: Vec<Event>,
+    accesskit_actions: Rc<Vec<accesskit::ActionRequest>>,
 }
 
 impl Default for InputState {
@@ -140,6 +144,7 @@ impl Default for InputState {
             modifiers: Default::default(),
             keys_down: Default::default(),
             // events: Default::default(),
+            accesskit_actions: Rc::new(Default::default()),
         }
     }
 }
@@ -172,6 +177,7 @@ impl InputState {
         let mut keys_down = self.keys_down;
         let mut scroll_delta = Vec2::zero();
         let mut zoom_factor_delta = 1.0;
+        let mut accesskit_actions = Vec::new();
         for event in &mut new.events {
             match event {
                 Event::Key {
@@ -192,6 +198,9 @@ impl InputState {
                 }
                 Event::Zoom(factor) => {
                     zoom_factor_delta *= *factor;
+                }
+                Event::AccessKitActionRequest(action) => {
+                    accesskit_actions.push(action.clone());
                 }
                 _ => {}
             }
@@ -228,6 +237,7 @@ impl InputState {
             keys_down,
             // events: new.events.clone(), // TODO(emilk): remove clone() and use raw.events
             raw: new,
+            accesskit_actions: accesskit_actions.into(),
         }
     }
 
@@ -437,29 +447,34 @@ impl InputState {
         }
     }
 
-    // pub fn accesskit_action_requests(
-    //     &self,
-    //     // id: crate::Id,
-    //     action: accesskit::Action,
-    // ) -> impl Iterator<Item = &accesskit::ActionRequest> {
-    //     // let accesskit_id = id.accesskit_id();
-    //     self.events.iter().filter_map(move |event| {
-    //         if let Event::AccessKitActionRequest(request) = event {
-    //             if request.target == accesskit_id && request.action == action {
-    //                 return Some(request);
-    //             }
-    //         }
-    //         None
-    //     })
-    // }
+    pub fn accesskit_action_requests(
+        &self,
+        accesskit_id: accesskit::NodeId,
+        action: accesskit::Action,
+    ) -> impl Iterator<Item = &accesskit::ActionRequest> {
+        self.accesskit_actions.iter().filter_map(move |request| {
+            if request.target == accesskit_id && request.action == action {
+                return Some(request);
+            }
+            None
+        })
+    }
 
-    // pub fn has_accesskit_action_request(&self, id: crate::Id, action: accesskit::Action) -> bool {
-    //     self.accesskit_action_requests(id, action).next().is_some()
-    // }
+    pub fn has_accesskit_action_request(
+        &self,
+        id: accesskit::NodeId,
+        action: accesskit::Action,
+    ) -> bool {
+        self.accesskit_action_requests(id, action).next().is_some()
+    }
 
-    // pub fn num_accesskit_action_requests(&self, id: crate::Id, action: accesskit::Action) -> usize {
-    //     self.accesskit_action_requests(id, action).count()
-    // }
+    pub fn num_accesskit_action_requests(
+        &self,
+        id: accesskit::NodeId,
+        action: accesskit::Action,
+    ) -> usize {
+        self.accesskit_action_requests(id, action).count()
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -619,6 +634,7 @@ impl PointerState {
 
                     self.pointer_events.push(PointerEvent::Moved(pos));
                 }
+
                 Event::PointerButton {
                     pos,
                     button,
@@ -684,10 +700,12 @@ impl PointerState {
 
                     self.down.insert(button, pressed); // must be done after the above call to `could_any_button_be_click`
                 }
+
                 Event::PointerGone => {
                     self.latest_pos = None;
                     // NOTE: we do NOT clear `self.interact_pos` here. It will be cleared next frame.
                 }
+
                 _ => {}
             }
         }

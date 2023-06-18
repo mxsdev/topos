@@ -1,14 +1,11 @@
 #![feature(return_position_impl_trait_in_trait)]
-#![feature(ptr_metadata)]
-#![feature(float_next_up_down)]
-// #![feature(new_uninit)]
-// #![feature(maybe_uninit_write_slice)]
 
 #[macro_use]
 extern crate custom_derive;
 #[macro_use]
 extern crate enum_derive;
 
+mod accessibility;
 mod app;
 mod atlas;
 mod buffer;
@@ -29,14 +26,15 @@ mod text;
 mod time;
 mod util;
 
+use app::ToposEvent;
 pub use refbox;
 
 use pollster::FutureExt;
 use test::{TestRect, TestRoot};
-use winit::event_loop::EventLoop;
+use winit::event_loop::{EventLoop, EventLoopBuilder};
 
 pub async fn run() {
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoopBuilder::<ToposEvent>::with_user_event().build();
     app::App::<TestRoot>::new(&event_loop).await.run(event_loop);
 }
 

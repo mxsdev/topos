@@ -1,5 +1,9 @@
+use std::num::NonZeroU128;
+use std::sync::Arc;
+
 use uuid::Uuid;
 
+use crate::accessibility::{AccessNode, AccessNodeBuilder, AccessNodeId};
 use crate::input::input_state::InputState;
 use crate::refbox::{self, coerce_ref, RefBox};
 
@@ -26,6 +30,10 @@ impl ElementId {
             inner: Uuid::new_v4(),
         }
     }
+
+    pub fn as_access_id(&self) -> AccessNodeId {
+        accesskit::NodeId(NonZeroU128::new(self.inner.as_u128()).unwrap())
+    }
 }
 
 pub trait RootConstructor: Element {
@@ -37,6 +45,7 @@ pub trait Element {
     fn input(&mut self, input: &mut InputState, pos: Pos2) {}
     fn ui(&mut self, ctx: &mut SceneContext, pos: Pos2);
     fn ui_post(&mut self, ctx: &mut SceneContext, pos: Pos2) {}
+    fn node(&self) -> AccessNodeBuilder;
 }
 
 pub struct ElementRef<T: Element + ?Sized> {
@@ -65,6 +74,7 @@ impl<T: Element + ?Sized> ElementRef<T> {
     {
         ElementWeakref {
             reference: coerce_ref!(self.element.create_ref() => dyn Element),
+            id: self.id(),
         }
     }
 
@@ -75,11 +85,16 @@ impl<T: Element + ?Sized> ElementRef<T> {
 
 pub struct ElementWeakref<T: Element + ?Sized> {
     reference: refbox::Ref<T>,
+    id: ElementId,
 }
 
 impl<T: Element + ?Sized> ElementWeakref<T> {
     pub fn try_get(&mut self) -> Option<refbox::Borrow<T>> {
         self.reference.try_borrow_mut().ok()
+    }
+
+    pub fn id(&self) -> ElementId {
+        self.id
     }
 }
 

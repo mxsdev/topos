@@ -12,7 +12,7 @@ use crate::{
     mesh::{MeshVertex, PaintMesh, PaintMeshVertex},
     scene::{ctx::SceneContext, update::UpdatePass, PaintPass},
     shape::{PaintBlur, PaintRectangle, PaintShape},
-    util::{FromMinSize, Pos2, Rect, RoundedRect, Size2, Translate2D, Translate2DMut, Vec2},
+    util::{FromMinSize, Pos2, Rect, RoundedRect, Size2, Translate2D, Translate2DMut, Vec2}, accessibility::{AccessNodeBuilder, AccessRole, AsAccessRect},
 };
 
 use crate::element::{boundary::Boundary, Element, ElementEvent, MouseButton, SizeConstraint};
@@ -290,5 +290,11 @@ impl Element for TestRect {
         layout_pass: &mut crate::scene::layout::LayoutPass,
     ) -> Size2 {
         Size2::zero()
+    }
+
+    fn node(&self) -> AccessNodeBuilder {
+        let mut builder = AccessNodeBuilder::new(AccessRole::GenericContainer);
+        builder.set_bounds(self.rect.rect.as_access_rect());
+        builder
     }
 }

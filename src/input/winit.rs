@@ -75,7 +75,7 @@ pub struct WinitState {
     /// track ime state
     input_method_editor_started: bool,
 
-    accesskit: Option<accesskit_winit::Adapter>,
+    accesskit: accesskit_winit::Adapter,
 }
 
 impl WinitState {
@@ -84,7 +84,13 @@ impl WinitState {
     /// # Safety
     ///
     /// The returned `State` must not outlive the input `display_target`.
-    pub fn new(display_target: &winit::window::Window) -> Self {
+    pub fn new(
+        display_target: &winit::window::Window,
+        event_loop_proxy: winit::event_loop::EventLoopProxy<
+            impl From<accesskit_winit::ActionRequestEvent> + Send,
+        >,
+        initial_tree_update_factory: impl 'static + FnOnce() -> accesskit::TreeUpdate + Send,
+    ) -> Self {
         let egui_input = RawInput {
             focused: false, // winit will tell us when we have focus
             ..Default::default()
@@ -104,22 +110,25 @@ impl WinitState {
 
             input_method_editor_started: false,
 
-            accesskit: None,
+            accesskit: accesskit_winit::Adapter::new(
+                display_target,
+                initial_tree_update_factory,
+                event_loop_proxy,
+            ),
         }
     }
 
-    pub fn init_accesskit<T: From<accesskit_winit::ActionRequestEvent> + Send>(
-        &mut self,
-        window: &winit::window::Window,
-        event_loop_proxy: winit::event_loop::EventLoopProxy<T>,
-        initial_tree_update_factory: impl 'static + FnOnce() -> accesskit::TreeUpdate + Send,
-    ) {
-        self.accesskit = Some(accesskit_winit::Adapter::new(
-            window,
-            initial_tree_update_factory,
-            event_loop_proxy,
-        ));
-    }
+    // fn init_accesskit<T: From<accesskit_winit::ActionRequestEvent> + Send>(
+    //     window: &winit::window::Window,
+    //     event_loop_proxy: winit::event_loop::EventLoopProxy<T>,
+    //     initial_tree_update_factory: impl 'static + FnOnce() -> accesskit::TreeUpdate + Send,
+    // ) {
+    //     Some(accesskit_winit::Adapter::new(
+    //         window,
+    //         initial_tree_update_factory,
+    //         event_loop_proxy,
+    //     ));
+    // }
 
     // /// Call this once a graphics context has been created to update the maximum texture dimensions
     // /// that egui will use.
@@ -183,7 +192,14 @@ impl WinitState {
     /// Call this when there is a new event.
     ///
     /// The result can be found in [`Self::egui_input`] and be extracted with [`Self::take_egui_input`].
-    pub fn on_event(&mut self, event: &winit::event::WindowEvent<'_>) -> EventResponse {
+    pub fn on_event(
+        &mut self,
+        event: &winit::event::WindowEvent<'_>,
+        window: &winit::window::Window,
+    ) -> EventResponse {
+        // TODO: maybe use this?
+        let _ = self.accesskit.on_event(window, event);
+
         use winit::event::WindowEvent;
         match event {
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
@@ -643,10 +659,8 @@ impl WinitState {
             window.set_ime_position(winit::dpi::LogicalPosition { x, y });
         }
 
-        if let Some(accesskit) = self.accesskit.as_ref() {
-            if let Some(update) = accesskit_update {
-                accesskit.update_if_active(|| update);
-            }
+        if let Some(update) = accesskit_update {
+            self.accesskit.update_if_active(|| update);
         }
 
         if drag_window {

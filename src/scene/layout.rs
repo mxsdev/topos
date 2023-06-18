@@ -23,26 +23,38 @@ pub struct SceneLayout {
 
 impl SceneLayout {
     pub(super) fn do_input_pass(&mut self, input: &mut InputState) {
-        for child in self.children.iter_mut().rev() {
-            child.do_input_pass(input);
-        }
-
         if let Some(mut element) = self.element.try_get() {
+            for child in self.children.iter_mut().rev() {
+                child.do_input_pass(input);
+            }
+
             element.input(input, self.pos);
         }
     }
 
     pub(super) fn do_ui_pass(&mut self, ctx: &mut SceneContext) {
+        let element_id = self.element.id();
+
         if let Some(mut element) = self.element.try_get() {
             element.ui(ctx, self.pos);
-        }
 
-        for child in self.children.iter_mut() {
-            child.do_ui_pass(ctx);
-        }
+            let mut children_access_nodes = Vec::new();
 
-        if let Some(mut element) = self.element.try_get() {
+            for child in self.children.iter_mut() {
+                child.do_ui_pass(ctx);
+                children_access_nodes.push(child.element.id().as_access_id())
+            }
+
             element.ui_post(ctx, self.pos);
+
+            let mut access_node_builder = element.node();
+            access_node_builder.set_children(children_access_nodes);
+
+            let access_node = access_node_builder.build();
+            ctx.output
+                .accesskit_update()
+                .nodes
+                .push((element_id.as_access_id(), access_node));
         }
     }
 }
@@ -159,7 +171,7 @@ impl LayoutPass {
         self.finish_rec(Pos2::zero())
     }
 
-    pub fn scale_factor(&self) -> f32 {
+    pub fn scale_factor(&self) -> f64 {
         self.scene_resources.scale_factor()
     }
 

@@ -11,18 +11,19 @@ use rustc_hash::FxHashMap;
 use swash::scale;
 
 use crate::{
+    accessibility::AccessNode,
     atlas::{
         self, BatchedAtlasRender, BatchedAtlasRenderBoxIterator, BatchedAtlasRenderBoxesEntry,
         FontManagerRenderResources,
     },
-    element::{Element, ElementEvent, ElementRef, RootConstructor, SizeConstraint},
+    element::{Element, ElementEvent, ElementId, ElementRef, RootConstructor, SizeConstraint},
     input::{input_state::InputState, output::PlatformOutput, winit::WinitState},
     mesh::{self, PaintMesh},
     scene::update::UpdatePass,
     shape::{self, BoxShaderVertex, PaintRectangle, PaintShape},
     surface::{RenderAttachment, RenderSurface, RenderingContext, SurfaceDependent},
     util::{
-        LogicalToPhysical, LogicalToPhysicalInto, PhysicalRect, PhysicalToLogical, Pos2,
+        LogicalToPhysical, LogicalToPhysicalInto, PhysicalRect, PhysicalToLogical, Pos2, Rect,
         RoundToInt, Size2, ToEuclid,
     },
 };
@@ -32,16 +33,29 @@ use super::{ctx::SceneContext, layout::LayoutPass, PaintPass};
 #[derive(Clone)]
 pub struct SceneResources {
     font_system: Arc<Mutex<FontSystem>>,
-    scale_factor: f32,
+    scale_factor: f64,
+    scale_factor_f32: f32,
 }
 
 impl SceneResources {
+    pub fn new(font_system: Arc<Mutex<FontSystem>>, scale_factor: f64) -> Self {
+        Self {
+            font_system,
+            scale_factor,
+            scale_factor_f32: scale_factor as f32,
+        }
+    }
+
     pub fn font_system(&self) -> impl DerefMut<Target = FontSystem> + '_ {
         self.font_system.lock().unwrap()
     }
 
-    pub fn scale_factor(&self) -> f32 {
+    pub fn scale_factor(&self) -> f64 {
         self.scale_factor
+    }
+
+    pub fn scale_factor_f32(&self) -> f32 {
+        self.scale_factor_f32
     }
 }
 
@@ -64,10 +78,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
             font_system.db_mut().load_system_fonts();
         }
 
-        let scene_resources = SceneResources {
-            font_system: font_manager.get_font_system_ref(),
-            scale_factor: scale_fac as f32,
-        };
+        let scene_resources = SceneResources::new(font_manager.get_font_system_ref(), scale_fac);
 
         let root = Root::new(&scene_resources).into();
 
@@ -105,7 +116,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         let screen_size = physical_screen_size.to_f32().to_logical(scale_fac);
 
         // layout pass
-        let scene_resources = self.generate_scene_resources(scale_fac as f32);
+        let scene_resources = self.generate_scene_resources(scale_fac);
 
         let layout_pass = LayoutPass::new(&mut self.root, scene_resources);
 
@@ -115,6 +126,9 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
         let mut scene_context = SceneContext::new(scale_fac as f32);
         scene_layout.do_ui_pass(&mut scene_context);
+
+        scene_context.output.accesskit_update().tree =
+            Some(accesskit::Tree::new(self.root.id().as_access_id()));
 
         // render pass
         let SceneContext {
@@ -278,11 +292,8 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         (input, platform_output)
     }
 
-    fn generate_scene_resources(&self, scale_factor: f32) -> SceneResources {
-        SceneResources {
-            font_system: self.font_manager.get_font_system_ref(),
-            scale_factor,
-        }
+    fn generate_scene_resources(&self, scale_factor: f64) -> SceneResources {
+        SceneResources::new(self.font_manager.get_font_system_ref(), scale_factor)
     }
 
     pub fn get_dependents_mut<'a>(&mut self) -> impl Iterator<Item = &mut dyn SurfaceDependent> {
@@ -292,6 +303,14 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
             &mut self.mesh_renderer,
         ]
         .into_iter()
+    }
+
+    pub fn root_id(&self) -> ElementId {
+        self.root.id()
+    }
+
+    pub fn root_access_node(&mut self) -> AccessNode {
+        self.root.get().node().build()
     }
 }
 

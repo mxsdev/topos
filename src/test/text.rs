@@ -1,4 +1,7 @@
-use crate::color::ColorRgba;
+use crate::{
+    accessibility::{AccessNodeBuilder, AccessRole},
+    color::ColorRgba,
+};
 
 use cosmic_text::{Attrs, FontSystem, Metrics};
 
@@ -31,7 +34,7 @@ impl TextBox {
 
         let mut buffer = cosmic_text::Buffer::new(
             &mut font_system,
-            metrics.scale(scene_resources.scale_factor()),
+            metrics.scale(scene_resources.scale_factor_f32()),
         );
 
         buffer.set_text(&mut font_system, &text, attrs);
@@ -51,7 +54,7 @@ impl Element for TextBox {
         let size = constraints.max;
 
         let scale_factor = layout_pass.scale_factor();
-        let new_metrics = self.logical_metrics.scale(scale_factor);
+        let new_metrics = self.logical_metrics.scale(scale_factor as f32);
 
         let mut font_system = layout_pass.font_system();
 
@@ -71,5 +74,9 @@ impl Element for TextBox {
 
     fn ui(&mut self, ctx: &mut SceneContext, pos: Pos2) {
         ctx.add_shape(PlacedTextBox::from_buffer(&self.buffer, pos, self.color))
+    }
+
+    fn node(&self) -> AccessNodeBuilder {
+        AccessNodeBuilder::new(AccessRole::StaticText)
     }
 }

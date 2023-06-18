@@ -13,7 +13,7 @@
  - [ ] Scrolling
  - [ ] Sharp box strokes
  - [ ] Text Editing
- - [ ] Accessibility
+ - [x] Accessibility
  - [ ] Context Menus
  - [ ] Pixel Alignment (PhysicalRect as `u32`)
  - [ ] Multi-window support

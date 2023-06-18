@@ -1,6 +1,9 @@
+use std::sync::Arc;
+
 use cosmic_text::{Attrs, Family, Metrics, Style, Weight};
 
 use crate::{
+    accessibility::{AccessNode, AccessNodeBuilder, AccessRole},
     color::ColorRgba,
     element::{Element, ElementRef, RootConstructor, SizeConstraint},
     input::input_state::InputState,
@@ -15,6 +18,10 @@ pub struct TestRoot {
     text_box: ElementRef<TextBox>,
 
     clicked: bool,
+
+    access_node: Arc<AccessNode>,
+
+    scale_factor: f64,
 }
 
 impl RootConstructor for TestRoot {
@@ -36,12 +43,18 @@ impl RootConstructor for TestRoot {
             text_box: text_box.into(),
 
             clicked: false,
+
+            access_node: AccessNodeBuilder::new(AccessRole::default()).build().into(),
+
+            scale_factor: resources.scale_factor(),
         }
     }
 }
 
 impl Element for TestRoot {
     fn layout(&mut self, constraints: SizeConstraint, layout_pass: &mut LayoutPass) -> Size2 {
+        self.scale_factor = layout_pass.scale_factor();
+
         for rect in self.rects.iter_mut() {
             layout_pass.layout_and_place_child(rect, constraints, Pos2::zero());
         }
@@ -79,5 +92,11 @@ impl Element for TestRoot {
             let rect = self.rects.remove(idx);
             self.rects.push(rect);
         }
+    }
+
+    fn node(&self) -> AccessNodeBuilder {
+        let mut builder = AccessNodeBuilder::new(AccessRole::Window);
+        builder.set_transform(accesskit::Affine::scale(self.scale_factor));
+        builder
     }
 }
