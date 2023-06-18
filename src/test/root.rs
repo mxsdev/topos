@@ -28,10 +28,10 @@ impl RootConstructor for TestRoot {
     fn new(resources: &SceneResources) -> Self {
         let text_box = TextBox::new(
             resources,
-            Metrics::new(40., 50.),
+            Metrics::new(20., 10.),
             ColorRgba::new(1., 1., 1., 1.),
             "Hello world".into(),
-            Attrs::new().family(Family::Name("Test Calibre")), // .weight(Weight::BOLD)
+            Attrs::new().family(Family::Name("Test Calibre")),
         );
 
         Self {

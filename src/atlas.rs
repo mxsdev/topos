@@ -12,7 +12,7 @@ use euclid::size2;
 
 use rayon::prelude::*;
 
-use cosmic_text::{FontSystem, LayoutGlyph};
+use cosmic_text::{FontSystem, LayoutGlyph, SubpixelBin};
 use etagere::{Allocation as AtlasAllocation, BucketedAtlasAllocator};
 use rustc_hash::FxHashMap;
 use swash::scale::ScaleContext;
@@ -447,6 +447,24 @@ impl<U> PlacedTextBox<f32, U> {
     }
 }
 
+impl PlacedTextBox<f32, PhysicalUnit> {
+    pub fn recalculate_subpixel_offsets(&mut self) {
+        for glyph in self.glyphs.iter_mut() {
+            let x = self.pos.x + glyph.cache_key.x_bin.as_float();
+            let y = self.pos.y + glyph.cache_key.y_bin.as_float();
+
+            let (x_pos, x_bin) = SubpixelBin::new(x);
+            let (y_pos, y_bin) = SubpixelBin::new(y);
+
+            glyph.cache_key.x_bin = x_bin;
+            glyph.cache_key.y_bin = y_bin;
+
+            self.pos.x = x_pos as f32;
+            self.pos.y = y_pos as f32;
+        }
+    }
+}
+
 impl<F, U> PlacedTextBox<F, U> {
     pub fn with_clip_rect(mut self, rect: impl Into<Option<euclid::Box2D<F, U>>>) -> Self {
         self.clip_rect = rect.into();
@@ -647,8 +665,8 @@ impl FontAtlasManager {
 
                         let mut glyph_pos = pos
                             + PhysicalVec2::new(
-                                g.x_int as f32 + placement.x as f32,
-                                g.y_int as f32 - placement.y as f32 + g.line_offset,
+                                (g.x_int + placement.x) as f32,
+                                (g.y_int - placement.y) as f32 + g.line_offset,
                             );
 
                         glyph_pos = glyph_pos.round();
@@ -869,8 +887,12 @@ impl FontManager {
 
     pub fn prepare<'a>(
         &mut self,
-        text_boxes: Vec<PlacedTextBox<f32, PhysicalUnit>>,
+        mut text_boxes: Vec<PlacedTextBox<f32, PhysicalUnit>>,
     ) -> BatchedAtlasRenderBoxIterator<impl Iterator<Item = BatchedAtlasRenderBoxesEntry>> {
+        for text_box in text_boxes.iter_mut() {
+            text_box.recalculate_subpixel_offsets();
+        }
+
         self.generate_textures(
             text_boxes
                 .iter()
