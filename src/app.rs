@@ -1,6 +1,7 @@
 use core::panic;
-use std::time::Duration;
+use std::{sync::Once, time::Duration};
 
+use muda::{icon::Icon, AboutMetadata, MenuItem, PredefinedMenuItem, Submenu};
 use winit::{
     event::{ElementState, Event, KeyboardInput, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
@@ -50,6 +51,24 @@ impl<Root: RootConstructor + 'static> App<Root> {
         let mut last_render_time: Option<Instant> = None;
 
         let main_proxy = event_loop.create_proxy();
+
+        let about = PredefinedMenuItem::about(
+            Some("About"),
+            None,
+            // Some(AboutMetadata {
+            //     name: Some("Test".into()),
+            //     version: Some("Version 1.0".into()),
+            //     short_version: Some("1.0".into()),
+            //     copyright: Some("copyright beans industries".into()),
+            //     credits: Some("shoutouts to my fwiends".into()),
+            //     icon: Some(Icon::from_rgba(vec![255; 4 * 512 * 512], 512, 512).unwrap()),
+            //     ..Default::default()
+            // }),
+        );
+
+        let menu_item2 = MenuItem::new("Menu item #2", false, None);
+
+        let submenu_help = Submenu::new("Help", true);
 
         event_loop.run(move |event, _, control_flow| {
             match event {
@@ -153,10 +172,57 @@ impl<Root: RootConstructor + 'static> App<Root> {
                     }
                 }
 
+                Event::RedrawEventsCleared => {}
+
                 Event::MainEventsCleared => {
+                    static START: Once = Once::new();
+
+                    START.call_once(|| {
+                        use muda::{accelerator::*, *};
+
+                        let submenu = Submenu::with_items("Root", true, &[&menu_item2, &about]);
+
+                        let menu_item3 = MenuItem::new("Menu item #3", false, None);
+                        let submenu2 = Submenu::with_items("Test", true, &[&menu_item2]);
+
+                        submenu_help.append(&menu_item3);
+
+                        let menu = Menu::with_items(&[&submenu, &submenu2, &submenu_help]);
+
+                        #[cfg(target_os = "macos")]
+                        menu.set_help_menu_for_nsapp(Some(&submenu_help));
+
+                        // let submenu = Submenu::with_items(
+                        //     "Submenu Outer",
+                        //     true,
+                        //     &[
+                        //         &MenuItem::new(
+                        //             "Menu item #1",
+                        //             true,
+                        //             Some(Accelerator::new(Some(Modifiers::ALT), Code::KeyD)),
+                        //         ),
+                        //         &PredefinedMenuItem::separator(),
+                        //         &menu_item2,
+                        //         &MenuItem::new("Menu item #3", true, None),
+                        //         &PredefinedMenuItem::separator(),
+                        //         &Submenu::with_items(
+                        //             "Submenu Inner",
+                        //             true,
+                        //             &[
+                        //                 &MenuItem::new("Submenu item #1", true, None),
+                        //                 &PredefinedMenuItem::separator(),
+                        //                 &menu_item2,
+                        //             ],
+                        //         ),
+                        //     ],
+                        // );
+
+                        menu.init_for_nsapp();
+                    });
+
                     // RedrawRequested will only trigger once, unless we manually
                     // request it.
-                    self.window.request_redraw()
+                    self.window.request_redraw();
                 }
 
                 Event::UserEvent(ToposEvent::Exit(code)) => {

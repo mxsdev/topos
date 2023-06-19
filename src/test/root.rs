@@ -28,7 +28,7 @@ impl RootConstructor for TestRoot {
     fn new(resources: &SceneResources) -> Self {
         let text_box = TextBox::new(
             resources,
-            Metrics::new(20., 10.),
+            Metrics::new(20., 20.),
             ColorRgba::new(1., 1., 1., 1.),
             "Hello world".into(),
             Attrs::new().family(Family::Name("Test Calibre")),
