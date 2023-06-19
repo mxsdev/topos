@@ -54,16 +54,15 @@ impl<Root: RootConstructor + 'static> App<Root> {
 
         let about = PredefinedMenuItem::about(
             Some("About"),
-            None,
-            // Some(AboutMetadata {
-            //     name: Some("Test".into()),
-            //     version: Some("Version 1.0".into()),
-            //     short_version: Some("1.0".into()),
-            //     copyright: Some("copyright beans industries".into()),
-            //     credits: Some("shoutouts to my fwiends".into()),
-            //     icon: Some(Icon::from_rgba(vec![255; 4 * 512 * 512], 512, 512).unwrap()),
-            //     ..Default::default()
-            // }),
+            Some(AboutMetadata {
+                name: Some("Test".into()),
+                version: Some("Version 1.0".into()),
+                short_version: Some("1.0".into()),
+                copyright: Some("copyright beans industries".into()),
+                credits: Some("shoutouts to my fwiends".into()),
+                icon: Some(Icon::from_rgba(vec![255; 4 * 512 * 512], 512, 512).unwrap()),
+                ..Default::default()
+            }),
         );
 
         let menu_item2 = MenuItem::new("Menu item #2", false, None);
@@ -189,8 +188,8 @@ impl<Root: RootConstructor + 'static> App<Root> {
 
                         let menu = Menu::with_items(&[&submenu, &submenu2, &submenu_help]);
 
-                        #[cfg(target_os = "macos")]
-                        menu.set_help_menu_for_nsapp(Some(&submenu_help));
+                        // #[cfg(target_os = "macos")]
+                        // menu.set_help_menu_for_nsapp(Some(&submenu_help));
 
                         // let submenu = Submenu::with_items(
                         //     "Submenu Outer",
