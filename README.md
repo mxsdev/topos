@@ -10,9 +10,7 @@
  - [x] Proper framepacing
  - [ ] Layout (`Placer` struct, flexbox)
  - [ ] Focus
- - [ ] Scrolling
  - [ ] Sharp box strokes
- - [ ] Text Editing
  - [x] Accessibility
  - [ ] Context Menus
  - [ ] Pixel Alignment (PhysicalRect as `u32`)
@@ -22,3 +20,8 @@
  - [ ] Move away from MSAA
  - [ ] Move away from Tessellation for glyphs/strokes
  - [ ] Improve framepacing (better statistical determination of render times)
+ - [ ] WASM
+
+## Components
+ - [ ] Scrolling
+ - [ ] Text Editing
