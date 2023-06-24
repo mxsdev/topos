@@ -150,7 +150,7 @@ impl<Root: RootConstructor + 'static> App<Root> {
                     last_render_duration = Some(start.elapsed());
 
                     let render_time = render_start_time.elapsed();
-                    // log::trace!("render_time: {:?}", render_time);
+                    log::trace!("render_time: {:?}", render_time);
 
                     if let Some((new_size, scale_fac)) = self.queued_resize.take() {
                         self.resize(new_size, scale_fac);

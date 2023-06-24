@@ -16,7 +16,9 @@ use crate::{
         self, BatchedAtlasRender, BatchedAtlasRenderBoxIterator, BatchedAtlasRenderBoxesEntry,
         FontManagerRenderResources,
     },
-    element::{Element, ElementEvent, ElementId, ElementRef, RootConstructor, SizeConstraint},
+    element::{
+        Element, ElementEvent, ElementId, ElementRef, HasElementId, RootConstructor, SizeConstraint,
+    },
     input::{input_state::InputState, output::PlatformOutput, winit::WinitState},
     mesh::{self, PaintMesh},
     scene::update::UpdatePass,
@@ -28,7 +30,11 @@ use crate::{
     },
 };
 
-use super::{ctx::SceneContext, layout::LayoutPass, PaintPass};
+use super::{
+    ctx::SceneContext,
+    layout::{LayoutEngine, LayoutPass},
+    PaintPass,
+};
 
 #[derive(Clone)]
 pub struct SceneResources {
@@ -44,6 +50,11 @@ impl SceneResources {
             scale_factor,
             scale_factor_f32: scale_factor as f32,
         }
+    }
+
+    pub(super) fn set_scale_factor(&mut self, fac: f64) {
+        self.scale_factor = fac;
+        self.scale_factor_f32 = fac as f32;
     }
 
     pub fn font_system(&self) -> impl DerefMut<Target = FontSystem> + '_ {
@@ -65,6 +76,9 @@ pub struct Scene<Root: RootConstructor + 'static> {
     mesh_renderer: mesh::MeshRenderer,
 
     root: ElementRef<Root>,
+
+    layout_engine: LayoutEngine,
+    scene_resources: SceneResources,
 }
 
 impl<Root: RootConstructor + 'static> Scene<Root> {
@@ -82,11 +96,16 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
         let root = Root::new(&scene_resources).into();
 
+        let mut layout_engine = LayoutEngine::default();
+        layout_engine.disable_rounding();
+
         Self {
             font_manager,
             shape_renderer,
             mesh_renderer,
             root,
+            scene_resources,
+            layout_engine,
         }
     }
 
@@ -116,9 +135,13 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         let screen_size = physical_screen_size.to_f32().to_logical(scale_fac);
 
         // layout pass
-        let scene_resources = self.generate_scene_resources(scale_fac);
+        self.scene_resources.set_scale_factor(scale_fac);
 
-        let layout_pass = LayoutPass::new(&mut self.root, scene_resources);
+        let layout_pass = LayoutPass::new(
+            &mut self.root,
+            &mut self.scene_resources,
+            &mut self.layout_engine,
+        );
 
         let mut scene_layout = layout_pass.do_layout_pass(screen_size, &mut self.root);
 
@@ -290,10 +313,6 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         window_texture.present();
 
         (input, platform_output)
-    }
-
-    fn generate_scene_resources(&self, scale_factor: f64) -> SceneResources {
-        SceneResources::new(self.font_manager.get_font_system_ref(), scale_factor)
     }
 
     pub fn get_dependents_mut<'a>(&mut self) -> impl Iterator<Item = &mut dyn SurfaceDependent> {

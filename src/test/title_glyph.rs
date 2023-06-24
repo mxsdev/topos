@@ -16,29 +16,41 @@ use super::{TestRect, TextBox};
 
 #[derive(Default)]
 pub struct TitleBarGlyph {
+    glyph_size: f32,
+
     size: Size2,
     input_rect: Rect,
+
+    pub(super) color: ColorRgba,
 
     pub(super) clicked: bool,
     pub(super) hovered: bool,
 }
 
 impl TitleBarGlyph {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(glyph_size: f32, color: ColorRgba) -> Self {
+        Self {
+            glyph_size,
+            color,
+            ..Default::default()
+        }
+    }
+
+    pub fn set_size(&mut self, glyph_size: f32) {
+        self.glyph_size = glyph_size
     }
 }
 
 impl Element for TitleBarGlyph {
     fn layout(&mut self, constraints: SizeConstraint, layout_pass: &mut LayoutPass) -> Size2 {
-        self.size = constraints.max;
-        constraints.max
+        self.size = Size2::splat(self.glyph_size);
+        self.size
     }
 
     fn ui(&mut self, ctx: &mut SceneContext, pos: Pos2) {
         ctx.add_shape(PaintRectangle {
             rect: self.input_rect.into(),
-            fill: ColorRgba::new(1., 1., 1., if self.hovered { 1. } else { 0.5 }).into(),
+            fill: self.color.into(),
 
             ..Default::default()
         })

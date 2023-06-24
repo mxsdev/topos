@@ -426,6 +426,76 @@ impl<A: Copy, B> MapRange<A, B> for Range<A> {
     }
 }
 
+pub trait IntoTaffy<T>: Sized {
+    /// Converts this type into the (usually inferred) input type.
+    #[must_use]
+    fn into_taffy(self) -> T;
+}
+
+pub trait IntoGeom<T>: Sized {
+    #[must_use]
+    fn into_geom(self) -> T;
+}
+
+pub trait AsRect<T>: Sized {
+    #[must_use]
+    fn as_rect(&self) -> T;
+}
+
+// taffy
+
+impl IntoTaffy<taffy::geometry::Size<taffy::style::AvailableSpace>> for Size2 {
+    fn into_taffy(self) -> taffy::geometry::Size<taffy::style::AvailableSpace> {
+        taffy::geometry::Size {
+            // TODO: support max-content and min-content
+            height: self.height.into(),
+            width: self.width.into(),
+            // top: self.min.y.into(),
+            // left: self.min.x.into(),
+            // bottom: self.max.y.into(),
+            // right: self.max.x.into(),
+        }
+    }
+}
+
+impl IntoTaffy<taffy::geometry::Size<taffy::style::Dimension>> for Size2 {
+    fn into_taffy(self) -> taffy::geometry::Size<taffy::style::Dimension> {
+        taffy::geometry::Size {
+            height: taffy::style::Dimension::Points(self.height),
+            width: taffy::style::Dimension::Points(self.width),
+        }
+    }
+}
+
+impl IntoGeom<Size2> for taffy::geometry::Size<f32> {
+    fn into_geom(self) -> Size2 {
+        Size2::new(self.width, self.height)
+    }
+}
+
+impl IntoGeom<Pos2> for taffy::geometry::Point<f32> {
+    fn into_geom(self) -> Pos2 {
+        Pos2::new(self.x, self.y)
+    }
+}
+
+impl AsRect<Rect> for taffy::layout::Layout {
+    fn as_rect(&self) -> Rect {
+        Rect::from_min_size(self.location.into_geom(), self.size.into_geom())
+    }
+}
+
+// lerp
+pub trait Lerp<F> {
+    fn lerp(self, to: F, fac: F) -> F;
+}
+
+impl<F: Num + Copy> Lerp<F> for F {
+    fn lerp(self, to: F, fac: F) -> F {
+        to * fac + (F::one() - fac) * self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

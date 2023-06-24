@@ -1,4 +1,5 @@
 #![feature(return_position_impl_trait_in_trait)]
+#![feature(adt_const_params)]
 
 #[macro_use]
 extern crate custom_derive;
