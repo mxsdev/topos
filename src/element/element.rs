@@ -8,6 +8,7 @@ use crate::input::input_state::InputState;
 use crate::refbox::{self, coerce_ref, RefBox};
 
 use crate::scene::scene::SceneResources;
+use crate::util::LogicalUnit;
 use crate::{
     scene::{ctx::SceneContext, layout::LayoutPass},
     util::{Pos2, Size2},
@@ -17,6 +18,24 @@ use crate::{
 pub struct SizeConstraint<F = f32> {
     pub min: Size2<F>,
     pub max: Size2<F>,
+}
+
+impl<F: euclid::num::Zero> Into<SizeConstraint<F>> for euclid::Size2D<F, LogicalUnit> {
+    fn into(self) -> SizeConstraint<F> {
+        SizeConstraint::max(self)
+    }
+}
+
+impl<F> SizeConstraint<F> {
+    pub fn max(size: Size2<F>) -> Self
+    where
+        F: euclid::num::Zero,
+    {
+        Self {
+            min: Size2::zero(),
+            max: size,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]

@@ -238,7 +238,7 @@ impl<F: CanScale> PhysicalToLogical for PhysicalSize2<F> {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct RoundedBox2D<T, U> {
     pub rect: euclid::Box2D<T, U>,
     pub radius: Option<T>,

@@ -19,6 +19,8 @@ use crate::element::{boundary::Boundary, Element, ElementEvent, MouseButton, Siz
 
 pub struct TestRect {
     rect: RoundedRect,
+    input_rect: RoundedRect,
+
     hovered: bool,
     dragging: bool,
     pub clicked: bool,
@@ -208,6 +210,8 @@ impl TestRect {
             dragging: false,
             clicked: false,
 
+            input_rect: Rect::zero().into(),
+
             // ease_func: Box::new(keyframe::functions::Linear),
             transition: Transition::new(0.15).set_ease_func(curve),
 
@@ -225,13 +229,8 @@ impl Element for TestRect {
             self.transition.fac(),
         );
 
-        // let fill = match self.hovered {
-        //     true => ColorRgba::new(1., 0., 0., 1.),
-        //     false => ColorRgba::new(0., 1., 0., 1.),
-        // };
-
         ctx.add_shape(PaintRectangle {
-            rect: self.rect,
+            rect: self.input_rect,
             fill: Some(fill),
             stroke_color: Some(ColorRgba::new(0., 0., 0., 1.)),
             stroke_width: Some(1.),
@@ -245,7 +244,7 @@ impl Element for TestRect {
                 .vertices
                 .iter()
                 .map(|p| PaintMeshVertex {
-                    pos: (*p * 1.) + self.rect.min.to_vector() + Vec2::splat(10.),
+                    pos: (*p * 1.) + self.input_rect.min.to_vector() + Vec2::splat(10.),
                     color: ColorRgba::new(0., 0., 0., 1.).into(),
                 })
                 .collect(),
@@ -253,6 +252,8 @@ impl Element for TestRect {
     }
 
     fn input(&mut self, input: &mut InputState, pos: Pos2) {
+        self.input_rect = self.rect.translate_vec(pos.to_vector());
+        
         self.clicked = self.hovered && input.pointer.primary_clicked();
 
         if self.hovered {
@@ -270,7 +271,7 @@ impl Element for TestRect {
             }
         } else {
             if let Some(hover) = input.pointer.hover_pos() {
-                self.hovered = self.rect.sdf(&hover).is_positive()
+                self.hovered = self.input_rect.sdf(&hover).is_positive()
             } else {
                 self.hovered = false;
             };

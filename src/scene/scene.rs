@@ -217,9 +217,9 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
         {
             let load_op = wgpu::LoadOp::Clear(wgpu::Color {
-                r: 0.1,
-                g: 0.2,
-                b: 0.3,
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
                 a: 1.0,
             });
 

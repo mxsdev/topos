@@ -1,8 +1,14 @@
 use crate::{color::ColorRgba, mesh::PaintMesh, surface::SurfaceDependent, util::Pos2};
 
-use std::{fmt::Debug, marker::PhantomData, num::NonZeroU64, ops::Range};
+use std::{
+    fmt::Debug,
+    marker::PhantomData,
+    num::NonZeroU64,
+    ops::{Add, Range},
+};
 
 use bytemuck::Pod;
+use euclid::Vector2D;
 use num_traits::Num;
 
 use crate::{
@@ -258,6 +264,7 @@ impl BoxShaderVertex {
     }
 }
 
+#[derive(Clone)]
 pub struct PaintBlur<F = f32, U = LogicalUnit> {
     pub blur_radius: F,
     pub color: ColorRgba,
@@ -274,6 +281,8 @@ impl<F: CanScale, U> PaintBlur<F, U> {
     }
 }
 
+// TODO: adopt builder pattern (with `impl` args)
+#[derive(Clone, Default)]
 pub struct PaintRectangle<F = f32, U = LogicalUnit> {
     pub rect: RoundedBox2D<F, U>,
     pub fill: Option<ColorRgba>,

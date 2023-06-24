@@ -12,10 +12,10 @@
  - [ ] Focus
  - [ ] Sharp box strokes
  - [x] Accessibility
- - [ ] Context Menus
+ - [x] Native Context Menus
+ - [x] Native System Menus
  - [ ] Pixel Alignment (PhysicalRect as `u32`)
  - [ ] Multi-window support
- - [ ] System Menus
  - [ ] Rounded clip rects
  - [ ] Move away from MSAA
  - [ ] Move away from Tessellation for glyphs/strokes

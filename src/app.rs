@@ -1,9 +1,12 @@
 use core::panic;
 use std::time::Duration;
 
+use cocoa::appkit::NSWindow;
+use raw_window_handle::HasRawWindowHandle;
 use winit::{
     event::{ElementState, Event, KeyboardInput, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
+    platform::macos::WindowBuilderExtMacOS,
     window::WindowBuilder,
 };
 
@@ -117,7 +120,8 @@ impl<Root: RootConstructor + 'static> App<Root> {
                         if let Some(frame_time) = get_window_frame_time(&self.window) {
                             let elapsed_time = last_render_time.elapsed();
 
-                            let buffer_duration = last_render_duration + Duration::from_micros(200);
+                            let buffer_duration =
+                                last_render_duration + Duration::from_micros(1000);
 
                             if elapsed_time < (frame_time.saturating_sub(buffer_duration)) {
                                 self.swap_chain = Some(output);
@@ -178,7 +182,37 @@ impl<Root: RootConstructor + 'static> App<Root> {
     }
 
     pub async fn new(event_loop: &ToposEventLoop) -> Self {
-        let window = WindowBuilder::new().build(event_loop).unwrap();
+        let window = WindowBuilder::new()
+            // .with_titlebar_buttons_hidden(true)
+            .with_title_hidden(true)
+            .with_titlebar_transparent(true)
+            .with_fullsize_content_view(true)
+            .build(event_loop)
+            .unwrap();
+
+        // TODO: move this to separate file
+        let rwh = window.raw_window_handle();
+        match rwh {
+            #[cfg(target_os = "macos")]
+            raw_window_handle::RawWindowHandle::AppKit(handle) => unsafe {
+                use cocoa::base::id;
+                use objc::{sel, sel_impl};
+
+                let ns_window: id = std::mem::transmute(handle.ns_window);
+
+                ns_window.setMovable_(false);
+
+                let fs_button = ns_window
+                    .standardWindowButton_(cocoa::appkit::NSWindowButton::NSWindowZoomButton);
+                let _: () = objc::msg_send![fs_button, setHidden:true];
+
+                let min_button = ns_window.standardWindowButton_(
+                    cocoa::appkit::NSWindowButton::NSWindowMiniaturizeButton,
+                );
+                let _: () = objc::msg_send![min_button, setHidden:true];
+            },
+            _ => {}
+        }
 
         let render_surface = RenderSurface::new(&window).await;
         let rendering_context = render_surface.clone_rendering_context();

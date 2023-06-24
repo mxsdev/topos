@@ -83,6 +83,10 @@ impl LayoutPass {
         }
     }
 
+    // pub fn engine(&mut self) -> &mut taffy::Taffy {
+    //     self.layout_engine
+    // }
+
     fn create(&self, child: &mut ElementRef<impl Element + 'static>) -> Self {
         Self::new(child, self.scene_resources.clone())
     }
@@ -90,10 +94,10 @@ impl LayoutPass {
     pub fn layout_and_place_child(
         &mut self,
         child: &mut ElementRef<impl Element + 'static>,
-        constraints: SizeConstraint,
+        constraints: impl Into<SizeConstraint>,
         pos: Pos2,
     ) -> Size2 {
-        let (size, idx) = self.layout_child_inner(child, constraints);
+        let (size, idx) = self.layout_child_inner(child, constraints.into());
         self.place_child_inner(child, pos, idx);
 
         size
