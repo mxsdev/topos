@@ -71,7 +71,7 @@ impl Element for TitleBar {
         self.size
     }
 
-    fn ui(&mut self, ctx: &mut SceneContext, pos: Pos2) {
+    fn ui(&mut self, ctx: &mut SceneContext, rect: Rect) {
         if self.clicked {
             ctx.start_window_drag()
         }
@@ -90,7 +90,7 @@ impl Element for TitleBar {
         });
     }
 
-    fn ui_post(&mut self, ctx: &mut SceneContext, pos: Pos2) {
+    fn ui_post(&mut self, ctx: &mut SceneContext, rect: Rect) {
         for child in self.glyphs.iter_mut() {
             let trans = &mut child.1;
             let mut child = child.0.get();
@@ -108,12 +108,12 @@ impl Element for TitleBar {
         }
     }
 
-    fn input(&mut self, input: &mut InputState, pos: Pos2) {
+    fn input(&mut self, input: &mut InputState, rect: Rect) {
         for (_, trans) in self.glyphs.iter_mut() {
             trans.update(input)
         }
 
-        self.input_rect = Rect::from_min_size(pos, self.size);
+        self.input_rect = rect;
 
         if let Some(hover_pos) = input.pointer.hover_pos() {
             if self.input_rect.contains(hover_pos) {

@@ -47,7 +47,7 @@ impl Element for TitleBarGlyph {
         self.size
     }
 
-    fn ui(&mut self, ctx: &mut SceneContext, pos: Pos2) {
+    fn ui(&mut self, ctx: &mut SceneContext, rect: Rect) {
         ctx.add_shape(PaintRectangle {
             rect: self.input_rect.into(),
             fill: self.color.into(),
@@ -56,8 +56,8 @@ impl Element for TitleBarGlyph {
         })
     }
 
-    fn input(&mut self, input: &mut InputState, pos: Pos2) {
-        self.input_rect = Rect::from_min_size(pos, self.size);
+    fn input(&mut self, input: &mut InputState, rect: Rect) {
+        self.input_rect = rect;
 
         self.hovered = false;
 

@@ -15,7 +15,6 @@ use super::{TestRect, TextBox};
 pub struct MainElement {
     rects: Vec<ElementRef<TestRect>>,
     text_box: ElementRef<TextBox>,
-    size: Size2,
 }
 
 impl MainElement {
@@ -35,7 +34,6 @@ impl MainElement {
                 TestRect::new(Pos2::new(60., 60.)).into(),
             ],
             text_box: text_box.into(),
-            size: Default::default(),
         }
     }
 }
@@ -59,13 +57,12 @@ impl Element for MainElement {
             Pos2::zero(),
         );
 
-        self.size = constraints.max;
-        self.size
+        constraints.max
     }
 
-    fn ui(&mut self, ctx: &mut crate::scene::ctx::SceneContext, pos: Pos2) {
+    fn ui(&mut self, ctx: &mut crate::scene::ctx::SceneContext, rect: Rect) {
         ctx.add_shape(PaintRectangle {
-            rect: Rect::from_min_size(pos, self.size).into(),
+            rect: rect.into(),
             fill: ColorSrgba::new(255, 254, 209, 255).into_linear().into(),
             ..Default::default()
         });

@@ -286,7 +286,7 @@ pub type ElementTree = ElementTreeNode;
 
 pub struct ElementTreeNode {
     element: ElementWeakref<dyn Element>,
-    pos: Pos2,
+    rect: Rect,
     children: Vec<ElementTreeNode>,
 }
 
@@ -297,7 +297,7 @@ impl ElementTreeNode {
                 child.do_input_pass(input);
             }
 
-            element.input(input, self.pos);
+            element.input(input, self.rect);
         }
     }
 
@@ -305,7 +305,7 @@ impl ElementTreeNode {
         let element_id = self.element.id();
 
         if let Some(mut element) = self.element.try_get() {
-            element.ui(ctx, self.pos);
+            element.ui(ctx, self.rect);
 
             let mut children_access_nodes = Vec::new();
 
@@ -314,7 +314,7 @@ impl ElementTreeNode {
                 children_access_nodes.push(child.element.id().as_access_id())
             }
 
-            element.ui_post(ctx, self.pos);
+            element.ui_post(ctx, self.rect);
 
             let mut access_node_builder = element.node();
             access_node_builder.set_children(children_access_nodes);
@@ -330,10 +330,10 @@ impl ElementTreeNode {
 
 pub type LayoutEngine = taffy::Taffy;
 
-pub type LayoutPass<'a> = LayoutPassGeneric<&'a mut LayoutEngine, &'a mut SceneResources>;
-type LayoutNode = LayoutPassGeneric<(), ()>;
+pub type LayoutPass<'a> = LayoutPassGeneric<&'a mut LayoutEngine, &'a mut SceneResources, ()>;
+type LayoutNode = LayoutPassGeneric<(), (), Size2>;
 
-pub struct LayoutPassGeneric<Engine, Resources> {
+pub struct LayoutPassGeneric<Engine, Resources, S> {
     element: ElementWeakref<dyn Element>,
 
     children: Vec<LayoutNode>,
@@ -343,6 +343,8 @@ pub struct LayoutPassGeneric<Engine, Resources> {
     resources: Resources,
 
     placement: Option<Vec2>,
+
+    size: S,
 }
 
 impl<'a> LayoutPass<'a> {
@@ -358,10 +360,11 @@ impl<'a> LayoutPass<'a> {
             resources: scene_resources,
             layout_engine: engine,
             placement: Default::default(),
+            size: Default::default(),
         }
     }
 
-    fn finish(self) -> LayoutNode {
+    fn finish(self, size: Size2) -> LayoutNode {
         LayoutNode {
             element: self.element,
             children: self.children,
@@ -370,6 +373,8 @@ impl<'a> LayoutPass<'a> {
 
             layout_engine: (),
             resources: (),
+
+            size,
         }
     }
 
@@ -401,7 +406,7 @@ impl<'a> LayoutPass<'a> {
 
         let size = child.layout(constraints, &mut child_node);
 
-        let child_node = child_node.finish();
+        let child_node = child_node.finish(size);
 
         self.children.push(child_node);
         self.children_map.insert(id, idx);
@@ -436,9 +441,8 @@ impl<'a> LayoutPass<'a> {
             max: screen_size,
         };
 
-        root.get().layout(default_constraints, &mut self);
-
-        let node = self.finish();
+        let size = root.get().layout(default_constraints, &mut self);
+        let node = self.finish(size);
 
         node.finish_rec(Pos2::zero())
     }
@@ -465,7 +469,7 @@ impl LayoutNode {
         let mut scene_layout = ElementTreeNode {
             children: Default::default(),
             element: self.element,
-            pos,
+            rect: Rect::from_min_size(pos, self.size),
         };
 
         for child in self.children.into_iter() {

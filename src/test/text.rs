@@ -72,8 +72,12 @@ impl Element for TextBox {
         size
     }
 
-    fn ui(&mut self, ctx: &mut SceneContext, pos: Pos2) {
-        ctx.add_shape(PlacedTextBox::from_buffer(&self.buffer, pos, self.color))
+    fn ui(&mut self, ctx: &mut SceneContext, rect: Rect) {
+        ctx.add_shape(PlacedTextBox::from_buffer(
+            &self.buffer,
+            rect.min,
+            self.color,
+        ))
     }
 
     fn node(&self) -> AccessNodeBuilder {

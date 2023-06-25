@@ -13,7 +13,7 @@ use crate::scene::scene::SceneResources;
 use crate::util::LogicalUnit;
 use crate::{
     scene::{ctx::SceneContext, layout::LayoutPass},
-    util::{Pos2, Size2},
+    util::{Pos2, Rect, Size2},
 };
 
 #[derive(Clone, Copy)]
@@ -67,9 +67,10 @@ pub trait Element {
         constraints: SizeConstraint,
         layout_pass: &mut LayoutPass,
     ) -> LayoutPassResult;
-    fn input(&mut self, input: &mut InputState, pos: Pos2) {}
-    fn ui(&mut self, ctx: &mut SceneContext, pos: Pos2);
-    fn ui_post(&mut self, ctx: &mut SceneContext, pos: Pos2) {}
+
+    fn input(&mut self, input: &mut InputState, rect: Rect) {}
+    fn ui(&mut self, ctx: &mut SceneContext, rect: Rect);
+    fn ui_post(&mut self, ctx: &mut SceneContext, rect: Rect) {}
     fn node(&self) -> AccessNodeBuilder;
 }
 

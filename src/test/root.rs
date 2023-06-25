@@ -50,9 +50,9 @@ impl Element for TestRoot {
         constraints.max
     }
 
-    fn input(&mut self, input: &mut InputState, pos: Pos2) {}
+    fn input(&mut self, input: &mut InputState, rect: Rect) {}
 
-    fn ui(&mut self, ctx: &mut SceneContext, _pos: Pos2) {}
+    fn ui(&mut self, ctx: &mut SceneContext, rect: Rect) {}
 
     fn node(&self) -> AccessNodeBuilder {
         let mut builder = AccessNodeBuilder::new(AccessRole::Window);

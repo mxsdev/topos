@@ -221,7 +221,7 @@ impl TestRect {
 }
 
 impl Element for TestRect {
-    fn ui(&mut self, ctx: &mut SceneContext, pos: Pos2) {
+    fn ui(&mut self, ctx: &mut SceneContext, rect: Rect) {
         use palette::Mix;
         let fill = ColorRgba::mix(
             ColorRgba::new(1., 0., 0., 1.),
@@ -251,8 +251,8 @@ impl Element for TestRect {
         })
     }
 
-    fn input(&mut self, input: &mut InputState, pos: Pos2) {
-        self.input_rect = self.rect.translate_vec(pos.to_vector());
+    fn input(&mut self, input: &mut InputState, rect: Rect) {
+        self.input_rect = self.rect.translate_vec(rect.min.to_vector());
         
         self.clicked = self.hovered && input.pointer.primary_clicked();
 

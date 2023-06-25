@@ -2,13 +2,14 @@
 
 ## TODO
 
+ - [ ] Layout (`Placer` struct, flexbox)
+ - [ ] Layout Text
  - [x] Custom fonts
  - [x] Clip rects
  - [x] Use linear color space
  - [x] Platform output (cursor, window stuff)
  - [x] Lines, Bezier, Fills (maybe just linearize/tessellate for now)
  - [ ] Proper framepacing
- - [ ] Layout (`Placer` struct, flexbox)
  - [ ] Focus
  - [ ] InputBoundary struct (egui `InputRect` equivalent)
  - [ ] Sharp box strokes
