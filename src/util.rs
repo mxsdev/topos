@@ -1,8 +1,7 @@
 use std::ops::{Deref, DerefMut, Range};
 
-use euclid::{Box2D, Point2D, Size2D, Translation2D, Vector2D};
+use euclid::{Box2D, Point2D, Size2D, Vector2D};
 use num_traits::{Float, Num, Signed, ToPrimitive};
-use swash::scale;
 
 use crate::element::boundary::Boundary;
 
@@ -450,10 +449,15 @@ impl IntoTaffy<taffy::geometry::Size<taffy::style::AvailableSpace>> for Size2 {
             // TODO: support max-content and min-content
             height: self.height.into(),
             width: self.width.into(),
-            // top: self.min.y.into(),
-            // left: self.min.x.into(),
-            // bottom: self.max.y.into(),
-            // right: self.max.x.into(),
+        }
+    }
+}
+
+impl IntoTaffy<taffy::geometry::Size<f32>> for Size2 {
+    fn into_taffy(self) -> taffy::geometry::Size<f32> {
+        taffy::geometry::Size {
+            height: self.height,
+            width: self.width,
         }
     }
 }
@@ -506,7 +510,7 @@ mod tests {
 
         assert_eq!(rect.sdf(&Pos2::new(1., 1.)), 1.);
 
-        let mut theta = (225.).to_radians();
+        let theta = (225.).to_radians();
         assert_eq!(rect.sdf(&Pos2::new(theta.cos(), theta.sin())), 1.)
     }
 }

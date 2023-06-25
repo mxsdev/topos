@@ -7,7 +7,11 @@ use crate::{
     color::{ColorRgba, ColorSrgba},
     element::{Element, ElementRef, SizeConstraint},
     input::input_state::InputState,
-    scene::{ctx::SceneContext, layout::LayoutPass, scene::SceneResources},
+    scene::{
+        ctx::SceneContext,
+        layout::{FlexBox, LayoutPass, LayoutPassResult, Manual},
+        scene::SceneResources,
+    },
     shape::PaintRectangle,
     util::{FromMinSize, Pos2, Rect, Size2},
 };
@@ -18,7 +22,6 @@ use super::{TestRect, TextBox};
 pub struct TitleBarGlyph {
     glyph_size: f32,
 
-    size: Size2,
     input_rect: Rect,
 
     pub(super) color: ColorRgba,
@@ -42,9 +45,15 @@ impl TitleBarGlyph {
 }
 
 impl Element for TitleBarGlyph {
-    fn layout(&mut self, constraints: SizeConstraint, layout_pass: &mut LayoutPass) -> Size2 {
-        self.size = Size2::splat(self.glyph_size);
-        self.size
+    fn layout(&mut self, layout_pass: &mut LayoutPass) -> LayoutPassResult {
+        layout_pass
+            .engine()
+            .new_leaf(
+                FlexBox::builder()
+                    .size(Size2::splat(self.glyph_size))
+                    .to_taffy(),
+            )
+            .unwrap()
     }
 
     fn ui(&mut self, ctx: &mut SceneContext, rect: Rect) {

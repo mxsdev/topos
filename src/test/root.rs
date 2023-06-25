@@ -7,7 +7,11 @@ use crate::{
     color::ColorRgba,
     element::{Element, ElementRef, RootConstructor, SizeConstraint},
     input::input_state::InputState,
-    scene::{ctx::SceneContext, layout::LayoutPass, scene::SceneResources},
+    scene::{
+        ctx::SceneContext,
+        layout::{Column, FlexBox, FlexDirection, LayoutPass, LayoutPassResult, Percent},
+        scene::SceneResources,
+    },
     util::{FromMinSize, Pos2, Rect, Size2},
 };
 
@@ -26,28 +30,26 @@ impl RootConstructor for TestRoot {
             scale_factor: resources.scale_factor(),
 
             main: MainElement::new(resources).into(),
-            title_bar: TitleBar::new().into(),
+            title_bar: TitleBar::new(27.).into(),
         }
     }
 }
 
 impl Element for TestRoot {
-    fn layout(&mut self, constraints: SizeConstraint, layout_pass: &mut LayoutPass) -> Size2 {
-        let titlebar_size = Size2::new(constraints.max.width, 27.);
-        let main_size = Size2::new(
-            constraints.max.width,
-            constraints.max.height - titlebar_size.height,
-        );
+    fn layout(&mut self, layout_pass: &mut LayoutPass) -> LayoutPassResult {
+        layout_pass.layout_child(&mut self.title_bar);
+        layout_pass.layout_child(&mut self.main);
 
-        layout_pass.layout_and_place_child(
-            &mut self.main,
-            main_size,
-            Pos2::new(0., titlebar_size.height),
-        );
-
-        layout_pass.layout_and_place_child(&mut self.title_bar, titlebar_size, Pos2::zero());
-
-        constraints.max
+        layout_pass
+            .engine()
+            .new_leaf(
+                FlexBox::builder()
+                    .direction(Column)
+                    .width(Percent(1.))
+                    .height(Percent(1.))
+                    .to_taffy(),
+            )
+            .unwrap()
     }
 
     fn input(&mut self, input: &mut InputState, rect: Rect) {}

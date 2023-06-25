@@ -1,31 +1,22 @@
-use std::{default, ops::DerefMut};
+use std::{
+    default,
+    ops::DerefMut,
+    sync::{Arc, Mutex},
+};
 
 use cosmic_text::FontSystem;
 use itertools::Itertools;
 use rustc_hash::FxHashMap;
-use taffy::style::{Dimension, LengthPercentage};
 
 use crate::{
-    element::{
-        Element, ElementId, ElementList, ElementRef, ElementWeakref, GenericElement, HasElementId,
-        SizeConstraint,
-    },
+    element::{self, Element, ElementId, ElementRef, ElementWeakref, SizeConstraint},
     input::input_state::InputState,
-    util::{FromMinSize, IntoGeom, IntoTaffy, Pos2, Rect, Size2, Vec2},
+    util::{AsRect, FromMinSize, IntoGeom, IntoTaffy, Pos2, Rect, Size2, Vec2},
 };
 
 use super::{ctx::SceneContext, scene::SceneResources};
 
-pub type LayoutPassResult = Size2;
-
-// TODO: switch fully to taffy??
-// custom_derive! {
-//     #[derive(EnumFromInner)]
-//     pub enum LayoutPassResult {
-//         Size(Size2),
-//         LayoutEngine(taffy::node::Node),
-//     }
-// }
+pub type LayoutPassResult = taffy::prelude::Node;
 
 #[derive(Copy, Clone, Debug, Default)]
 pub struct LayoutRect<F = f32> {
@@ -33,6 +24,31 @@ pub struct LayoutRect<F = f32> {
     pub right: F,
     pub top: F,
     pub bottom: F,
+}
+
+impl<F> Into<taffy::geometry::Rect<F>> for LayoutRect<F> {
+    fn into(self) -> taffy::geometry::Rect<F> {
+        taffy::geometry::Rect {
+            left: self.left,
+            top: self.top,
+            bottom: self.bottom,
+            right: self.right,
+        }
+    }
+}
+
+impl<F> LayoutRect<F> {
+    fn map<C, R>(self, f: C) -> LayoutRect<R>
+    where
+        C: Fn(F) -> R,
+    {
+        LayoutRect {
+            left: f(self.left),
+            right: f(self.right),
+            top: f(self.top),
+            bottom: f(self.bottom),
+        }
+    }
 }
 
 impl<F: Copy + Default> LayoutRect<F> {
@@ -68,11 +84,56 @@ impl<F: Copy + Default> LayoutRect<F> {
 // layout placers
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct Row;
+
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct Column;
+
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub enum FlexDirection {
     #[default]
     Row,
     Column,
 }
+
+impl Into<taffy::style::FlexDirection> for FlexDirection {
+    fn into(self) -> taffy::style::FlexDirection {
+        match self {
+            FlexDirection::Row => taffy::style::FlexDirection::Row,
+            FlexDirection::Column => taffy::style::FlexDirection::Column,
+        }
+    }
+}
+
+impl Into<FlexDirection> for Row {
+    fn into(self) -> FlexDirection {
+        FlexDirection::Row
+    }
+}
+
+impl Into<FlexDirection> for Column {
+    fn into(self) -> FlexDirection {
+        FlexDirection::Column
+    }
+}
+
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct Center;
+
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct Start;
+
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct End;
+
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct SpaceBetween;
+
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct SpaceAround;
+
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct SpaceEvenly;
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub enum JustifyContent {
@@ -86,12 +147,89 @@ pub enum JustifyContent {
     SpaceEvenly,
 }
 
+impl Into<JustifyContent> for Center {
+    fn into(self) -> JustifyContent {
+        JustifyContent::Center
+    }
+}
+
+impl Into<JustifyContent> for Start {
+    fn into(self) -> JustifyContent {
+        JustifyContent::Start
+    }
+}
+
+impl Into<JustifyContent> for End {
+    fn into(self) -> JustifyContent {
+        JustifyContent::End
+    }
+}
+
+impl Into<JustifyContent> for SpaceBetween {
+    fn into(self) -> JustifyContent {
+        JustifyContent::SpaceBetween
+    }
+}
+
+impl Into<JustifyContent> for SpaceAround {
+    fn into(self) -> JustifyContent {
+        JustifyContent::SpaceAround
+    }
+}
+
+impl Into<JustifyContent> for SpaceEvenly {
+    fn into(self) -> JustifyContent {
+        JustifyContent::SpaceEvenly
+    }
+}
+
+impl Into<taffy::style::JustifyContent> for JustifyContent {
+    fn into(self) -> taffy::style::JustifyContent {
+        match self {
+            JustifyContent::Center => taffy::style::JustifyContent::Center,
+            JustifyContent::Start => taffy::style::JustifyContent::Start,
+            JustifyContent::End => taffy::style::JustifyContent::End,
+            JustifyContent::SpaceBetween => taffy::style::JustifyContent::SpaceBetween,
+            JustifyContent::SpaceAround => taffy::style::JustifyContent::SpaceAround,
+            JustifyContent::SpaceEvenly => taffy::style::JustifyContent::SpaceEvenly,
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub enum AlignItems {
     Center,
     #[default]
     Start,
     End,
+}
+
+impl Into<taffy::style::AlignItems> for AlignItems {
+    fn into(self) -> taffy::style::AlignItems {
+        match self {
+            AlignItems::Center => taffy::style::AlignItems::Center,
+            AlignItems::Start => taffy::style::AlignItems::Start,
+            AlignItems::End => taffy::style::AlignItems::End,
+        }
+    }
+}
+
+impl Into<AlignItems> for Center {
+    fn into(self) -> AlignItems {
+        AlignItems::Center
+    }
+}
+
+impl Into<AlignItems> for Start {
+    fn into(self) -> AlignItems {
+        AlignItems::Start
+    }
+}
+
+impl Into<AlignItems> for End {
+    fn into(self) -> AlignItems {
+        AlignItems::End
+    }
 }
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
@@ -105,178 +243,186 @@ pub enum LayoutDisplay {
 pub struct FlexBox {}
 
 impl FlexBox {
-    pub fn default() -> CSSLayout {
-        CSSLayout::flex_box()
+    pub fn builder() -> CSSLayoutBuilder {
+        CSSLayoutBuilder::flex_box()
+    }
+}
+
+pub struct Manual {}
+
+impl Manual {
+    pub fn builder() -> CSSLayoutBuilder {
+        CSSLayoutBuilder::none()
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct Percent(pub f32);
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+pub struct Auto;
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct LengthPercentage(taffy::style::LengthPercentage);
+
+impl Into<LengthPercentage> for f32 {
+    fn into(self) -> LengthPercentage {
+        LengthPercentage(taffy::style::LengthPercentage::Points(self))
+    }
+}
+
+impl Into<LengthPercentage> for Percent {
+    fn into(self) -> LengthPercentage {
+        LengthPercentage(taffy::style::LengthPercentage::Percent(self.0))
+    }
+}
+
+impl Into<taffy::style::LengthPercentage> for LengthPercentage {
+    fn into(self) -> taffy::style::LengthPercentage {
+        self.0
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct Dimension(taffy::style::Dimension);
+
+impl Into<Dimension> for f32 {
+    fn into(self) -> Dimension {
+        Dimension(taffy::style::Dimension::Points(self))
+    }
+}
+
+impl Into<Dimension> for Percent {
+    fn into(self) -> Dimension {
+        Dimension(taffy::style::Dimension::Percent(self.0))
+    }
+}
+
+impl Into<Dimension> for Auto {
+    fn into(self) -> Dimension {
+        Dimension(taffy::style::Dimension::Auto)
+    }
+}
+
+impl Into<taffy::style::Dimension> for Dimension {
+    fn into(self) -> taffy::style::Dimension {
+        self.0
     }
 }
 
 #[derive(Default)]
-pub struct CSSLayout {
-    pub display: LayoutDisplay,
+pub struct CSSLayoutBuilder {
+    style: taffy::style::Style,
+    // pub display: LayoutDisplay,
 
-    pub pos: Pos2,
-    pub size: Option<Size2>,
-    pub direction: FlexDirection,
-    pub gap: f32,
+    // pub pos: Pos2,
+    // pub size: Option<Size2>,
+    // pub direction: FlexDirection,
+    // pub gap: f32,
 
-    pub justify_content: JustifyContent,
-    pub align_items: AlignItems,
+    // pub justify_content: JustifyContent,
+    // pub align_items: AlignItems,
 
-    pub padding: LayoutRect,
+    // pub padding: LayoutRect,
 }
 
-impl CSSLayout {
+impl CSSLayoutBuilder {
     pub fn flex_box() -> Self {
         Self {
-            display: LayoutDisplay::Flex,
-            ..Default::default()
+            style: taffy::style::Style {
+                display: taffy::style::Display::Flex,
+                ..Default::default()
+            },
         }
     }
 
-    pub fn size(mut self, size: Size2) -> Self {
-        self.size = size.into();
+    pub fn none() -> Self {
+        Self {
+            style: taffy::style::Style {
+                display: taffy::style::Display::None,
+                ..Default::default()
+            },
+        }
+    }
+
+    pub fn size(mut self, size: Size2<impl Into<Dimension>>) -> Self {
+        self.style.size = taffy::geometry::Size::<taffy::style::Dimension> {
+            width: size.width.into().into(),
+            height: size.height.into().into(),
+        };
         self
     }
 
-    pub fn from_rect(rect: Rect) -> Self {
-        Self {
-            size: rect.size().into(),
-            pos: rect.min,
-            ..Default::default()
-        }
+    pub fn flex_grow(mut self, grow: f32) -> Self {
+        self.style.flex_grow = grow;
+        self
+    }
+
+    pub fn flex_basis(mut self, basis: impl Into<Dimension>) -> Self {
+        self.style.flex_basis = basis.into().into();
+        self
+    }
+
+    pub fn width(mut self, width: impl Into<Dimension>) -> Self {
+        self.style.size.width = width.into().into();
+        self
+    }
+
+    pub fn height(mut self, height: impl Into<Dimension>) -> Self {
+        self.style.size.height = height.into().into();
+        self
     }
 
     pub fn direction(mut self, direction: impl Into<FlexDirection>) -> Self {
-        self.direction = direction.into();
+        self.style.flex_direction = direction.into().into();
         self
     }
 
-    pub fn justify_content(mut self, align: impl Into<JustifyContent>) -> Self {
-        self.justify_content = align.into();
+    pub fn justify_content(mut self, justify_content: impl Into<JustifyContent>) -> Self {
+        self.style.justify_content = Some(justify_content.into().into());
         self
     }
 
     pub fn align_items(mut self, align: impl Into<AlignItems>) -> Self {
-        self.align_items = align.into();
+        self.style.align_items = Some(align.into().into());
         self
     }
 
-    pub fn gap(mut self, gap: f32) -> Self {
-        self.gap = gap;
+    pub fn gap(mut self, val: f32) -> Self {
+        self.gap_xy(val, val)
+    }
+
+    pub fn gap_x(mut self, hor: f32) -> Self {
+        self.style.gap.width = taffy::style::LengthPercentage::Points(hor);
         self
     }
 
-    fn inner_size(&self) -> Option<Size2> {
-        let mut res = self.size?;
-
-        res.width = res
-            .width
-            .min(res.width - (self.padding.left + self.padding.right));
-
-        res.height = res
-            .height
-            .min(res.height - (self.padding.top + self.padding.bottom));
-
-        res.into()
-    }
-
-    pub fn padding(mut self, padding: LayoutRect) -> Self {
-        self.padding = padding;
+    pub fn gap_y(mut self, vert: f32) -> Self {
+        self.style.gap.height = taffy::style::LengthPercentage::Points(vert);
         self
     }
 
-    pub fn place_children<'a>(
-        self,
-        constraints: SizeConstraint,
-        layout_pass: &mut LayoutPass,
-        elements: impl ElementList<'a>,
-    ) -> Size2 {
-        let inner_size = self.inner_size();
+    pub fn gap_xy(mut self, hor: f32, vert: f32) -> Self {
+        self.gap_x(hor).gap_y(vert)
+    }
 
-        let components = elements
-            .element_list()
-            .map(|el| {
-                let size = layout_pass
-                    .layout_child(el, inner_size.map(|x| x.into()).unwrap_or(constraints));
+    pub fn padding_left(mut self, padding: impl Into<LengthPercentage>) -> Self {
+        self.style.padding.left = padding.into().into();
+        self
+    }
 
-                (
-                    el,
-                    layout_pass
-                        .engine()
-                        .new_leaf(taffy::style::Style {
-                            size: taffy::geometry::Size::<Dimension> {
-                                width: Dimension::Points(size.width),
-                                height: Dimension::Points(size.height),
-                            },
-                            ..Default::default()
-                        })
-                        .unwrap(),
-                )
-            })
-            .collect_vec();
+    pub fn padding_right(mut self, padding: impl Into<LengthPercentage>) -> Self {
+        self.style.padding.right = padding.into().into();
+        self
+    }
 
-        let root = layout_pass
-            .engine()
-            .new_with_children(
-                taffy::style::Style {
-                    display: match self.display {
-                        LayoutDisplay::Flex => taffy::style::Display::Flex,
-                        LayoutDisplay::Grid => taffy::style::Display::Grid,
-                        LayoutDisplay::None => taffy::style::Display::None,
-                    },
+    pub fn padding_x(mut self, padding: impl Into<LengthPercentage>) -> Self {
+        let p = padding.into();
+        self.padding_left(p).padding_right(p)
+    }
 
-                    flex_direction: match self.direction {
-                        FlexDirection::Row => taffy::style::FlexDirection::Row,
-                        FlexDirection::Column => taffy::style::FlexDirection::Column,
-                    },
-
-                    align_items: match self.align_items {
-                        AlignItems::Center => taffy::style::AlignItems::Center,
-                        AlignItems::Start => taffy::style::AlignItems::Start,
-                        AlignItems::End => taffy::style::AlignItems::End,
-                    }
-                    .into(),
-
-                    justify_content: match self.justify_content {
-                        JustifyContent::Center => taffy::style::JustifyContent::Center,
-                        JustifyContent::Start => taffy::style::JustifyContent::Start,
-                        JustifyContent::End => taffy::style::JustifyContent::End,
-                        JustifyContent::SpaceBetween => taffy::style::JustifyContent::SpaceBetween,
-                        JustifyContent::SpaceAround => taffy::style::JustifyContent::SpaceAround,
-                        JustifyContent::SpaceEvenly => taffy::style::JustifyContent::SpaceEvenly,
-                    }
-                    .into(),
-
-                    size: self
-                        .size
-                        .map(|size| taffy::geometry::Size::<Dimension> {
-                            width: Dimension::Points(size.width),
-                            height: Dimension::Points(size.height),
-                        })
-                        .unwrap_or(taffy::style::Style::DEFAULT.size),
-
-                    gap: taffy::geometry::Size {
-                        height: LengthPercentage::Points(self.gap),
-                        width: LengthPercentage::Points(self.gap),
-                    },
-
-                    ..Default::default()
-                },
-                &components.iter().map(|x| x.1).collect_vec(),
-            )
-            .unwrap();
-
-        layout_pass
-            .engine()
-            .compute_layout(root, constraints.max.into_taffy())
-            .unwrap();
-
-        for (el, node) in components {
-            let pos = layout_pass.engine().layout(node).unwrap().location;
-            layout_pass.place_child(el, pos.into_geom())
-        }
-
-        layout_pass.engine().layout(root).unwrap().size.into_geom()
+    pub fn to_taffy(self) -> taffy::style::Style {
+        self.style
     }
 }
 
@@ -326,109 +472,83 @@ impl ElementTreeNode {
                 .push((element_id.as_access_id(), access_node));
         }
     }
+
+    pub(super) fn do_layout_post_pass(&mut self, engine: &mut LayoutEngine) {
+        if let Some(mut element) = self.element.try_get() {
+            element.layout_post(engine);
+
+            for child in self.children.iter_mut() {
+                child.do_layout_post_pass(engine);
+            }
+        }
+    }
 }
 
 pub type LayoutEngine = taffy::Taffy;
 
 pub type LayoutPass<'a> = LayoutPassGeneric<&'a mut LayoutEngine, &'a mut SceneResources, ()>;
-type LayoutNode = LayoutPassGeneric<(), (), Size2>;
+type LayoutNode = LayoutPassGeneric<(), (), LayoutPassResult>;
 
-pub struct LayoutPassGeneric<Engine, Resources, S> {
+pub struct LayoutPassGeneric<Engine, Resources, Result> {
     element: ElementWeakref<dyn Element>,
 
     children: Vec<LayoutNode>,
-    children_map: FxHashMap<ElementId, usize>,
 
     layout_engine: Engine,
     resources: Resources,
 
-    placement: Option<Vec2>,
-
-    size: S,
+    result: Result,
 }
 
 impl<'a> LayoutPass<'a> {
     pub(super) fn new(
-        root: &mut (impl GenericElement + ?Sized),
+        root: &mut ElementRef<impl Element + 'static>,
         scene_resources: &'a mut SceneResources,
         engine: &'a mut LayoutEngine,
     ) -> Self {
         Self {
             children: Default::default(),
-            children_map: Default::default(),
             element: root.get_weak_dyn(),
             resources: scene_resources,
             layout_engine: engine,
-            placement: Default::default(),
-            size: Default::default(),
+            result: Default::default(),
         }
     }
 
-    fn finish(self, size: Size2) -> LayoutNode {
-        LayoutNode {
-            element: self.element,
-            children: self.children,
-            children_map: self.children_map,
-            placement: self.placement,
+    fn finish(self, result: LayoutPassResult) -> (LayoutNode, &'a mut LayoutEngine) {
+        self.layout_engine
+            .set_children(
+                result,
+                &self.children.iter().map(|c| c.result).collect_vec(),
+            )
+            .unwrap();
 
-            layout_engine: (),
-            resources: (),
-
-            size,
-        }
-    }
-
-    pub fn layout_and_place_child(
-        &mut self,
-        child: &mut (impl GenericElement + ?Sized),
-        constraints: impl Into<SizeConstraint>,
-        pos: Pos2,
-    ) -> Size2 {
-        let (size, idx) = self.layout_child_inner(child, constraints.into());
-        self.place_child_inner(pos, idx);
-
-        size
+        (
+            LayoutNode {
+                element: self.element,
+                children: self.children,
+                layout_engine: (),
+                resources: (),
+                result,
+            },
+            self.layout_engine,
+        )
     }
 
     pub fn engine(&mut self) -> &mut LayoutEngine {
         self.layout_engine
     }
 
-    fn layout_child_inner<'b>(
-        &'b mut self,
-        child: &mut (impl GenericElement + ?Sized),
-        constraints: SizeConstraint,
-    ) -> (Size2, usize) {
+    pub fn layout_child<'b>(&'b mut self, child: &mut ElementRef<impl Element + 'static>) {
         let idx = self.children.len();
         let id = child.id();
 
         let mut child_node = LayoutPass::<'b>::new(child, self.resources, self.layout_engine);
 
-        let size = child.layout(constraints, &mut child_node);
-
-        let child_node = child_node.finish(size);
+        let size = child.get().layout(&mut child_node);
+        let (child_node, _) = child_node.finish(size);
 
         self.children.push(child_node);
-        self.children_map.insert(id, idx);
-
-        (size, idx)
-    }
-
-    pub fn layout_child(
-        &mut self,
-        child: &mut (impl GenericElement + ?Sized),
-        constraints: SizeConstraint,
-    ) -> Size2 {
-        self.layout_child_inner(child, constraints).0
-    }
-
-    fn place_child_inner(&mut self, pos: Pos2, idx: usize) {
-        self.children[idx].placement = Some(pos.to_vector());
-    }
-
-    pub fn place_child(&mut self, element: &(impl HasElementId + ?Sized), pos: Pos2) {
-        let idx = self.children_map.get(&element.id()).unwrap();
-        self.place_child_inner(pos, *idx)
     }
 
     pub(super) fn do_layout_pass(
@@ -436,15 +556,17 @@ impl<'a> LayoutPass<'a> {
         screen_size: Size2,
         root: &mut ElementRef<impl Element>,
     ) -> ElementTree {
-        let default_constraints = SizeConstraint {
-            min: Size2::zero(),
-            max: screen_size,
-        };
+        let root_layout_node = root.get().layout(&mut self);
+        let (node, layout_engine) = self.finish(root_layout_node);
 
-        let size = root.get().layout(default_constraints, &mut self);
-        let node = self.finish(size);
+        layout_engine
+            .compute_layout(root_layout_node, screen_size.into_taffy())
+            .unwrap();
 
-        node.finish_rec(Pos2::zero())
+        let mut tree = node.finish_rec(layout_engine, Pos2::zero());
+        tree.do_layout_post_pass(layout_engine);
+
+        tree
     }
 
     pub fn scale_factor(&self) -> f64 {
@@ -455,25 +577,31 @@ impl<'a> LayoutPass<'a> {
         self.resources.font_system()
     }
 
+    pub fn font_system_ref(&mut self) -> Arc<Mutex<FontSystem>> {
+        self.resources.font_system_ref()
+    }
+
     pub fn scene_resources(&self) -> &SceneResources {
         &self.resources
     }
 }
 
 impl LayoutNode {
-    fn finish_rec(self, mut pos: Pos2) -> ElementTreeNode {
-        if let Some(placement) = self.placement {
-            pos += placement;
-        }
-
+    fn finish_rec(self, layout_engine: &mut LayoutEngine, parent_pos: Pos2) -> ElementTreeNode {
         let mut scene_layout = ElementTreeNode {
             children: Default::default(),
             element: self.element,
-            rect: Rect::from_min_size(pos, self.size),
+            rect: layout_engine
+                .layout(self.result)
+                .unwrap()
+                .as_rect()
+                .translate(parent_pos.to_vector()),
         };
 
         for child in self.children.into_iter() {
-            scene_layout.children.push(child.finish_rec(pos));
+            scene_layout
+                .children
+                .push(child.finish_rec(layout_engine, scene_layout.rect.min));
         }
 
         scene_layout

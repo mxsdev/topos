@@ -5,7 +5,11 @@ use crate::{
     color::{ColorRgba, ColorSrgba},
     element::{Element, ElementRef, SizeConstraint},
     input::input_state::InputState,
-    scene::{ctx::SceneContext, scene::SceneResources},
+    scene::{
+        ctx::SceneContext,
+        layout::{Auto, Dimension, FlexBox, LayoutPass, LayoutPassResult, Manual, Percent},
+        scene::SceneResources,
+    },
     shape::PaintRectangle,
     util::{FromMinSize, Pos2, Rect, Size2},
 };
@@ -39,25 +43,31 @@ impl MainElement {
 }
 
 impl Element for MainElement {
-    fn layout(
-        &mut self,
-        constraints: crate::element::SizeConstraint,
-        layout_pass: &mut crate::scene::layout::LayoutPass,
-    ) -> crate::util::Size2 {
+    fn layout(&mut self, layout_pass: &mut LayoutPass) -> LayoutPassResult {
         for rect in self.rects.iter_mut() {
-            layout_pass.layout_and_place_child(rect, constraints, Pos2::zero());
+            layout_pass.layout_child(rect);
         }
 
-        layout_pass.layout_and_place_child(
-            &mut self.text_box,
-            SizeConstraint {
-                min: Size2::zero(),
-                max: Size2::new(100., 500.),
-            },
-            Pos2::zero(),
-        );
+        layout_pass.layout_child(&mut self.text_box);
 
-        constraints.max
+        // layout_pass.layout_and_place_child(
+        //     &mut self.text_box,
+        //     SizeConstraint {
+        //         min: Size2::zero(),
+        //         max: Size2::new(100., 500.),
+        //     },
+        //     Pos2::zero(),
+        // );
+
+        layout_pass
+            .engine()
+            .new_leaf(
+                FlexBox::builder()
+                    .width(Percent(1.))
+                    .flex_grow(1.)
+                    .to_taffy(),
+            )
+            .unwrap()
     }
 
     fn ui(&mut self, ctx: &mut crate::scene::ctx::SceneContext, rect: Rect) {

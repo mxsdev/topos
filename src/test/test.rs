@@ -10,7 +10,7 @@ use crate::{
     graphics::VertexBuffers,
     input::{input_state::InputState, output::CursorIcon, PointerButton},
     mesh::{MeshVertex, PaintMesh, PaintMeshVertex},
-    scene::{ctx::SceneContext, update::UpdatePass, PaintPass},
+    scene::{ctx::SceneContext, update::UpdatePass, PaintPass, layout::{LayoutPassResult, Manual, FlexBox}},
     shape::{PaintBlur, PaintRectangle, PaintShape},
     util::{FromMinSize, Pos2, Rect, RoundedRect, Size2, Translate2D, Translate2DMut, Vec2}, accessibility::{AccessNodeBuilder, AccessRole, AsAccessRect},
 };
@@ -287,10 +287,9 @@ impl Element for TestRect {
 
     fn layout(
         &mut self,
-        constraints: SizeConstraint,
         layout_pass: &mut crate::scene::layout::LayoutPass,
-    ) -> Size2 {
-        Size2::zero()
+    ) -> LayoutPassResult {
+        layout_pass.engine().new_leaf(Manual::builder().to_taffy()).unwrap()
     }
 
     fn node(&self) -> AccessNodeBuilder {

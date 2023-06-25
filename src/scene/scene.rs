@@ -16,9 +16,7 @@ use crate::{
         self, BatchedAtlasRender, BatchedAtlasRenderBoxIterator, BatchedAtlasRenderBoxesEntry,
         FontManagerRenderResources,
     },
-    element::{
-        Element, ElementEvent, ElementId, ElementRef, HasElementId, RootConstructor, SizeConstraint,
-    },
+    element::{Element, ElementEvent, ElementId, ElementRef, RootConstructor, SizeConstraint},
     input::{input_state::InputState, output::PlatformOutput, winit::WinitState},
     mesh::{self, PaintMesh},
     scene::update::UpdatePass,
@@ -59,6 +57,10 @@ impl SceneResources {
 
     pub fn font_system(&self) -> impl DerefMut<Target = FontSystem> + '_ {
         self.font_system.lock().unwrap()
+    }
+
+    pub fn font_system_ref(&self) -> Arc<Mutex<FontSystem>> {
+        self.font_system.clone()
     }
 
     pub fn scale_factor(&self) -> f64 {

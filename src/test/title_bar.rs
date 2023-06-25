@@ -5,11 +5,14 @@ use palette::{rgb::FromHexError, Darken, Desaturate, FromColor, Hsva, IntoColor,
 use crate::{
     accessibility::{AccessNode, AccessNodeBuilder, AccessRole},
     color::{ColorRgb, ColorRgba, ColorSrgba},
-    element::{transition::Transition, Element, ElementRef, GenericElement, SizeConstraint},
+    element::{transition::Transition, Element, ElementRef, SizeConstraint},
     input::input_state::InputState,
     scene::{
         ctx::SceneContext,
-        layout::{AlignItems, CSSLayout, FlexBox, JustifyContent, LayoutPass, LayoutRect},
+        layout::{
+            AlignItems, Center, FlexBox, JustifyContent, LayoutPass, LayoutPassResult, LayoutRect,
+            Percent,
+        },
         scene::SceneResources,
     },
     shape::PaintRectangle,
@@ -20,7 +23,6 @@ use super::{TestRect, TextBox, TitleBarGlyph};
 
 #[derive(Default)]
 pub struct TitleBar {
-    size: Size2,
     input_rect: Rect,
 
     clicked: bool,
@@ -28,6 +30,8 @@ pub struct TitleBar {
     selected_idx: Option<usize>,
 
     glyphs: Vec<(ElementRef<TitleBarGlyph>, Transition)>,
+
+    height: f32,
 }
 
 const INACTIVE_GLYPH_HEIGHT: f32 = 14.;
@@ -38,7 +42,7 @@ const GLYPH_COL: ColorRgb = ColorRgb::new(1., 1., 1.);
 const TRANS_TIME: f32 = 0.125;
 
 impl TitleBar {
-    pub fn new() -> Self {
+    pub fn new(height: f32) -> Self {
         let curve = BezierCurve::from(Vector2 { x: 0.62, y: 0. }, Vector2 { x: 0.43, y: 0.98 });
 
         let glyphs = (0..4)
@@ -48,27 +52,27 @@ impl TitleBar {
 
         Self {
             glyphs,
+            height,
             ..Default::default()
         }
     }
 }
 
 impl Element for TitleBar {
-    fn layout(&mut self, constraints: SizeConstraint, layout_pass: &mut LayoutPass) -> Size2 {
-        let main = FlexBox::default()
-            .size(constraints.max)
-            .padding(LayoutRect::x(5.))
-            .align_items(AlignItems::Center)
-            .justify_content(JustifyContent::Center)
-            .gap(8.)
-            .place_children(
-                constraints,
-                layout_pass,
-                self.glyphs.iter_mut().map(|x| &mut x.0),
-            );
+    fn layout(&mut self, layout_pass: &mut LayoutPass) -> LayoutPassResult {
+        for (child, _) in self.glyphs.iter_mut() {
+            layout_pass.layout_child(child)
+        }
 
-        self.size = main;
-        self.size
+        let main = FlexBox::builder()
+            .width(Percent(1.))
+            .height(self.height)
+            .padding_x(5.)
+            .align_items(Center)
+            .justify_content(Center)
+            .gap(8.);
+
+        layout_pass.engine().new_leaf(main.to_taffy()).unwrap()
     }
 
     fn ui(&mut self, ctx: &mut SceneContext, rect: Rect) {
