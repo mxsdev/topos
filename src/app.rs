@@ -1,7 +1,7 @@
 use core::panic;
 use std::time::Duration;
 
-use cocoa::appkit::NSWindow;
+use cocoa::appkit::{NSColor, NSWindow};
 use raw_window_handle::HasRawWindowHandle;
 use winit::{
     event::{ElementState, Event, KeyboardInput, WindowEvent},
@@ -213,6 +213,9 @@ impl<Root: RootConstructor + 'static> App<Root> {
                     cocoa::appkit::NSWindowButton::NSWindowMiniaturizeButton,
                 );
                 let _: () = objc::msg_send![min_button, setHidden:true];
+
+                let bg_col = id::colorWithRed_green_blue_alpha_(ns_window, 0., 0., 0., 1.);
+                ns_window.setBackgroundColor_(bg_col);
             },
             _ => {}
         }
