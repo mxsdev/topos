@@ -473,12 +473,12 @@ impl ElementTreeNode {
         }
     }
 
-    pub(super) fn do_layout_post_pass(&mut self, engine: &mut LayoutEngine) {
+    pub(super) fn do_layout_post_pass(&mut self, resources: &mut SceneResources) {
         if let Some(mut element) = self.element.try_get() {
-            element.layout_post(engine);
+            element.layout_post(resources, self.rect);
 
             for child in self.children.iter_mut() {
-                child.do_layout_post_pass(engine);
+                child.do_layout_post_pass(resources);
             }
         }
     }
@@ -486,37 +486,32 @@ impl ElementTreeNode {
 
 pub type LayoutEngine = taffy::Taffy;
 
-pub type LayoutPass<'a> = LayoutPassGeneric<&'a mut LayoutEngine, &'a mut SceneResources, ()>;
-type LayoutNode = LayoutPassGeneric<(), (), LayoutPassResult>;
+pub type LayoutPass<'a, 'b> = LayoutPassGeneric<&'a mut SceneResources<'b>, ()>;
+type LayoutNode = LayoutPassGeneric<(), LayoutPassResult>;
 
-pub struct LayoutPassGeneric<Engine, Resources, Result> {
+pub struct LayoutPassGeneric<Resources, Result> {
     element: ElementWeakref<dyn Element>,
-
     children: Vec<LayoutNode>,
-
-    layout_engine: Engine,
     resources: Resources,
-
     result: Result,
 }
 
-impl<'a> LayoutPass<'a> {
+impl<'a, 'b> LayoutPass<'a, 'b> {
     pub(super) fn new(
         root: &mut ElementRef<impl Element + 'static>,
-        scene_resources: &'a mut SceneResources,
-        engine: &'a mut LayoutEngine,
+        scene_resources: &'a mut SceneResources<'b>,
     ) -> Self {
         Self {
             children: Default::default(),
             element: root.get_weak_dyn(),
             resources: scene_resources,
-            layout_engine: engine,
             result: Default::default(),
         }
     }
 
-    fn finish(self, result: LayoutPassResult) -> (LayoutNode, &'a mut LayoutEngine) {
-        self.layout_engine
+    fn finish(self, result: LayoutPassResult) -> (LayoutNode, &'a mut SceneResources<'b>) {
+        self.resources
+            .layout_engine()
             .set_children(
                 result,
                 &self.children.iter().map(|c| c.result).collect_vec(),
@@ -527,26 +522,29 @@ impl<'a> LayoutPass<'a> {
             LayoutNode {
                 element: self.element,
                 children: self.children,
-                layout_engine: (),
                 resources: (),
                 result,
             },
-            self.layout_engine,
+            self.resources,
         )
     }
 
     pub fn engine(&mut self) -> &mut LayoutEngine {
-        self.layout_engine
+        self.resources.layout_engine()
     }
 
-    pub fn layout_child<'b>(&'b mut self, child: &mut ElementRef<impl Element + 'static>) {
+    pub fn layout_child(&mut self, child: &mut ElementRef<impl Element + 'static>) {
         let idx = self.children.len();
         let id = child.id();
 
-        let mut child_node = LayoutPass::<'b>::new(child, self.resources, self.layout_engine);
+        let (child_node, _) = {
+            let mut child_node = LayoutPass::new(child, self.resources);
+            let size = child.get().layout(&mut child_node);
 
-        let size = child.get().layout(&mut child_node);
-        let (child_node, _) = child_node.finish(size);
+            child_node.finish(size)
+        };
+
+        // let (child_node, _) = child_node.finish(size);
 
         self.children.push(child_node);
     }
@@ -557,14 +555,16 @@ impl<'a> LayoutPass<'a> {
         root: &mut ElementRef<impl Element>,
     ) -> ElementTree {
         let root_layout_node = root.get().layout(&mut self);
-        let (node, layout_engine) = self.finish(root_layout_node);
+        let (node, resources) = self.finish(root_layout_node);
+
+        let layout_engine = resources.layout_engine();
 
         layout_engine
             .compute_layout(root_layout_node, screen_size.into_taffy())
             .unwrap();
 
         let mut tree = node.finish_rec(layout_engine, Pos2::zero());
-        tree.do_layout_post_pass(layout_engine);
+        tree.do_layout_post_pass(resources);
 
         tree
     }

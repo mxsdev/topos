@@ -276,7 +276,7 @@ impl FontAtlas {
             device,
             params_buffer,
             texture_format,
-            num_samples,
+            texture_info,
             ..
         }: &RenderingContext,
     ) -> (wgpu::RenderPipeline, wgpu::BindGroup) {
@@ -348,10 +348,7 @@ impl FontAtlas {
                 cull_mode: None,
             },
             depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: *num_samples.read().unwrap(),
-                ..Default::default()
-            },
+            multisample: texture_info.default_multisample_state(),
             multiview: None,
         });
 

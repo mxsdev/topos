@@ -1,4 +1,5 @@
 use core::num;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use euclid::default;
@@ -63,12 +64,60 @@ pub struct RenderSurface {
     multisample_mode: MultisampleMode,
 }
 
+struct TextureInfoInner {
+    num_samples: u32,
+    scale_factor: f64,
+    scale_factor_f32: f32,
+}
+
+pub struct TextureInfo(RwLock<TextureInfoInner>);
+
+impl TextureInfo {
+    fn new(num_samples: u32, scale_factor: f64) -> Self {
+        Self(RwLock::new(TextureInfoInner {
+            num_samples,
+            scale_factor,
+            scale_factor_f32: scale_factor as f32,
+        }))
+    }
+
+    pub fn get_num_samples(&self) -> u32 {
+        self.0.read().unwrap().num_samples
+    }
+
+    pub(crate) fn set_num_samples(&self, num_samples: u32) {
+        self.0.write().unwrap().num_samples = num_samples
+    }
+
+    pub(crate) fn set_scale_factor(&self, scale_factor: f64) {
+        let mut inner = self.0.write().unwrap();
+        inner.scale_factor = scale_factor;
+        inner.scale_factor_f32 = scale_factor as f32;
+    }
+
+    pub fn get_scale_factor(&self) -> f64 {
+        self.0.read().unwrap().scale_factor
+    }
+
+    pub fn get_scale_factor_f32(&self) -> f32 {
+        self.0.read().unwrap().scale_factor_f32
+    }
+
+    pub fn default_multisample_state(&self) -> wgpu::MultisampleState {
+        wgpu::MultisampleState {
+            count: self.get_num_samples(),
+            ..Default::default()
+        }
+    }
+}
+
 pub struct RenderingContext {
     pub params_buffer: wgpu::Buffer,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub texture_format: wgpu::TextureFormat,
-    pub num_samples: RwLock<u32>,
+
+    pub texture_info: TextureInfo,
 }
 
 pub trait SurfaceDependent {
@@ -178,7 +227,7 @@ impl RenderSurface {
             params_buffer,
             queue,
             texture_format,
-            num_samples: RwLock::new(multisample_mode.num_samples()),
+            texture_info: TextureInfo::new(multisample_mode.num_samples(), window.scale_factor()),
         }
         .into();
 
@@ -258,6 +307,10 @@ impl RenderSurface {
             self.configure_multisampled_framebuffer();
 
             if let Some(scale_factor) = scale_factor {
+                self.rendering_context
+                    .texture_info
+                    .set_scale_factor(scale_factor);
+
                 self.screen_descriptor.scale_factor = scale_factor;
             }
 

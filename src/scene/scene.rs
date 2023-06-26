@@ -30,23 +30,32 @@ use crate::{
 
 use super::{
     ctx::SceneContext,
+    framepacer::Framepacer,
     layout::{LayoutEngine, LayoutPass},
     PaintPass,
 };
 
-#[derive(Clone)]
-pub struct SceneResources {
+pub struct SceneResources<'a> {
     font_system: Arc<Mutex<FontSystem>>,
+    rendering_context: Arc<RenderingContext>,
+    layout_engine: &'a mut LayoutEngine,
     scale_factor: f64,
     scale_factor_f32: f32,
 }
 
-impl SceneResources {
-    pub fn new(font_system: Arc<Mutex<FontSystem>>, scale_factor: f64) -> Self {
+impl<'a> SceneResources<'a> {
+    pub fn new(
+        font_system: Arc<Mutex<FontSystem>>,
+        rendering_context: Arc<RenderingContext>,
+        scale_factor: f64,
+        layout_engine: &'a mut LayoutEngine,
+    ) -> Self {
         Self {
             font_system,
+            rendering_context,
             scale_factor,
             scale_factor_f32: scale_factor as f32,
+            layout_engine,
         }
     }
 
@@ -63,12 +72,20 @@ impl SceneResources {
         self.font_system.clone()
     }
 
+    pub fn rendering_context_ref(&self) -> Arc<RenderingContext> {
+        self.rendering_context.clone()
+    }
+
     pub fn scale_factor(&self) -> f64 {
         self.scale_factor
     }
 
     pub fn scale_factor_f32(&self) -> f32 {
         self.scale_factor_f32
+    }
+
+    pub fn layout_engine(&mut self) -> &mut LayoutEngine {
+        self.layout_engine
     }
 }
 
@@ -80,33 +97,36 @@ pub struct Scene<Root: RootConstructor + 'static> {
     root: ElementRef<Root>,
 
     layout_engine: LayoutEngine,
-    scene_resources: SceneResources,
 }
 
 impl<Root: RootConstructor + 'static> Scene<Root> {
     pub fn new(rendering_context: Arc<RenderingContext>, scale_fac: f64) -> Self {
         let shape_renderer = shape::ShapeRenderer::new(&rendering_context);
         let mesh_renderer = mesh::MeshRenderer::new(&rendering_context);
-        let mut font_manager = atlas::FontManager::new(rendering_context);
+        let mut font_manager = atlas::FontManager::new(rendering_context.clone());
 
         {
             let mut font_system = font_manager.get_font_system();
             font_system.db_mut().load_system_fonts();
         }
 
-        let scene_resources = SceneResources::new(font_manager.get_font_system_ref(), scale_fac);
-
-        let root = Root::new(&scene_resources).into();
-
         let mut layout_engine = LayoutEngine::default();
         layout_engine.disable_rounding();
+
+        let mut scene_resources = SceneResources::new(
+            font_manager.get_font_system_ref(),
+            rendering_context,
+            scale_fac,
+            &mut layout_engine,
+        );
+
+        let root = Root::new(&mut scene_resources).into();
 
         Self {
             font_manager,
             shape_renderer,
             mesh_renderer,
             root,
-            scene_resources,
             layout_engine,
         }
     }
@@ -137,13 +157,14 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         let screen_size = physical_screen_size.to_f32().to_logical(scale_fac);
 
         // layout pass
-        self.scene_resources.set_scale_factor(scale_fac);
-
-        let layout_pass = LayoutPass::new(
-            &mut self.root,
-            &mut self.scene_resources,
+        let mut scene_resources = SceneResources::new(
+            self.font_manager.get_font_system_ref(),
+            render_surface.clone_rendering_context(),
+            scale_fac,
             &mut self.layout_engine,
         );
+
+        let layout_pass = LayoutPass::new(&mut self.root, &mut scene_resources);
 
         let mut scene_layout = layout_pass.do_layout_pass(screen_size, &mut self.root);
 

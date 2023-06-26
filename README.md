@@ -27,6 +27,7 @@
  - [ ] Move away from MSAA
  - [ ] Move away from Tessellation for glyphs/strokes
  - [ ] Improve framepacing (better statistical determination of render times)
+ - [ ] Move everything into a single shader
  - [ ] WASM
  - [ ] Rewrite layout logic (without taffy)
 

@@ -58,12 +58,12 @@ impl ElementId {
 }
 
 pub trait RootConstructor: Element {
-    fn new(resources: &SceneResources) -> Self;
+    fn new(resources: &mut SceneResources) -> Self;
 }
 
 pub trait Element {
     fn layout(&mut self, layout_pass: &mut LayoutPass) -> LayoutPassResult;
-    fn layout_post(&mut self, engine: &mut LayoutEngine) {}
+    fn layout_post(&mut self, resources: &mut SceneResources, rect: Rect) {}
 
     fn input(&mut self, input: &mut InputState, rect: Rect) {}
     fn ui(&mut self, ctx: &mut SceneContext, rect: Rect);

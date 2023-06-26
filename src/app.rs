@@ -13,7 +13,7 @@ use winit::{
 use crate::{
     element::{ElementRef, RootConstructor},
     input::{input_state::InputState, winit::WinitState},
-    scene::scene::Scene,
+    scene::{framepacer::Framepacer, scene::Scene},
     surface::{RenderAttachment, RenderSurface},
 };
 
@@ -29,6 +29,8 @@ pub struct App<Root: RootConstructor + 'static> {
     queued_resize: Option<(winit::dpi::PhysicalSize<u32>, Option<f64>)>,
 
     window: winit::window::Window,
+
+    framepacer: Framepacer,
 }
 
 #[derive(Debug)]
@@ -150,7 +152,8 @@ impl<Root: RootConstructor + 'static> App<Root> {
                     last_render_duration = Some(start.elapsed());
 
                     let render_time = render_start_time.elapsed();
-                    log::trace!("render_time: {:?}", render_time);
+                    self.framepacer.push_frametime(render_time);
+                    // log::trace!("render_time: {:?}", render_time);
 
                     if let Some((new_size, scale_fac)) = self.queued_resize.take() {
                         self.resize(new_size, scale_fac);
@@ -244,6 +247,8 @@ impl<Root: RootConstructor + 'static> App<Root> {
 
             swap_chain: None,
             queued_resize: None,
+
+            framepacer: Default::default(),
         }
     }
 

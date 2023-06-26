@@ -69,7 +69,7 @@ impl ShapeRenderer {
             device,
             texture_format,
             params_buffer,
-            num_samples,
+            texture_info,
             ..
         }: &RenderingContext,
     ) -> RenderResources {
@@ -122,10 +122,7 @@ impl ShapeRenderer {
                 cull_mode: None,
             },
             depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: *num_samples.read().unwrap(),
-                ..Default::default()
-            },
+            multisample: texture_info.default_multisample_state(),
             multiview: None,
         });
 

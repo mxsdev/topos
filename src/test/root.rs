@@ -25,7 +25,7 @@ pub struct TestRoot {
 }
 
 impl RootConstructor for TestRoot {
-    fn new(resources: &SceneResources) -> Self {
+    fn new(resources: &mut SceneResources) -> Self {
         Self {
             scale_factor: resources.scale_factor(),
 

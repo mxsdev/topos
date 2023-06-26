@@ -22,10 +22,10 @@ pub struct MainElement {
 }
 
 impl MainElement {
-    pub fn new(resources: &SceneResources) -> Self {
+    pub fn new(resources: &mut SceneResources) -> Self {
         let text_box = TextBox::new(
             resources,
-            Metrics::new(20., 10.),
+            Metrics::new(20., 20.),
             ColorRgba::new(0., 0., 0., 1.),
             "Hello world".into(),
             Attrs::new().family(Family::Name("Test Calibre")),
@@ -49,15 +49,6 @@ impl Element for MainElement {
         }
 
         layout_pass.layout_child(&mut self.text_box);
-
-        // layout_pass.layout_and_place_child(
-        //     &mut self.text_box,
-        //     SizeConstraint {
-        //         min: Size2::zero(),
-        //         max: Size2::new(100., 500.),
-        //     },
-        //     Pos2::zero(),
-        // );
 
         layout_pass
             .engine()
