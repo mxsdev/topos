@@ -1,31 +1,116 @@
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer, RingBufferExt, RingBufferWrite};
 
+use num_traits::Pow;
+
+const FRAMEPACER_NUM_SAMPLES: usize = 120;
+
 #[derive(Default)]
 pub struct Framepacer {
-    last_30: ConstGenericRingBuffer<std::time::Duration, 30>,
+    // time in seconds
+    last_30: ConstGenericRingBuffer<f64, FRAMEPACER_NUM_SAMPLES>,
     i: usize,
+
+    worst_frametime_secs: f64,
+
+    deadline: Option<std::time::Instant>,
 }
+
+const DEFAULT_FRAME_TIME: f64 = 1. / 60.;
 
 impl Framepacer {
     pub fn new() {
         Default::default()
     }
 
-    pub fn push_frametime(&mut self, duration: std::time::Duration) {
-        self.last_30.push(duration);
-        self.i += 1;
+    pub fn start_window(&mut self, start: std::time::Instant, frame_time_secs: Option<f64>) {
+        let frame_time =
+            std::time::Duration::from_secs_f64(frame_time_secs.unwrap_or(DEFAULT_FRAME_TIME));
 
-        if self.i >= 30 {
-            let mut total = std::time::Duration::default();
+        self.deadline = (start + frame_time).into();
+    }
 
-            for duration in self.last_30.iter() {
-                total += *duration;
+    pub fn check_missed_deadline(&mut self, now: std::time::Instant) -> bool {
+        let missed = if let Some(deadline) = self.deadline {
+            let missed = now > deadline;
+
+            if missed {
+                log::debug!("missed deadline by {:?}!", now - deadline);
             }
 
-            total /= self.last_30.len() as u32;
+            missed
+        } else {
+            false
+        };
 
-            log::trace!("average frame-time: {:?}", total);
+        missed
+    }
 
+    pub fn should_render(&mut self) -> (bool, std::time::Instant) {
+        let start_time = std::time::Instant::now();
+
+        let should_render = match self.deadline {
+            Some(deadline) => {
+                // TODO: add buffer here for input/parsing time...
+                start_time
+                    + std::time::Duration::from_secs_f64(self.worst_frametime_secs)
+                    + std::time::Duration::from_micros(700)
+                    >= deadline
+            }
+
+            None => true,
+        };
+
+        (should_render, start_time)
+    }
+
+    // pub fn next_deadline(&mut self, from: std::time::Instant) -> std::time::Instant {}
+
+    pub fn push_frametime(&mut self, duration: std::time::Duration) {
+        let secs = duration.as_secs_f64();
+
+        self.last_30.push(secs);
+        self.i += 1;
+
+        let N = self.last_30.len() as f64;
+
+        // log::trace!("buffer size: {:?}", N);
+
+        if N <= 2. {
+            self.worst_frametime_secs = 10.;
+            return;
+        }
+
+        let mu = self.last_30.iter().copied().sum::<f64>() / N;
+
+        let sigma = self
+            .last_30
+            .iter()
+            .copied()
+            .map(|x| ((x - mu).pow(2) / (N - 1.)))
+            .sum::<f64>()
+            .sqrt();
+
+        self.worst_frametime_secs = mu + 3. * sigma;
+
+        // std::time::Duration::as_secs_f64();
+
+        // std::time::Duration
+
+        // let mut total = std::time::Duration::default();
+
+        // for duration in self.last_30.iter() {
+        //     total += *duration;
+        // }
+
+        // let mu = total / self.last_30.len() as u32;
+
+        if self.i >= 30 {
+            log::trace!(
+                "worst case: {:?}, mu: {:?}, sigma: {:?}",
+                std::time::Duration::from_secs_f64(self.worst_frametime_secs),
+                std::time::Duration::from_secs_f64(mu),
+                std::time::Duration::from_secs_f64(sigma),
+            );
             self.i = 0;
         }
     }

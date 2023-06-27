@@ -51,9 +51,6 @@ impl<Root: RootConstructor + 'static> App<Root> {
     pub fn run(mut self, event_loop: ToposEventLoop) {
         use std::time::*;
 
-        let mut last_render_duration: Option<Duration> = None;
-        let mut last_render_time: Option<Instant> = None;
-
         let main_proxy = event_loop.create_proxy();
 
         event_loop.run(move |event, _, control_flow| {
@@ -91,50 +88,19 @@ impl<Root: RootConstructor + 'static> App<Root> {
                 }
 
                 Event::RedrawRequested(window_id) if window_id == self.window.id() => {
+                    self.try_create_new_output();
+
                     let output = match self.swap_chain.take() {
-                        None => {
-                            match self.render_surface.get_output() {
-                                Ok(output) => {
-                                    self.swap_chain = output.into();
-                                    last_render_time = Instant::now().into();
-                                }
-                                // Reconfigure the surface if lost
-                                Err(wgpu::SurfaceError::Lost) => self
-                                    .render_surface
-                                    .reconfigure(self.scene.get_dependents_mut()),
-                                // The system is out of memory, we should probably quit
-                                Err(wgpu::SurfaceError::OutOfMemory) => panic!("out of memory"),
-                                // All other errors (Outdated, Timeout) should be resolved by the next frame
-                                Err(e) => {
-                                    eprintln!("{:?}", e);
-                                }
-                            }
-
-                            return;
-                        }
-
                         Some(output) => output,
+                        None => return,
                     };
 
-                    if let (Some(last_render_duration), Some(last_render_time)) =
-                        (last_render_duration, last_render_time)
-                    {
-                        if let Some(frame_time) = get_window_frame_time(&self.window) {
-                            let elapsed_time = last_render_time.elapsed();
+                    let (should_render, render_start_time) = self.framepacer.should_render();
 
-                            let buffer_duration =
-                                last_render_duration + Duration::from_micros(1000);
-
-                            if elapsed_time < (frame_time.saturating_sub(buffer_duration)) {
-                                self.swap_chain = Some(output);
-                                return;
-                            }
-                        }
+                    if !should_render {
+                        self.swap_chain = Some(output);
+                        return;
                     }
-
-                    let render_start_time = Instant::now();
-
-                    let start = Instant::now();
 
                     let raw_input = self.winit_state.take_egui_input();
 
@@ -144,20 +110,21 @@ impl<Root: RootConstructor + 'static> App<Root> {
                     let (result_input, result_output) =
                         self.scene.render(&self.render_surface, output, input_state);
 
+                    let render_finish_time = std::time::Instant::now();
+                    let render_time = render_finish_time.duration_since(render_start_time);
+
+                    if self.framepacer.check_missed_deadline(render_finish_time) {
+                        log::debug!("  missed deadline render time: {:?}", render_time);
+                    }
+
+                    self.try_create_new_output();
+
+                    self.framepacer.push_frametime(render_time);
+
                     self.input_state = result_input;
 
                     self.winit_state
                         .handle_platform_output(&self.window, result_output);
-
-                    last_render_duration = Some(start.elapsed());
-
-                    let render_time = render_start_time.elapsed();
-                    self.framepacer.push_frametime(render_time);
-                    // log::trace!("render_time: {:?}", render_time);
-
-                    if let Some((new_size, scale_fac)) = self.queued_resize.take() {
-                        self.resize(new_size, scale_fac);
-                    }
                 }
 
                 Event::MainEventsCleared => {
@@ -182,6 +149,39 @@ impl<Root: RootConstructor + 'static> App<Root> {
                 _ => {}
             }
         });
+    }
+
+    fn try_create_new_output(&mut self) {
+        if self.swap_chain.is_some() {
+            return;
+        }
+
+        if let Some((new_size, scale_fac)) = self.queued_resize.take() {
+            self.resize(new_size, scale_fac);
+        }
+
+        let output_start_time = std::time::Instant::now();
+
+        match self.render_surface.get_output() {
+            Ok(output) => {
+                self.framepacer.start_window(
+                    std::time::Instant::now(),
+                    get_window_frame_time(&self.window),
+                );
+
+                self.swap_chain = output.into();
+            }
+            // Reconfigure the surface if lost
+            Err(wgpu::SurfaceError::Lost) => self
+                .render_surface
+                .reconfigure(self.scene.get_dependents_mut()),
+            // The system is out of memory, we should probably quit
+            Err(wgpu::SurfaceError::OutOfMemory) => panic!("out of memory"),
+            // All other errors (Outdated, Timeout) should be resolved by the next frame
+            Err(e) => {
+                eprintln!("{:?}", e);
+            }
+        };
     }
 
     pub async fn new(event_loop: &ToposEventLoop) -> Self {
@@ -269,10 +269,12 @@ impl<Root: RootConstructor + 'static> App<Root> {
     }
 }
 
-fn get_window_frame_time(window: &winit::window::Window) -> Option<std::time::Duration> {
+fn get_window_frame_time(window: &winit::window::Window) -> Option<f64> {
     let monitor = window.current_monitor()?;
 
     let frame_rate = monitor.refresh_rate_millihertz()? as f64 / 1000.;
 
-    return Some(Duration::from_secs_f64(1. / frame_rate));
+    return Some(1. / frame_rate);
+
+    // return Some(Duration::from_secs_f64());
 }
