@@ -9,9 +9,8 @@
  - [x] Use linear color space
  - [x] Platform output (cursor, window stuff)
  - [x] Lines, Bezier, Fills (maybe just linearize/tessellate for now)
- - [ ] Move LayoutEngine into SceneResources (so that elements can cache taffy nodes)
+ - [x] Move LayoutEngine into SceneResources (so that elements can cache taffy nodes)
  - [ ] Investigate title bar height growing/shrinking
- - [ ] Border color macos (AppKit `backgroundColor` on `NSWindow`)
  - [ ] Proper framepacing
  - [ ] Focus
  - [ ] InputBoundary struct (egui `InputRect` equivalent)
@@ -30,6 +29,7 @@
  - [ ] Move everything into a single shader
  - [ ] WASM
  - [ ] Rewrite layout logic (without taffy)
+ - [ ] Border color macos
 
 ## Components
  - [ ] Scrolling
