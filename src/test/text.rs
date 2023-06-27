@@ -235,7 +235,7 @@ impl
         let result = match buffer.cache.get(&cache_key).cloned() {
             Some(res) => res,
             None => {
-                log::trace!("calculating text box layout...");
+                // log::trace!("calculating text box layout...");
 
                 let scale_factor = self.rendering_context.texture_info.get_scale_factor_f32();
 
