@@ -25,6 +25,9 @@ pub struct TestRect {
     dragging: bool,
     pub clicked: bool,
 
+    focused: bool,
+    pub just_focused: bool,
+
     transition: Transition,
 
     glyph_tris: VertexBuffers<Pos2>,
@@ -216,6 +219,9 @@ impl TestRect {
             transition: Transition::new(0.15).set_ease_func(curve),
 
             glyph_tris,
+
+            focused: false,
+            just_focused: false,
         }
     }
 }
@@ -248,13 +254,33 @@ impl Element for TestRect {
                     color: ColorRgba::new(0., 0., 0., 1.).into(),
                 })
                 .collect(),
-        })
+        });
+
+        if self.focused {
+            ctx.add_shape(PaintRectangle {
+                rect: self.input_rect.inflate(1., 1.).with_radius(None),
+                stroke_color: ColorRgba::new(1., 1., 0., 1.).into(),
+                stroke_width: (1.).into(),
+                ..Default::default()
+            });
+        }
     }
 
     fn input(&mut self, input: &mut InputState, rect: Rect) {
         self.input_rect = self.rect.translate_vec(rect.min.to_vector());
         
         self.clicked = self.hovered && input.pointer.primary_clicked();
+
+        let new_focused = input.focused_within();
+
+        self.just_focused = !self.focused && new_focused;
+        self.focused = new_focused;
+
+        input.interested_in_focus();
+
+        if self.clicked {
+            input.request_focus();
+        }
 
         if self.hovered {
             if input.pointer.primary_pressed() {

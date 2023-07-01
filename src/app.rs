@@ -107,7 +107,7 @@ impl<Root: RootConstructor + 'static> App<Root> {
                     let input_state =
                         std::mem::take(&mut self.input_state).begin_frame(raw_input, true);
 
-                    let (result_input, result_output) =
+                    let (mut result_input, result_output) =
                         self.scene.render(&self.render_surface, output, input_state);
 
                     let render_finish_time = std::time::Instant::now();
@@ -116,6 +116,8 @@ impl<Root: RootConstructor + 'static> App<Root> {
                     if self.framepacer.check_missed_deadline(render_finish_time) {
                         log::debug!("  missed deadline render time: {:?}", render_time);
                     }
+
+                    result_input.end_frame();
 
                     self.try_create_new_output();
 

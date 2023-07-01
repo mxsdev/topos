@@ -1,21 +1,16 @@
-use std::sync::Arc;
-
-use cosmic_text::{Attrs, Family, Metrics, Style, Weight};
-
 use crate::{
-    accessibility::{AccessNode, AccessNodeBuilder, AccessRole},
-    color::ColorRgba,
-    element::{Element, ElementRef, RootConstructor, SizeConstraint},
+    accessibility::{AccessNodeBuilder, AccessRole},
+    element::{Element, ElementRef, RootConstructor},
     input::input_state::InputState,
     scene::{
         ctx::SceneContext,
-        layout::{Column, FlexBox, FlexDirection, LayoutPass, LayoutPassResult, Percent},
+        layout::{ColumnReverse, FlexBox, LayoutPass, LayoutPassResult, Percent},
         scene::SceneResources,
     },
-    util::{FromMinSize, Pos2, Rect, Size2},
+    util::Rect,
 };
 
-use super::{MainElement, TestRect, TextBox, TitleBar};
+use super::{MainElement, TitleBar};
 
 pub struct TestRoot {
     scale_factor: f64,
@@ -37,14 +32,14 @@ impl RootConstructor for TestRoot {
 
 impl Element for TestRoot {
     fn layout(&mut self, layout_pass: &mut LayoutPass) -> LayoutPassResult {
-        layout_pass.layout_child(&mut self.title_bar);
         layout_pass.layout_child(&mut self.main);
+        layout_pass.layout_child(&mut self.title_bar);
 
         layout_pass
             .engine()
             .new_leaf(
                 FlexBox::builder()
-                    .direction(Column)
+                    .direction(ColumnReverse)
                     .width(Percent(1.))
                     .height(Percent(1.))
                     .to_taffy(),

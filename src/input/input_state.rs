@@ -1,7 +1,8 @@
-use crate::{history::History, util::*};
+use crate::{element::ElementId, history::History, util::*};
 
 use super::{
-    touch_state, Event, Key, KeyboardShortcut, Modifiers, PointerButton, RawInput, TouchDeviceId,
+    focus::FocusState, touch_state, Event, Key, KeyboardShortcut, Modifiers, PointerButton,
+    RawInput, TouchDeviceId,
 };
 
 // use crate::data::input::*;
@@ -120,6 +121,14 @@ pub struct InputState {
 
     // The keys that are currently being held down.
     pub keys_down: HashSet<Key>,
+
+    // pub(crate) focused_element: Option<ElementId>,
+    current_element: Option<ElementId>,
+
+    focused_within: bool,
+
+    focus_state: FocusState,
+
     // /// In-order events received this frame
     // pub events: Vec<Event>,
     accesskit_actions: Rc<Vec<accesskit::ActionRequest>>,
@@ -145,6 +154,13 @@ impl Default for InputState {
             keys_down: Default::default(),
             // events: Default::default(),
             accesskit_actions: Rc::new(Default::default()),
+
+            // focused_element: Default::default(),
+            current_element: Default::default(),
+
+            focused_within: false,
+
+            focus_state: Default::default(),
         }
     }
 }
@@ -220,6 +236,8 @@ impl InputState {
             keys_down = Default::default();
         }
 
+        self.focus_state.begin_frame(&new);
+
         InputState {
             pointer,
             touch_states: self.touch_states,
@@ -238,7 +256,75 @@ impl InputState {
             // events: new.events.clone(), // TODO(emilk): remove clone() and use raw.events
             raw: new,
             accesskit_actions: accesskit_actions.into(),
+
+            current_element: Default::default(),
+
+            focused_within: false,
+
+            focus_state: self.focus_state,
         }
+    }
+
+    pub fn end_frame(&mut self) {
+        self.focus_state.end_frame();
+    }
+
+    pub(crate) fn set_current_element(&mut self, id: ElementId) {
+        self.current_element = id.into();
+    }
+
+    pub(crate) fn set_focused_within(&mut self, focused_within: bool) {
+        self.focused_within = focused_within;
+    }
+
+    pub fn interested_in_focus(&mut self) {
+        if let Some(id) = self.current_element {
+            self.focus_state.interested_in_focus(id)
+        }
+    }
+
+    pub fn request_focus(&mut self) {
+        if let Some(id) = self.current_element {
+            self.focus_state.request_focus(id);
+        }
+    }
+
+    pub fn surrender_focus(&mut self) {
+        if let Some(id) = self.current_element {
+            self.focus_state.surrender_focus(id);
+        }
+    }
+
+    pub fn lock_focus(&mut self, lock_focus: bool) {
+        if let Some(id) = self.current_element {
+            self.focus_state.lock_focus(id, lock_focus)
+        }
+    }
+
+    pub fn has_lock_focus(&mut self) -> bool {
+        if let Some(id) = self.current_element {
+            self.focus_state.has_lock_focus(id)
+        } else {
+            false
+        }
+    }
+
+    pub fn is_focused(&self) -> bool {
+        self.focus_state
+            .focused()
+            .zip(self.current_element)
+            .map(|(x, y)| x == y)
+            .unwrap_or(false)
+    }
+
+    pub fn just_focused(&self) -> bool {
+        self.current_element
+            .map(|id| self.focus_state.just_focused(id))
+            .unwrap_or(false)
+    }
+
+    pub fn focused_within(&self) -> bool {
+        self.focused_within
     }
 
     // #[inline(always)]

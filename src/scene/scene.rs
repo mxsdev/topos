@@ -216,6 +216,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
                     rects.extend(draw_rects);
                 }
+
                 shape::PaintShape::Text(text_box) => {
                     batcher.add_text_box();
                     text_boxes.push(
@@ -332,6 +333,8 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
             }
         }
 
+        // TODO: for multiple render passes, submit multiple encoders as
+        // iterator (??? might work, test performance)
         queue.submit(std::iter::once(encoder.finish()));
         window_texture.present();
 

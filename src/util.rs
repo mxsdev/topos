@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut, Range};
 
-use euclid::{Box2D, Point2D, Size2D, Vector2D};
+use euclid::{Box2D, Point2D, SideOffsets2D, Size2D, Vector2D};
 use num_traits::{Float, Num, Signed, ToPrimitive};
 
 use crate::element::boundary::Boundary;
@@ -246,8 +246,47 @@ pub struct RoundedBox2D<T, U> {
 impl<T: Copy, U: Clone> Copy for RoundedBox2D<T, U> {}
 
 impl<T, U> RoundedBox2D<T, U> {
-    pub fn new(rect: euclid::Box2D<T, U>, radius: Option<T>) -> Self {
-        Self { rect, radius }
+    pub fn new(rect: euclid::Box2D<T, U>, radius: impl Into<Option<T>>) -> Self {
+        Self {
+            rect,
+            radius: radius.into(),
+        }
+    }
+
+    pub fn with_radius(&self, radius: impl Into<Option<T>>) -> Self
+    where
+        T: Copy,
+    {
+        Self {
+            radius: radius.into(),
+            rect: self.rect,
+        }
+    }
+}
+
+impl<T, U> RoundedBox2D<T, U>
+where
+    T: Copy + std::ops::Add<T, Output = T> + std::ops::Sub<T, Output = T>,
+{
+    pub fn inflate(&self, width: T, height: T) -> Self {
+        Self {
+            radius: self.radius,
+            rect: self.rect.inflate(width, height),
+        }
+    }
+
+    pub fn inner_box(&self, offsets: SideOffsets2D<T, U>) -> Self {
+        Self {
+            radius: self.radius,
+            rect: self.rect.inner_box(offsets),
+        }
+    }
+
+    pub fn outer_box(&self, offsets: SideOffsets2D<T, U>) -> Self {
+        Self {
+            radius: self.radius,
+            rect: self.rect.outer_box(offsets),
+        }
     }
 }
 

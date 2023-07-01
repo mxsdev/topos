@@ -1,17 +1,15 @@
 use std::{
-    default,
     ops::DerefMut,
     sync::{Arc, Mutex},
 };
 
 use cosmic_text::FontSystem;
 use itertools::Itertools;
-use rustc_hash::FxHashMap;
 
 use crate::{
-    element::{self, Element, ElementId, ElementRef, ElementWeakref, SizeConstraint},
+    element::{Element, ElementRef, ElementWeakref},
     input::input_state::InputState,
-    util::{AsRect, FromMinSize, IntoGeom, IntoTaffy, Pos2, Rect, Size2, Vec2},
+    util::{AsRect, IntoTaffy, Pos2, Rect, Size2},
 };
 
 use super::{ctx::SceneContext, scene::SceneResources};
@@ -90,10 +88,18 @@ pub struct Row;
 pub struct Column;
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct RowReverse;
+
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct ColumnReverse;
+
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub enum FlexDirection {
     #[default]
     Row,
     Column,
+    RowReverse,
+    ColumnReverse,
 }
 
 impl Into<taffy::style::FlexDirection> for FlexDirection {
@@ -101,6 +107,8 @@ impl Into<taffy::style::FlexDirection> for FlexDirection {
         match self {
             FlexDirection::Row => taffy::style::FlexDirection::Row,
             FlexDirection::Column => taffy::style::FlexDirection::Column,
+            FlexDirection::RowReverse => taffy::style::FlexDirection::RowReverse,
+            FlexDirection::ColumnReverse => taffy::style::FlexDirection::ColumnReverse,
         }
     }
 }
@@ -114,6 +122,18 @@ impl Into<FlexDirection> for Row {
 impl Into<FlexDirection> for Column {
     fn into(self) -> FlexDirection {
         FlexDirection::Column
+    }
+}
+
+impl Into<FlexDirection> for RowReverse {
+    fn into(self) -> FlexDirection {
+        FlexDirection::RowReverse
+    }
+}
+
+impl Into<FlexDirection> for ColumnReverse {
+    fn into(self) -> FlexDirection {
+        FlexDirection::ColumnReverse
     }
 }
 
@@ -313,17 +333,6 @@ impl Into<taffy::style::Dimension> for Dimension {
 #[derive(Default)]
 pub struct CSSLayoutBuilder {
     style: taffy::style::Style,
-    // pub display: LayoutDisplay,
-
-    // pub pos: Pos2,
-    // pub size: Option<Size2>,
-    // pub direction: FlexDirection,
-    // pub gap: f32,
-
-    // pub justify_content: JustifyContent,
-    // pub align_items: AlignItems,
-
-    // pub padding: LayoutRect,
 }
 
 impl CSSLayoutBuilder {
@@ -388,7 +397,7 @@ impl CSSLayoutBuilder {
         self
     }
 
-    pub fn gap(mut self, val: f32) -> Self {
+    pub fn gap(self, val: f32) -> Self {
         self.gap_xy(val, val)
     }
 
@@ -402,7 +411,7 @@ impl CSSLayoutBuilder {
         self
     }
 
-    pub fn gap_xy(mut self, hor: f32, vert: f32) -> Self {
+    pub fn gap_xy(self, hor: f32, vert: f32) -> Self {
         self.gap_x(hor).gap_y(vert)
     }
 
@@ -416,7 +425,7 @@ impl CSSLayoutBuilder {
         self
     }
 
-    pub fn padding_x(mut self, padding: impl Into<LengthPercentage>) -> Self {
+    pub fn padding_x(self, padding: impl Into<LengthPercentage>) -> Self {
         let p = padding.into();
         self.padding_left(p).padding_right(p)
     }
@@ -437,14 +446,20 @@ pub struct ElementTreeNode {
 }
 
 impl ElementTreeNode {
-    pub(super) fn do_input_pass(&mut self, input: &mut InputState) {
+    pub(super) fn do_input_pass(&mut self, input: &mut InputState) -> bool {
+        input.set_current_element(self.element.id().into());
+        let mut focus_within = input.is_focused();
+
         if let Some(mut element) = self.element.try_get() {
             for child in self.children.iter_mut().rev() {
-                child.do_input_pass(input);
+                focus_within |= child.do_input_pass(input);
             }
 
+            input.set_focused_within(focus_within);
             element.input(input, self.rect);
         }
+
+        focus_within
     }
 
     pub(super) fn do_ui_pass(&mut self, ctx: &mut SceneContext) {

@@ -3,15 +3,13 @@ use cosmic_text::{Attrs, Family, Metrics};
 use crate::{
     accessibility::{AccessNodeBuilder, AccessRole},
     color::{ColorRgba, ColorSrgba},
-    element::{Element, ElementRef, SizeConstraint},
-    input::input_state::InputState,
+    element::{Element, ElementRef},
     scene::{
-        ctx::SceneContext,
-        layout::{Auto, Dimension, FlexBox, LayoutPass, LayoutPassResult, Manual, Percent},
+        layout::{FlexBox, LayoutPass, LayoutPassResult, Percent},
         scene::SceneResources,
     },
     shape::PaintRectangle,
-    util::{FromMinSize, Pos2, Rect, Size2},
+    util::{Pos2, Rect},
 };
 
 use super::{TestRect, TextBox};
@@ -71,7 +69,7 @@ impl Element for MainElement {
         let mut send_to_back = None::<usize>;
 
         for (i, rect) in self.rects.iter_mut().enumerate() {
-            if rect.get().clicked {
+            if rect.get().just_focused {
                 send_to_back = Some(i);
             }
         }

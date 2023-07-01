@@ -11,7 +11,7 @@
  - [x] Lines, Bezier, Fills (maybe just linearize/tessellate for now)
  - [x] Move LayoutEngine into SceneResources (so that elements can cache taffy nodes)
  - [x] Investigate title bar height growing/shrinking
- - [ ] Focus
+ - [x] Focus
  - [ ] InputBoundary struct (egui `InputRect` equivalent)
  - [ ] Sharp box strokes
  - [ ] Encapsulate all libraries (namely euclid)
@@ -23,10 +23,13 @@
  - [ ] Pixel Alignment (PhysicalRect as `u32`)
  - [ ] Multi-window support
  - [ ] Rounded clip rects
+ - [ ] Move everything into a single shader
+ - [ ] Image support
+ - [ ] Affine transformations
+
  - [ ] Move away from MSAA
  - [ ] Move away from Tessellation for glyphs/strokes
  - [ ] Improve framepacing (better statistical determination of render times)
- - [ ] Move everything into a single shader
  - [ ] WASM
  - [ ] Rewrite layout logic (without taffy)
  - [ ] Border color macos
