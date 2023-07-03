@@ -3221,6 +3221,7 @@ dependencies = [
  "ordered-float",
  "ordered_hash_map",
  "palette",
+ "paste",
  "pollster",
  "pretty_env_logger",
  "raw-window-handle",

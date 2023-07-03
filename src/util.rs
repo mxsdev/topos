@@ -3,7 +3,7 @@ use std::ops::{Deref, DerefMut, Range};
 use euclid::{Box2D, Point2D, SideOffsets2D, Size2D, Vector2D};
 use num_traits::{Float, Num, Signed, ToPrimitive};
 
-use crate::element::boundary::Boundary;
+use crate::element::boundary::{Boundary, RectLikeBoundary, SDF};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LogicalUnit;
@@ -316,7 +316,7 @@ impl<T, U> DerefMut for RoundedBox2D<T, U> {
     }
 }
 
-impl<T: Float + Signed, U> Boundary<T, U> for RoundedBox2D<T, U> {
+impl<T: Float + Signed, U> SDF<T, U> for RoundedBox2D<T, U> {
     fn sdf(&self, pos: &euclid::Point2D<T, U>) -> T {
         match self.radius {
             Some(radius) => {
@@ -336,7 +336,17 @@ impl<T: Float + Signed, U> Boundary<T, U> for RoundedBox2D<T, U> {
     }
 }
 
-impl<T: Float + Signed, U> Boundary<T, U> for euclid::Box2D<T, U> {
+impl<T: Float + Signed, U> RectLikeBoundary<T, U> for RoundedBox2D<T, U> {
+    fn as_rect(&self) -> euclid::Box2D<T, U> {
+        self.rect
+    }
+
+    fn set_rect(&mut self, rect: euclid::Box2D<T, U>) {
+        self.rect = rect
+    }
+}
+
+impl<T: Float + Signed, U> SDF<T, U> for euclid::Box2D<T, U> {
     fn sdf(&self, pos: &euclid::Point2D<T, U>) -> T {
         let c = self.center();
         let b = self.max - c;
@@ -345,6 +355,16 @@ impl<T: Float + Signed, U> Boundary<T, U> for euclid::Box2D<T, U> {
         let q = pos.abs() - b;
 
         -(q.max(euclid::Vector2D::splat(T::zero())).length() + T::min(T::zero(), T::max(q.x, q.y)))
+    }
+}
+
+impl<T: Float + Signed, U> RectLikeBoundary<T, U> for euclid::Box2D<T, U> {
+    fn as_rect(&self) -> euclid::Box2D<T, U> {
+        *self
+    }
+
+    fn set_rect(&mut self, rect: euclid::Box2D<T, U>) {
+        *self = rect
     }
 }
 

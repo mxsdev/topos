@@ -12,21 +12,18 @@ use crate::{
     mesh::{MeshVertex, PaintMesh, PaintMeshVertex},
     scene::{ctx::SceneContext, update::UpdatePass, PaintPass, layout::{LayoutPassResult, Manual, FlexBox}},
     shape::{PaintBlur, PaintRectangle, PaintShape},
-    util::{FromMinSize, Pos2, Rect, RoundedRect, Size2, Translate2D, Translate2DMut, Vec2}, accessibility::{AccessNodeBuilder, AccessRole, AsAccessRect},
+    util::{FromMinSize, Pos2, Rect, RoundedRect, Size2, Translate2D, Translate2DMut, Vec2}, accessibility::{AccessNodeBuilder, AccessRole, AsAccessRect}, lib::Response,
 };
 
 use crate::element::{boundary::Boundary, Element, ElementEvent, MouseButton, SizeConstraint};
 
 pub struct TestRect {
-    rect: RoundedRect,
-    input_rect: RoundedRect,
-
-    hovered: bool,
-    dragging: bool,
-    pub clicked: bool,
+    size: Size2,
+    
+    pub response: Response,
+    drag: Vec2,
 
     focused: bool,
-    pub just_focused: bool,
 
     transition: Transition,
 
@@ -203,17 +200,21 @@ impl TestRect {
             .tessellate_path(&path, &StrokeOptions::default().with_line_cap(LineCap::Round).with_line_join(LineJoin::Round).with_line_width(2.).with_tolerance(StrokeOptions::DEFAULT_TOLERANCE * 0.5 / 4.), &mut buffers).unwrap();
 
         Self {
-            rect: RoundedRect::new(
-                // Rect::new(Pos2::new(20., 20.), Pos2::new(200., 100.)),
-                Rect::from_min_size(pos, Size2::new(180., 180.)),
-                Some(10.),
-                // None,
-            ),
-            hovered: false,
-            dragging: false,
-            clicked: false,
+            // rect: RoundedRect::new(
+            //     // Rect::new(Pos2::new(20., 20.), Pos2::new(200., 100.)),
+            //     Rect::from_min_size(pos, Size2::new(180., 180.)),
+            //     Some(10.),
+            //     // None,
+            // ),
+            size: Size2::new(180., 180.),
 
-            input_rect: Rect::zero().into(),
+            // input_rect: Rect::zero().into(),
+            response: Response::new(RoundedRect::default().with_radius(10.))
+                .with_clickable(true)
+                .with_focusable(true)
+                .with_hoverable(true),
+                // .with_focus_on_click(false),
+            drag: pos.to_vector(),
 
             // ease_func: Box::new(keyframe::functions::Linear),
             transition: Transition::new(0.15).set_ease_func(curve),
@@ -221,7 +222,6 @@ impl TestRect {
             glyph_tris,
 
             focused: false,
-            just_focused: false,
         }
     }
 }
@@ -236,7 +236,7 @@ impl Element for TestRect {
         );
 
         ctx.add_shape(PaintRectangle {
-            rect: self.input_rect,
+            rect: self.response.boundary,
             fill: Some(fill),
             stroke_color: Some(ColorRgba::new(0., 0., 0., 1.)),
             stroke_width: Some(1.),
@@ -250,7 +250,7 @@ impl Element for TestRect {
                 .vertices
                 .iter()
                 .map(|p| PaintMeshVertex {
-                    pos: (*p * 1.) + self.input_rect.min.to_vector() + Vec2::splat(10.),
+                    pos: (*p * 1.) + self.response.boundary.min.to_vector() + Vec2::splat(10.),
                     color: ColorRgba::new(0., 0., 0., 1.).into(),
                 })
                 .collect(),
@@ -258,7 +258,7 @@ impl Element for TestRect {
 
         if self.focused {
             ctx.add_shape(PaintRectangle {
-                rect: self.input_rect.inflate(1., 1.).with_radius(None),
+                rect: self.response.boundary.inflate(1., 1.).with_radius(None),
                 stroke_color: ColorRgba::new(1., 1., 0., 1.).into(),
                 stroke_width: (1.).into(),
                 ..Default::default()
@@ -267,47 +267,14 @@ impl Element for TestRect {
     }
 
     fn input(&mut self, input: &mut InputState, rect: Rect) {
-        self.input_rect = self.rect.translate_vec(rect.min.to_vector());
-        
-        self.clicked = self.hovered && input.pointer.primary_clicked();
+        self.response.update_rect(input, Rect::from_min_size(rect.min + self.drag, self.size));
 
-        let new_focused = input.focused_within();
-
-        self.just_focused = !self.focused && new_focused;
-        self.focused = new_focused;
-
-        input.interested_in_focus();
-
-        if self.clicked {
-            input.request_focus();
-        }
-
-        if self.hovered {
-            if input.pointer.primary_pressed() {
-                self.dragging = true;
-            }
-        }
-
-        if self.dragging {
+        if self.response.primary_button_down_on() {
             let del = input.pointer.delta();
-            self.rect.translate_mut(del.x, del.y);
-
-            if input.pointer.primary_released() {
-                self.dragging = false;
-            }
-        } else {
-            if let Some(hover) = input.pointer.hover_pos() {
-                self.hovered = self.input_rect.sdf(&hover).is_positive()
-            } else {
-                self.hovered = false;
-            };
+            self.drag += del;
         }
 
-        if self.hovered || self.dragging {
-            input.pointer.consume_hover();
-        }
-
-        self.transition.set_state(self.hovered);
+        self.transition.set_state(self.response.hovered_or_primary_down_on());
         self.transition.update(input);
     }
 
@@ -320,7 +287,7 @@ impl Element for TestRect {
 
     fn node(&self) -> AccessNodeBuilder {
         let mut builder = AccessNodeBuilder::new(AccessRole::GenericContainer);
-        builder.set_bounds(self.rect.rect.as_access_rect());
+        builder.set_bounds(self.response.boundary.as_access_rect());
         builder
     }
 }

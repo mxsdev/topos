@@ -7,6 +7,7 @@ use crate::{
     color::{ColorRgba, ColorSrgba},
     element::{Element, ElementRef, SizeConstraint},
     input::input_state::InputState,
+    lib::Response,
     scene::{
         ctx::SceneContext,
         layout::{FlexBox, LayoutPass, LayoutPassResult, Manual},
@@ -18,16 +19,10 @@ use crate::{
 
 use super::{TestRect, TextBox};
 
-#[derive(Default)]
 pub struct TitleBarGlyph {
     glyph_size: f32,
-
-    input_rect: Rect,
-
+    pub(super) response: Response<Rect>,
     pub(super) color: ColorRgba,
-
-    pub(super) clicked: bool,
-    pub(super) hovered: bool,
 }
 
 impl TitleBarGlyph {
@@ -35,7 +30,7 @@ impl TitleBarGlyph {
         Self {
             glyph_size,
             color,
-            ..Default::default()
+            response: Response::new(Rect::zero()),
         }
     }
 
@@ -58,7 +53,7 @@ impl Element for TitleBarGlyph {
 
     fn ui(&mut self, ctx: &mut SceneContext, rect: Rect) {
         ctx.add_shape(PaintRectangle {
-            rect: self.input_rect.into(),
+            rect: self.response.boundary.into(),
             fill: self.color.into(),
 
             ..Default::default()
@@ -66,18 +61,7 @@ impl Element for TitleBarGlyph {
     }
 
     fn input(&mut self, input: &mut InputState, rect: Rect) {
-        self.input_rect = rect;
-
-        self.hovered = false;
-
-        if let Some(hover_pos) = input.pointer.hover_pos() {
-            if self.input_rect.contains(hover_pos) {
-                self.hovered = true;
-                input.pointer.consume_hover();
-            }
-        }
-
-        self.clicked = input.pointer.primary_clicked() && self.hovered;
+        self.response.update_rect(input, rect)
     }
 
     fn node(&self) -> AccessNodeBuilder {

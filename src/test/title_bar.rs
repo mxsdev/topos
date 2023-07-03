@@ -100,7 +100,7 @@ impl Element for TitleBar {
             let mut child = child.0.get();
 
             // TODO: set this only once...
-            if child.hovered {
+            if child.response.hovered() {
                 trans.set_state(true);
             } else {
                 trans.set_state(false);

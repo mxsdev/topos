@@ -12,21 +12,25 @@
  - [x] Move LayoutEngine into SceneResources (so that elements can cache taffy nodes)
  - [x] Investigate title bar height growing/shrinking
  - [x] Focus
- - [ ] InputBoundary struct (egui `InputRect` equivalent)
+ - [x] InputBoundary struct (egui `Response` equivalent)
  - [ ] Sharp box strokes
  - [ ] Encapsulate all libraries (namely euclid)
+ - [ ] Better buffer support
+ - [ ] Better glyph support
+ - [ ] Render engine throughput optimizations (store & diff buffers by widget)
+ - [ ] Move everything into a single shader (draw call optimization)
  - [ ] Adopt builder pattern across codebase
  - [ ] Proper framepacing
  - [x] Accessibility
  - [x] Native Context Menus
  - [x] Native System Menus
- - [ ] Pixel Alignment (PhysicalRect as `u32`)
  - [ ] Multi-window support
- - [ ] Rounded clip rects
- - [ ] Move everything into a single shader
- - [ ] Image support
  - [ ] Affine transformations
 
+## not priority 
+
+ - [ ] Image support
+ - [ ] Rounded clip rects
  - [ ] Move away from MSAA
  - [ ] Move away from Tessellation for glyphs/strokes
  - [ ] Improve framepacing (better statistical determination of render times)

@@ -1,5 +1,7 @@
 // use crate::emath::*;
 
+use std::fmt::Pointer;
+
 use crate::util::{Pos2, Vec2};
 
 /// What the integrations provides to egui at the start of each frame.
@@ -312,6 +314,26 @@ pub enum PointerButton {
 
     // Other
     Other(u16),
+}
+
+impl PointerButton {
+    pub fn as_u16(&self) -> u16 {
+        match self {
+            PointerButton::Primary => 0,
+            PointerButton::Secondary => 1,
+            PointerButton::Middle => 2,
+            PointerButton::Other(n) => *n,
+        }
+    }
+
+    pub fn from_u16(val: u16) -> Self {
+        match val {
+            0 => PointerButton::Primary,
+            1 => PointerButton::Secondary,
+            2 => PointerButton::Middle,
+            x => PointerButton::Other(x),
+        }
+    }
 }
 
 // /// Number of pointer buttons supported by egui, i.e. the number of possible states of [`PointerButton`].

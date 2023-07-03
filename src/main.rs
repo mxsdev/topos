@@ -19,6 +19,7 @@ mod graphics;
 mod hash;
 mod history;
 mod input;
+mod lib;
 mod mesh;
 mod num;
 mod scene;

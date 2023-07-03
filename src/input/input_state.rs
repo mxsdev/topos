@@ -123,7 +123,7 @@ pub struct InputState {
     pub keys_down: HashSet<Key>,
 
     // pub(crate) focused_element: Option<ElementId>,
-    current_element: Option<ElementId>,
+    pub(crate) current_element: Option<ElementId>,
 
     focused_within: bool,
 
@@ -535,31 +535,24 @@ impl InputState {
 
     pub fn accesskit_action_requests(
         &self,
-        accesskit_id: accesskit::NodeId,
         action: accesskit::Action,
     ) -> impl Iterator<Item = &accesskit::ActionRequest> {
-        self.accesskit_actions.iter().filter_map(move |request| {
-            if request.target == accesskit_id && request.action == action {
-                return Some(request);
-            }
-            None
+        self.current_element.iter().flat_map(move |element_id| {
+            self.accesskit_actions.iter().filter_map(move |request| {
+                if request.target == element_id.as_access_id() && request.action == action {
+                    return Some(request);
+                }
+                None
+            })
         })
     }
 
-    pub fn has_accesskit_action_request(
-        &self,
-        id: accesskit::NodeId,
-        action: accesskit::Action,
-    ) -> bool {
-        self.accesskit_action_requests(id, action).next().is_some()
+    pub fn has_accesskit_action_request(&self, action: accesskit::Action) -> bool {
+        self.accesskit_action_requests(action).next().is_some()
     }
 
-    pub fn num_accesskit_action_requests(
-        &self,
-        id: accesskit::NodeId,
-        action: accesskit::Action,
-    ) -> usize {
-        self.accesskit_action_requests(id, action).count()
+    pub fn num_accesskit_action_requests(&self, action: accesskit::Action) -> usize {
+        self.accesskit_action_requests(action).count()
     }
 }
 

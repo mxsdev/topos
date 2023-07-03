@@ -69,7 +69,7 @@ impl Element for MainElement {
         let mut send_to_back = None::<usize>;
 
         for (i, rect) in self.rects.iter_mut().enumerate() {
-            if rect.get().just_focused {
+            if rect.get().response.just_focused() {
                 send_to_back = Some(i);
             }
         }
