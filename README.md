@@ -13,19 +13,20 @@
  - [x] Investigate title bar height growing/shrinking
  - [x] Focus
  - [x] InputBoundary struct (egui `Response` equivalent)
- - [ ] Sharp box strokes
+ - [ ] Layers
  - [ ] Encapsulate all libraries (namely euclid)
- - [ ] Better buffer support
+ - [ ] Adopt builder pattern across codebase
+ - [ ] Better buffer support (do scale factor as part of render pass, not in component)
  - [ ] Better glyph support
+ - [ ] Sharp box strokes
  - [ ] Render engine throughput optimizations (store & diff buffers by widget)
  - [ ] Move everything into a single shader (draw call optimization)
- - [ ] Adopt builder pattern across codebase
  - [ ] Proper framepacing
+ - [ ] Affine transformations
+ - [ ] Multi-window support
  - [x] Accessibility
  - [x] Native Context Menus
  - [x] Native System Menus
- - [ ] Multi-window support
- - [ ] Affine transformations
 
 ## not priority 
 
