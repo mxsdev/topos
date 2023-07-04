@@ -13,10 +13,10 @@
  - [x] Investigate title bar height growing/shrinking
  - [x] Focus
  - [x] InputBoundary struct (egui `Response` equivalent)
- - [ ] Layers
- - [ ] Encapsulate all libraries (namely euclid)
+ - [ ] Encapsulate all libraries (namely euclid, cosmic_text)
  - [ ] Adopt builder pattern across codebase
- - [ ] Better buffer support (do scale factor as part of render pass, not in component)
+ - [ ] Better buffer support (do scale factor as part of render pass, not in component; support spans)
+ - [ ] Layers
  - [ ] Better glyph support
  - [ ] Sharp box strokes
  - [ ] Render engine throughput optimizations (store & diff buffers by widget)
