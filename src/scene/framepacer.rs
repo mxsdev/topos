@@ -12,7 +12,7 @@ pub struct Framepacer {
 
     worst_frametime_secs: f64,
 
-    deadline: Option<std::time::Instant>,
+    deadline: Option<crate::time::Instant>,
 }
 
 const DEFAULT_FRAME_TIME: f64 = 1. / 60.;
@@ -22,14 +22,14 @@ impl Framepacer {
         Default::default()
     }
 
-    pub fn start_window(&mut self, start: std::time::Instant, frame_time_secs: Option<f64>) {
+    pub fn start_window(&mut self, start: crate::time::Instant, frame_time_secs: Option<f64>) {
         let frame_time =
-            std::time::Duration::from_secs_f64(frame_time_secs.unwrap_or(DEFAULT_FRAME_TIME));
+            crate::time::Duration::from_secs_f64(frame_time_secs.unwrap_or(DEFAULT_FRAME_TIME));
 
         self.deadline = (start + frame_time).into();
     }
 
-    pub fn check_missed_deadline(&mut self, now: std::time::Instant) -> bool {
+    pub fn check_missed_deadline(&mut self, now: crate::time::Instant) -> bool {
         let missed = if let Some(deadline) = self.deadline {
             let missed = now > deadline;
 
@@ -45,15 +45,15 @@ impl Framepacer {
         missed
     }
 
-    pub fn should_render(&mut self) -> (bool, std::time::Instant) {
-        let start_time = std::time::Instant::now();
+    pub fn should_render(&mut self) -> (bool, crate::time::Instant) {
+        let start_time = crate::time::Instant::now();
 
         let should_render = match self.deadline {
             Some(deadline) => {
                 // TODO: add buffer here for input/parsing time...
                 start_time
-                    + std::time::Duration::from_secs_f64(self.worst_frametime_secs)
-                    + std::time::Duration::from_micros(700)
+                    + crate::time::Duration::from_secs_f64(self.worst_frametime_secs)
+                    + crate::time::Duration::from_micros(700)
                     >= deadline
             }
 
@@ -63,9 +63,9 @@ impl Framepacer {
         (should_render, start_time)
     }
 
-    // pub fn next_deadline(&mut self, from: std::time::Instant) -> std::time::Instant {}
+    // pub fn next_deadline(&mut self, from: crate::time::Instant) -> crate::time::Instant {}
 
-    pub fn push_frametime(&mut self, duration: std::time::Duration) {
+    pub fn push_frametime(&mut self, duration: crate::time::Duration) {
         let secs = duration.as_secs_f64();
 
         self.last_30.push(secs);
@@ -92,11 +92,11 @@ impl Framepacer {
 
         self.worst_frametime_secs = mu + 3. * sigma;
 
-        // std::time::Duration::as_secs_f64();
+        // crate::time::Duration::as_secs_f64();
 
-        // std::time::Duration
+        // crate::time::Duration
 
-        // let mut total = std::time::Duration::default();
+        // let mut total = crate::time::Duration::default();
 
         // for duration in self.last_30.iter() {
         //     total += *duration;
@@ -107,9 +107,9 @@ impl Framepacer {
         if self.i >= 30 {
             log::trace!(
                 "worst case: {:?}, mu: {:?}, sigma: {:?}",
-                std::time::Duration::from_secs_f64(self.worst_frametime_secs),
-                std::time::Duration::from_secs_f64(mu),
-                std::time::Duration::from_secs_f64(sigma),
+                crate::time::Duration::from_secs_f64(self.worst_frametime_secs),
+                crate::time::Duration::from_secs_f64(mu),
+                crate::time::Duration::from_secs_f64(sigma),
             );
             self.i = 0;
         }

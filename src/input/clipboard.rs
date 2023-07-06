@@ -5,6 +5,7 @@ use raw_window_handle::HasRawDisplayHandle;
 /// If the "clipboard" feature is off, or we cannot connect to the OS clipboard,
 /// then a fallback clipboard that just works works within the same app is used instead.
 pub struct Clipboard {
+    #[cfg(not(target_arch = "wasm32"))]
     arboard: Option<arboard::Clipboard>,
 
     /// Fallback manual clipboard.
@@ -19,6 +20,7 @@ impl Clipboard {
     /// The returned `Clipboard` must not outlive the input `_display_target`.
     pub fn new(_display_target: &dyn HasRawDisplayHandle) -> Self {
         Self {
+            #[cfg(not(target_arch = "wasm32"))]
             arboard: init_arboard(),
 
             clipboard: Default::default(),
@@ -26,6 +28,7 @@ impl Clipboard {
     }
 
     pub fn get(&mut self) -> Option<String> {
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(clipboard) = &mut self.arboard {
             return match clipboard.get_text() {
                 Ok(text) => Some(text),
@@ -40,6 +43,7 @@ impl Clipboard {
     }
 
     pub fn set(&mut self, text: String) {
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(clipboard) = &mut self.arboard {
             if let Err(err) = clipboard.set_text(text) {
                 log::error!("arboard copy/cut error: {err}");
@@ -51,6 +55,7 @@ impl Clipboard {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn init_arboard() -> Option<arboard::Clipboard> {
     log::debug!("Initializing arboard clipboard…");
     match arboard::Clipboard::new() {

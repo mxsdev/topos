@@ -1,5 +1,5 @@
 use crate::util::{Pos2, Vec2};
-use tao::event::*;
+use winit::event::*;
 
 #[derive(Debug)]
 pub enum ElementEvent {
@@ -8,4 +8,4 @@ pub enum ElementEvent {
     MouseUp { button: MouseButton },
 }
 
-pub type MouseButton = tao::event::MouseButton;
+pub type MouseButton = winit::event::MouseButton;

@@ -182,7 +182,8 @@ impl RenderSurface {
 
         let surface_caps = surface.get_capabilities(&adapter);
 
-        log::trace!("Allowed present modes: {:?}", surface_caps.present_modes);
+        log::debug!("Allowed present modes: {:?}", surface_caps.present_modes);
+        log::debug!("Allowed formats: {:?}", surface_caps.formats);
 
         // Shader code in this tutorial assumes an sRGB surface texture. Using a different
         // one will result all the colors coming out darker. If you want to support non

@@ -33,16 +33,18 @@ mod util;
 use app::ToposEvent;
 pub use refbox;
 
-use pollster::FutureExt;
 use test::{TestRect, TestRoot};
 use winit::event_loop::{EventLoop, EventLoopBuilder};
 
 pub async fn run() {
     let event_loop = EventLoopBuilder::<ToposEvent>::with_user_event().build();
-    app::App::<TestRoot>::new(&event_loop).await.run(event_loop);
+
+    let app = app::App::<TestRoot>::new(&event_loop).await;
+    app.run(event_loop)
 }
 
 fn main() {
+    #[cfg(not(target_arch = "wasm32"))]
     pretty_env_logger::formatted_timed_builder()
         .parse_env(env_logger::Env::default().filter_or(
             env_logger::DEFAULT_FILTER_ENV,
@@ -60,5 +62,12 @@ fn main() {
         .filter_module("winit", log::LevelFilter::Warn)
         .init();
 
-    run().block_on();
+    #[cfg(target_arch = "wasm32")]
+    wasm_logger::init(wasm_logger::Config::default());
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pollster::FutureExt::block_on(run());
+
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_futures::spawn_local(run());
 }
