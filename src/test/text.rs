@@ -8,7 +8,7 @@ use crate::{
     color::ColorRgba,
     scene::{
         self,
-        layout::{FlexBox, LayoutPassResult},
+        layout::{self, FlexBox, LayoutPassResult},
     },
     surface::RenderingContext,
     util::AsRect,
@@ -86,16 +86,21 @@ impl TextBox {
         let buffer_ref = buffer.clone();
         let rendering_context_ref = scene_resources.rendering_context_ref();
 
+        // let layout_node = scene_resources
+        //     .layout_engine()
+        //     .new_leaf_with_measure(
+        //         FlexBox::builder().to_taffy(),
+        //         taffy::node::MeasureFunc::Boxed(Box::new(MeasureTextBox {
+        //             buffer: buffer_ref,
+        //             font_system: font_system_ref,
+        //             rendering_context: rendering_context_ref,
+        //         })),
+        //     )
+        //     .unwrap();
+
         let layout_node = scene_resources
             .layout_engine()
-            .new_leaf_with_measure(
-                FlexBox::builder().to_taffy(),
-                taffy::node::MeasureFunc::Boxed(Box::new(MeasureTextBox {
-                    buffer: buffer_ref,
-                    font_system: font_system_ref,
-                    rendering_context: rendering_context_ref,
-                })),
-            )
+            .new_leaf(FlexBox::builder().to_taffy())
             .unwrap();
 
         Self {
@@ -122,17 +127,23 @@ impl Element for TextBox {
             buffer.set_metrics(&mut font_system, new_metrics);
 
             buffer.shape_until_scroll(&mut font_system);
+
+            buffer.set_size(&mut font_system, 1000., 1000.);
         }
 
         self.layout_node
     }
 
     fn layout_post(&mut self, resources: &mut SceneResources, rect: Rect) {
-        self.buffer.lock().unwrap().set_size(
-            &mut resources.font_system(),
-            rect.width() * resources.scale_factor_f32(),
-            rect.height() * resources.scale_factor_f32(),
-        );
+        let mut font_system = resources.font_system();
+
+        // self.buffer.lock().unwrap().set_size(
+        //     &mut font_system,
+        //     1000.,
+        //     1000.,
+        //     // rect.width() * resources.scale_factor_f32(),
+        //     // rect.height() * resources.scale_factor_f32(),
+        // );
     }
 
     fn ui(&mut self, ctx: &mut SceneContext, rect: Rect) {

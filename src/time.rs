@@ -1,4 +1,4 @@
-use std::time::*;
+pub use instant::{Duration, Instant, SystemTime};
 
 use euclid::num::Floor;
 

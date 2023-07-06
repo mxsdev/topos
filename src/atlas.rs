@@ -929,46 +929,72 @@ impl FontManager {
             .render(render_pass, batch.atlas_id, batch.num_quads);
     }
 
+    fn generate_textures_worker(
+        mut glyphs: HashSet<GlyphCacheKey>,
+        atlas_manager: Arc<RwLock<FontAtlasManager>>,
+        font_system: Arc<Mutex<FontSystem>>,
+    ) {
+        #[cfg(not(target_arch = "wasm32"))]
+        let drain_iter = glyphs.par_drain();
+
+        // TODO: support rayon on wasm32
+        #[cfg(target_arch = "wasm32")]
+        let drain_iter = glyphs.drain();
+
+        let results: Vec<(GlyphCacheKey, cosmic_text::SwashImage)> = drain_iter
+            .map(|g| {
+                if atlas_manager.read().unwrap().has_glyph(&g) {
+                    return None;
+                }
+
+                match rasterize_glyph(&g, font_system.as_ref()) {
+                    Some(image) => {
+                        log::debug!("rasterized glyph {:?}", g.glyph_id);
+                        Some((g, image))
+                    }
+                    None => {
+                        log::error!("failed to render glyph {}!", g.glyph_id);
+
+                        None
+                    }
+                }
+            })
+            .flatten()
+            .collect();
+
+        for (cache_key, image) in results {
+            if let Some(kind) = match image.content {
+                cosmic_text::SwashContent::Mask => Some(GlyphContentType::Mask),
+                cosmic_text::SwashContent::Color => Some(GlyphContentType::Color),
+                cosmic_text::SwashContent::SubpixelMask => {
+                    debug_panic!("Found subpixel mask!");
+                    None
+                }
+            } {
+                atlas_manager
+                    .write()
+                    .unwrap()
+                    .allocate_glyph(kind, image, cache_key);
+            }
+        }
+    }
+
     pub fn generate_textures<'a>(&mut self, mut glyphs: HashSet<GlyphCacheKey>) {
         let atlas_manager = self.atlas_manager.clone();
         let font_system = self.font_system.clone();
 
-        std::thread::spawn(move || {
-            let results: Vec<(GlyphCacheKey, cosmic_text::SwashImage)> = glyphs
-                .par_drain()
-                .map(|g| {
-                    if atlas_manager.read().unwrap().has_glyph(&g) {
-                        return None;
-                    }
+        // TODO: support threading on wasm
+        #[cfg(target_arch = "wasm32")]
+        {
+            Self::generate_textures_worker(glyphs, atlas_manager, font_system);
+        }
 
-                    match rasterize_glyph(&g, font_system.as_ref()) {
-                        Some(image) => Some((g, image)),
-                        None => {
-                            log::error!("failed to render glyph {}!", g.glyph_id);
-
-                            None
-                        }
-                    }
-                })
-                .flatten()
-                .collect();
-
-            for (cache_key, image) in results {
-                if let Some(kind) = match image.content {
-                    cosmic_text::SwashContent::Mask => Some(GlyphContentType::Mask),
-                    cosmic_text::SwashContent::Color => Some(GlyphContentType::Color),
-                    cosmic_text::SwashContent::SubpixelMask => {
-                        debug_panic!("Found subpixel mask!");
-                        None
-                    }
-                } {
-                    atlas_manager
-                        .write()
-                        .unwrap()
-                        .allocate_glyph(kind, image, cache_key);
-                }
-            }
-        });
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            std::thread::spawn(move || {
+                Self::generate_textures_worker(glyphs, atlas_manager, font_system);
+            });
+        }
     }
 }
 

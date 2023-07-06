@@ -1,12 +1,10 @@
+use crate::time::Duration;
 use core::panic;
-use std::time::Duration;
 
-use cocoa::appkit::{NSColor, NSWindow};
 use raw_window_handle::HasRawWindowHandle;
 use winit::{
     event::{ElementState, Event, KeyboardInput, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    platform::macos::WindowBuilderExtMacOS,
     window::WindowBuilder,
 };
 
@@ -49,7 +47,7 @@ pub type ToposEventLoop = EventLoop<ToposEvent>;
 
 impl<Root: RootConstructor + 'static> App<Root> {
     pub fn run(mut self, event_loop: ToposEventLoop) {
-        use std::time::*;
+        use crate::time::*;
 
         let main_proxy = event_loop.create_proxy();
 
@@ -97,10 +95,10 @@ impl<Root: RootConstructor + 'static> App<Root> {
 
                     let (should_render, render_start_time) = self.framepacer.should_render();
 
-                    if !should_render {
-                        self.swap_chain = Some(output);
-                        return;
-                    }
+                    // if !should_render {
+                    //     self.swap_chain = Some(output);
+                    //     return;
+                    // }
 
                     let raw_input = self.winit_state.take_egui_input();
 
@@ -110,16 +108,16 @@ impl<Root: RootConstructor + 'static> App<Root> {
                     let (mut result_input, result_output) =
                         self.scene.render(&self.render_surface, output, input_state);
 
-                    let render_finish_time = std::time::Instant::now();
+                    let render_finish_time = crate::time::Instant::now();
                     let render_time = render_finish_time.duration_since(render_start_time);
 
                     if self.framepacer.check_missed_deadline(render_finish_time) {
-                        log::debug!("  missed deadline render time: {:?}", render_time);
+                        // log::debug!("  missed deadline render time: {:?}", render_time);
                     }
 
                     result_input.end_frame();
 
-                    self.try_create_new_output();
+                    // self.try_create_new_output();
 
                     self.framepacer.push_frametime(render_time);
 
@@ -162,12 +160,12 @@ impl<Root: RootConstructor + 'static> App<Root> {
             self.resize(new_size, scale_fac);
         }
 
-        let output_start_time = std::time::Instant::now();
+        let output_start_time = crate::time::Instant::now();
 
         match self.render_surface.get_output() {
             Ok(output) => {
                 self.framepacer.start_window(
-                    std::time::Instant::now(),
+                    crate::time::Instant::now(),
                     get_window_frame_time(&self.window),
                 );
 
@@ -187,19 +185,48 @@ impl<Root: RootConstructor + 'static> App<Root> {
     }
 
     pub async fn new(event_loop: &ToposEventLoop) -> Self {
-        let window = WindowBuilder::new()
-            // .with_titlebar_buttons_hidden(true)
-            .with_title_hidden(true)
-            .with_titlebar_transparent(true)
-            .with_fullsize_content_view(true)
-            .build(event_loop)
-            .unwrap();
+        let mut builder = WindowBuilder::new();
+
+        #[cfg(target_os = "macos")]
+        {
+            use winit::platform::macos::WindowBuilderExtMacOS;
+
+            builder = builder
+                .with_title_hidden(true)
+                .with_titlebar_transparent(true)
+                .with_fullsize_content_view(true);
+        }
+
+        let window = builder.build(event_loop).unwrap();
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            use wasm_bindgen::prelude::*;
+
+            use winit::platform::web::WindowExtWebSys;
+            let canvas = window.canvas();
+
+            let window = web_sys::window().unwrap();
+
+            window
+                .document()
+                .unwrap()
+                .body()
+                .unwrap()
+                .append_child(&canvas);
+
+            // window.set_onresize(Some(js_sys::Function::new_with_args(args, body)))
+
+            canvas.set_attribute("oncontextmenu", "return false;");
+        }
 
         // TODO: move this to separate file
         let rwh = window.raw_window_handle();
         match rwh {
             #[cfg(target_os = "macos")]
             raw_window_handle::RawWindowHandle::AppKit(handle) => unsafe {
+                use cocoa::appkit::{NSColor, NSWindow};
+
                 use cocoa::base::id;
                 use objc::{sel, sel_impl};
 
@@ -232,12 +259,17 @@ impl<Root: RootConstructor + 'static> App<Root> {
         let root_id = scene.root_id().as_access_id();
         let root_node = scene.root_access_node();
 
-        let winit_state =
-            WinitState::new(&window, winit_state_proxy, move || accesskit::TreeUpdate {
+        let winit_state = WinitState::new(
+            &window,
+            winit_state_proxy,
+            // TODO: use featuere
+            #[cfg(not(target_arch = "wasm32"))]
+            move || accesskit::TreeUpdate {
                 tree: Some(accesskit::Tree::new(root_id)),
                 nodes: vec![(root_id, root_node)],
                 ..Default::default()
-            });
+            },
+        );
 
         let input_state = InputState::default().into();
 

@@ -16,13 +16,13 @@
  - [ ] Encapsulate all libraries (namely euclid, cosmic_text)
  - [ ] Adopt builder pattern across codebase
  - [ ] Better buffer support (do scale factor as part of render pass, not in component; support spans)
- - [ ] Layers
  - [ ] Better glyph support
  - [ ] Sharp box strokes
- - [ ] Render engine throughput optimizations (store & diff buffers by widget)
  - [ ] Move everything into a single shader (draw call optimization)
- - [ ] Proper framepacing
  - [ ] Affine transformations
+ - [ ] Layers
+ - [ ] Render engine throughput optimizations (store & diff buffers by widget)
+ - [ ] Proper framepacing
  - [ ] Multi-window support
  - [x] Accessibility
  - [x] Native Context Menus

@@ -9,7 +9,7 @@
 
 #![allow(clippy::manual_range_contains)]
 
-use std::time::Instant;
+use crate::time::Instant;
 
 pub use accesskit_winit;
 pub use winit;
@@ -75,6 +75,8 @@ pub struct WinitState {
     /// track ime state
     input_method_editor_started: bool,
 
+    // TODO: use featuere
+    #[cfg(not(target_arch = "wasm32"))]
     accesskit: accesskit_winit::Adapter,
 }
 
@@ -89,12 +91,18 @@ impl WinitState {
         event_loop_proxy: winit::event_loop::EventLoopProxy<
             impl From<accesskit_winit::ActionRequestEvent> + Send,
         >,
+        // TODO: use featuere
+        #[cfg(not(target_arch = "wasm32"))]
         initial_tree_update_factory: impl 'static + FnOnce() -> accesskit::TreeUpdate + Send,
     ) -> Self {
         let egui_input = RawInput {
             focused: false, // winit will tell us when we have focus
             ..Default::default()
         };
+
+        let clipboard = super::clipboard::Clipboard::new(display_target);
+
+        log::trace!("{:?}", Instant::now());
 
         Self {
             start_time: Instant::now(),
@@ -103,13 +111,15 @@ impl WinitState {
             any_pointer_button_down: false,
             current_cursor_icon: None,
             current_pixels_per_point: display_target.scale_factor() as f32,
-            clipboard: super::clipboard::Clipboard::new(display_target),
+            clipboard,
 
             simulate_touch_screen: false,
             pointer_touch_id: None,
 
             input_method_editor_started: false,
 
+            // TODO: use featuere
+            #[cfg(not(target_arch = "wasm32"))]
             accesskit: accesskit_winit::Adapter::new(
                 display_target,
                 initial_tree_update_factory,
@@ -197,8 +207,12 @@ impl WinitState {
         event: &winit::event::WindowEvent<'_>,
         window: &winit::window::Window,
     ) -> EventResponse {
-        // TODO: maybe use this?
-        let _ = self.accesskit.on_event(window, event);
+        // TODO: use featuere
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // TODO: maybe use this?
+            let _ = self.accesskit.on_event(window, event);
+        }
 
         use winit::event::WindowEvent;
         match event {
@@ -659,6 +673,8 @@ impl WinitState {
             window.set_ime_position(winit::dpi::LogicalPosition { x, y });
         }
 
+        // TODO: use featuere flag
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(update) = accesskit_update {
             self.accesskit.update_if_active(|| update);
         }

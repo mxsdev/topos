@@ -144,7 +144,7 @@ pub struct HoveredFile {
 }
 
 /// A file dropped into egui.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct DroppedFile {
     /// Set by the `egui-winit` backend.
     pub path: Option<std::path::PathBuf>,
@@ -153,7 +153,7 @@ pub struct DroppedFile {
     pub name: String,
 
     /// Set by the `eframe` web backend.
-    pub last_modified: Option<std::time::SystemTime>,
+    pub last_modified: Option<crate::time::SystemTime>,
 
     /// Set by the `eframe` web backend.
     pub bytes: Option<std::sync::Arc<[u8]>>,

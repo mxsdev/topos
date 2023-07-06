@@ -107,7 +107,10 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
         {
             let mut font_system = font_manager.get_font_system();
-            font_system.db_mut().load_system_fonts();
+
+            font_system
+                .db_mut()
+                .load_font_data(include_bytes!("../../assets/TestCalibre-Regular.otf").to_vec());
         }
 
         let mut layout_engine = LayoutEngine::default();
@@ -264,7 +267,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
         {
             let load_op = wgpu::LoadOp::Clear(wgpu::Color {
-                r: 0.0,
+                r: 1.0,
                 g: 0.0,
                 b: 0.0,
                 a: 1.0,
