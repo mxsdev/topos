@@ -77,6 +77,8 @@ impl TextBox {
 
             buffer.set_text(&mut font_system, &text, attrs);
 
+            buffer.shape_until_scroll(&mut font_system);
+
             buffer
         };
 
@@ -86,21 +88,16 @@ impl TextBox {
         let buffer_ref = buffer.clone();
         let rendering_context_ref = scene_resources.rendering_context_ref();
 
-        // let layout_node = scene_resources
-        //     .layout_engine()
-        //     .new_leaf_with_measure(
-        //         FlexBox::builder().to_taffy(),
-        //         taffy::node::MeasureFunc::Boxed(Box::new(MeasureTextBox {
-        //             buffer: buffer_ref,
-        //             font_system: font_system_ref,
-        //             rendering_context: rendering_context_ref,
-        //         })),
-        //     )
-        //     .unwrap();
-
         let layout_node = scene_resources
             .layout_engine()
-            .new_leaf(FlexBox::builder().to_taffy())
+            .new_leaf_with_measure(
+                FlexBox::builder().to_taffy(),
+                taffy::node::MeasureFunc::Boxed(Box::new(MeasureTextBox {
+                    buffer: buffer_ref,
+                    font_system: font_system_ref,
+                    rendering_context: rendering_context_ref,
+                })),
+            )
             .unwrap();
 
         Self {
@@ -116,34 +113,15 @@ impl TextBox {
 
 impl Element for TextBox {
     fn layout(&mut self, layout_pass: &mut LayoutPass) -> LayoutPassResult {
-        let scale_factor = layout_pass.scale_factor();
-        let new_metrics = self.logical_metrics.scale(scale_factor as f32);
-
-        {
-            let mut buffer = self.buffer.lock().unwrap();
-
-            let mut font_system = layout_pass.font_system();
-
-            buffer.set_metrics(&mut font_system, new_metrics);
-
-            buffer.shape_until_scroll(&mut font_system);
-
-            buffer.set_size(&mut font_system, 1000., 1000.);
-        }
-
         self.layout_node
     }
 
     fn layout_post(&mut self, resources: &mut SceneResources, rect: Rect) {
-        let mut font_system = resources.font_system();
-
-        // self.buffer.lock().unwrap().set_size(
-        //     &mut font_system,
-        //     1000.,
-        //     1000.,
-        //     // rect.width() * resources.scale_factor_f32(),
-        //     // rect.height() * resources.scale_factor_f32(),
-        // );
+        self.buffer.lock().unwrap().set_size(
+            &mut resources.font_system(),
+            rect.width() * resources.scale_factor_f32(),
+            rect.height() * resources.scale_factor_f32(),
+        );
     }
 
     fn ui(&mut self, ctx: &mut SceneContext, rect: Rect) {
@@ -246,8 +224,6 @@ impl
         let result = match buffer.cache.get(&cache_key).cloned() {
             Some(res) => res,
             None => {
-                // log::trace!("calculating text box layout...");
-
                 let scale_factor = self.rendering_context.texture_info.get_scale_factor_f32();
 
                 buffer.set_size(

@@ -95,10 +95,10 @@ impl<Root: RootConstructor + 'static> App<Root> {
 
                     let (should_render, render_start_time) = self.framepacer.should_render();
 
-                    // if !should_render {
-                    //     self.swap_chain = Some(output);
-                    //     return;
-                    // }
+                    if !should_render {
+                        self.swap_chain = Some(output);
+                        return;
+                    }
 
                     let raw_input = self.winit_state.take_egui_input();
 
@@ -112,12 +112,12 @@ impl<Root: RootConstructor + 'static> App<Root> {
                     let render_time = render_finish_time.duration_since(render_start_time);
 
                     if self.framepacer.check_missed_deadline(render_finish_time) {
-                        // log::debug!("  missed deadline render time: {:?}", render_time);
+                        log::debug!("  missed deadline render time: {:?}", render_time);
                     }
 
                     result_input.end_frame();
 
-                    // self.try_create_new_output();
+                    self.try_create_new_output();
 
                     self.framepacer.push_frametime(render_time);
 

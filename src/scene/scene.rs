@@ -108,9 +108,11 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         {
             let mut font_system = font_manager.get_font_system();
 
-            font_system
-                .db_mut()
-                .load_font_data(include_bytes!("../../assets/TestCalibre-Regular.otf").to_vec());
+            font_system.db_mut().load_system_fonts();
+
+            // font_system
+            //     .db_mut()
+            //     .load_font_data(include_bytes!("../../assets/TestCalibre-Regular.otf").to_vec());
         }
 
         let mut layout_engine = LayoutEngine::default();
