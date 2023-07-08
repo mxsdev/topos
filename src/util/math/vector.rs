@@ -9,8 +9,6 @@ use num_traits::{real::Real, Signed};
 use super::{size, Angle, Pos, ScaleFactor, Size, Trig};
 use crate::util::{markers::*, max, min};
 
-type Inner<F, U> = euclid::Vector2D<F, U>;
-
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Vector<T = f32, U = LogicalUnit> {
     /// The `x` (traditionally, horizontal) coordinate.

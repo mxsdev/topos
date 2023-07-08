@@ -4,8 +4,6 @@ use crate::num::{One, Zero};
 use num_traits::real::Real;
 use num_traits::{Float, FloatConst};
 
-type Inner<T> = euclid::Angle<T>;
-
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Angle<T> {
     pub radians: T,
@@ -25,7 +23,7 @@ impl<T> Angle<T> {
 
 impl<T> Angle<T>
 where
-    T: euclid::Trig,
+    T: Trig,
 {
     #[inline]
     pub fn degrees(deg: T) -> Self {

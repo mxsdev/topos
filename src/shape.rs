@@ -13,7 +13,6 @@ use std::{
 };
 
 use bytemuck::Pod;
-use euclid::Vector2D;
 use num_traits::{Float, Num};
 
 use crate::{

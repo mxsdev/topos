@@ -16,8 +16,6 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
-use euclid::size2;
-
 use rayon::prelude::*;
 
 use cosmic_text::{FontSystem, LayoutGlyph, SubpixelBin};
@@ -230,7 +228,8 @@ impl FontAtlas {
             return None;
         }
 
-        self.allocator.allocate(size2(space.width, space.height))
+        self.allocator
+            .allocate(etagere::size2(space.width, space.height))
     }
 
     pub fn allocate_glyph(

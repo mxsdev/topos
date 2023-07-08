@@ -1,7 +1,5 @@
 pub use instant::{Duration, Instant, SystemTime};
 
-use euclid::num::Floor;
-
 pub struct FramerateCounter {
     start: Instant,
 
@@ -36,7 +34,7 @@ impl FramerateCounter {
                 let elapsed_time = (tick_time - self.start).as_secs();
                 let last_elapsed_time = (last_tick - self.start).as_secs();
 
-                if elapsed_time.floor() != last_elapsed_time.floor() {
+                if elapsed_time != last_elapsed_time {
                     self.framerate = self.tick_ct;
                     self.tick_ct = 0;
                 }

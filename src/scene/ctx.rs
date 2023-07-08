@@ -4,8 +4,6 @@ use std::{
     rc::Rc,
 };
 
-use euclid::{default, Translation2D};
-
 use crate::{
     element::{Element, ElementRef, SizeConstraint},
     input::{
