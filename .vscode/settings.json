@@ -2,5 +2,6 @@
     "rust-analyzer.linkedProjects": [
         "./Cargo.toml"
     ],
-    "rust-analyzer.cargo.target": "wasm32-unknown-unknown"
+    "editor.tabSize": 4,
+    "rust-analyzer.lru.capacity": 1024
 }

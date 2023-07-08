@@ -1,6 +1,36 @@
+mod markers;
+pub use markers::*;
+
+mod rect;
+pub use rect::*;
+
+mod point;
+pub use point::*;
+
+pub(super) mod euclid;
+pub mod traits;
+
+mod size;
+pub use size::*;
+
+mod vec;
+pub use vec::*;
+
+mod length;
+pub use length::*;
+
+mod sides;
+pub use sides::*;
+
+#[path = "taffy.rs"]
+mod taffy_util;
+pub use self::taffy_util::*;
+
+// old impl
+
 use std::ops::{Deref, DerefMut, Range};
 
-use euclid::{Box2D, Point2D, SideOffsets2D, Size2D, Vector2D};
+use self::euclid::{Box2D, Point2D, SideOffsets2D, Size2D, Vector2D};
 use num_traits::{Float, Num, Signed, ToPrimitive};
 
 use crate::element::boundary::{Boundary, RectLikeBoundary, SDF};
