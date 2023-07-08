@@ -1,7 +1,7 @@
 use crate::{
     element::boundary::{Boundary, RectLikeBoundary},
     input::{input_state::InputState, Key, PointerButton},
-    util::{Rect, RoundedRect},
+    math::{Rect, RoundedRect},
 };
 use num_traits::Float;
 use paste::paste;

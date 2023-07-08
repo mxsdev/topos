@@ -5,7 +5,8 @@ use crate::num::{One, Zero};
 use num_traits::real::Real;
 use num_traits::Float;
 
-use super::{markers::*, vector, ScaleFactor, Size, Vector};
+use super::{vector, ScaleFactor, Size, Vector};
+use crate::util::{markers::*, max, min};
 
 #[derive(Debug, Default, PartialEq, Eq, Hash)]
 pub struct Pos<T = f32, U = LogicalUnit> {
@@ -127,12 +128,12 @@ impl<T: Copy, U> Pos<T, U> {
 impl<T: PartialOrd, U> Pos<T, U> {
     #[inline]
     pub fn min(self, other: Self) -> Self {
-        pos(super::min(self.x, other.x), super::min(self.y, other.y))
+        pos(min(self.x, other.x), min(self.y, other.y))
     }
 
     #[inline]
     pub fn max(self, other: Self) -> Self {
-        pos(super::max(self.x, other.x), super::max(self.y, other.y))
+        pos(max(self.x, other.x), max(self.y, other.y))
     }
 
     /// Returns the point each component of which clamped by corresponding

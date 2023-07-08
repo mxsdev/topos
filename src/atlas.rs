@@ -1,7 +1,10 @@
 use crate::{
     color::ColorRgba,
+    math::{
+        PhysicalPos, PhysicalRect, PhysicalSize, PhysicalVector, Pos, Rect, ScaleFactor,
+        WindowScaleFactor,
+    },
     surface::SurfaceDependent,
-    util::{PhysicalPos, PhysicalSize, PhysicalVector, Pos, ScaleFactor, WindowScaleFactor},
 };
 
 use std::{
@@ -29,7 +32,7 @@ use crate::{
     num::NextPowerOfTwo,
     surface::{ParamsBuffer, RenderingContext},
     text::GlyphContentType,
-    util::{LogicalUnit, PhysicalRect, PhysicalUnit, Rect, WgpuDescriptor},
+    util::{LogicalUnit, PhysicalUnit, WgpuDescriptor},
 };
 
 type GlyphCacheKey = cosmic_text::CacheKey;

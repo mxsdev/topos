@@ -2,12 +2,12 @@ use crate::{
     accessibility::{AccessNodeBuilder, AccessRole},
     element::{Element, ElementRef, RootConstructor},
     input::input_state::InputState,
+    math::{Rect, WindowScaleFactor},
     scene::{
         ctx::SceneContext,
         layout::{ColumnReverse, FlexBox, LayoutPass, LayoutPassResult, Percent},
         scene::SceneResources,
     },
-    util::{Rect, WindowScaleFactor},
 };
 
 use super::{MainElement, TitleBar};

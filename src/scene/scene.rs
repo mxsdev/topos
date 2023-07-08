@@ -18,11 +18,12 @@ use crate::{
     },
     element::{Element, ElementEvent, ElementId, ElementRef, RootConstructor, SizeConstraint},
     input::{input_state::InputState, output::PlatformOutput, winit::WinitState},
+    math::{PhysicalRect, PhysicalSize, Rect, WindowScaleFactor},
     mesh::{self, PaintMesh},
     scene::update::UpdatePass,
     shape::{self, BoxShaderVertex, PaintRectangle, PaintShape},
     surface::{RenderAttachment, RenderSurface, RenderingContext, SurfaceDependent},
-    util::{PhysicalRect, PhysicalSize, PhysicalUnit, Rect, WindowScaleFactor},
+    util::PhysicalUnit,
 };
 
 use super::{

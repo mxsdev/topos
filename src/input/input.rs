@@ -1,6 +1,6 @@
 // use crate::emath::*;
 
-use crate::util::{Pos, Vector};
+use crate::math::{Pos, Vector};
 
 /// What the integrations provides to egui at the start of each frame.
 ///

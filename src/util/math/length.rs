@@ -3,7 +3,7 @@ use std::{
     ops::{Div, Mul},
 };
 
-use super::{LogicalUnit, PhysicalUnit};
+use super::super::{LogicalUnit, PhysicalUnit};
 
 #[derive(Debug, Default, PartialEq, Eq, Hash)]
 pub struct ScaleFactor<T, Src, Dst>(pub(super) T, #[doc(hidden)] PhantomData<(Src, Dst)>);

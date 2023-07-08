@@ -5,7 +5,8 @@ use std::ops::*;
 use crate::num::{One, Zero};
 use num_traits::{Float, Signed};
 
-use super::{markers::*, ScaleFactor, Vector};
+use super::{ScaleFactor, Vector};
+use crate::util::{markers::*, max, min};
 
 #[derive(Debug, Default, PartialEq, Eq, Hash)]
 pub struct Size<T = f32, U = LogicalUnit> {
@@ -151,19 +152,13 @@ impl<T: PartialOrd, U> Size<T, U> {
     /// Returns the size each component of which are minimum of this size and another.
     #[inline]
     pub fn min(self, other: Self) -> Self {
-        size(
-            super::min(self.width, other.width),
-            super::min(self.height, other.height),
-        )
+        size(min(self.width, other.width), min(self.height, other.height))
     }
 
     /// Returns the size each component of which are maximum of this size and another.
     #[inline]
     pub fn max(self, other: Self) -> Self {
-        size(
-            super::max(self.width, other.width),
-            super::max(self.height, other.height),
-        )
+        size(max(self.width, other.width), max(self.height, other.height))
     }
 
     /// Returns the size each component of which clamped by corresponding

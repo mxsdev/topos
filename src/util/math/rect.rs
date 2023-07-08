@@ -6,7 +6,8 @@ use num_traits::Float;
 
 use crate::num::Two;
 
-use super::{markers::*, pos, vector, Pos, ScaleFactor, Sides, Size, Vector};
+use super::{pos, vector, Pos, ScaleFactor, Sides, Size, Vector};
+use crate::util::{markers::*, max, min};
 
 #[derive(Debug, Default, PartialEq, Eq, Hash)]
 pub struct Rect<T = f32, U = LogicalUnit> {
@@ -125,14 +126,8 @@ where
     #[inline]
     pub fn intersection_unchecked(&self, other: &Self) -> Self {
         Rect {
-            min: pos(
-                super::max(self.min.x, other.min.x),
-                super::max(self.min.y, other.min.y),
-            ),
-            max: pos(
-                super::min(self.max.x, other.max.x),
-                super::min(self.max.y, other.max.y),
-            ),
+            min: pos(max(self.min.x, other.min.x), max(self.min.y, other.min.y)),
+            max: pos(min(self.max.x, other.max.x), min(self.max.y, other.max.y)),
         }
     }
 
@@ -149,14 +144,8 @@ where
         }
 
         Rect {
-            min: pos(
-                super::min(self.min.x, other.min.x),
-                super::min(self.min.y, other.min.y),
-            ),
-            max: pos(
-                super::max(self.max.x, other.max.x),
-                super::max(self.max.y, other.max.y),
-            ),
+            min: pos(min(self.min.x, other.min.x), min(self.min.y, other.min.y)),
+            max: pos(max(self.max.x, other.max.x), max(self.max.y, other.max.y)),
         }
     }
 }
@@ -605,7 +594,7 @@ mod tests {
     fn test_rect_sdf() {
         let rect = Rect::<f32, LogicalUnit>::new(pos(0., 0.), pos(4., 4.));
 
-        use crate::util::WindowScaleFactor;
+        use crate::util::math::WindowScaleFactor;
 
         let scale_factor = WindowScaleFactor::new(2.);
 

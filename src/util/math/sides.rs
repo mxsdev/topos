@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use super::markers::*;
+use crate::util::markers::*;
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct Sides<T = f32, U = LogicalUnit> {

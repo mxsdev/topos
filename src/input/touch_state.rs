@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, fmt::Debug};
 
-use crate::util::{Angle, Pos, Vector};
+use crate::math::{Angle, Pos, Vector};
 
 use super::{
     // emath::{normalized_angle, Pos, Vector},

@@ -12,8 +12,8 @@ use crate::scene::layout::{LayoutEngine, LayoutPassResult};
 use crate::scene::scene::SceneResources;
 use crate::util::LogicalUnit;
 use crate::{
+    math::{Rect, Size},
     scene::{ctx::SceneContext, layout::LayoutPass},
-    util::{Rect, Size},
 };
 
 #[derive(Clone, Copy)]

@@ -5,8 +5,9 @@ use swash::scale;
 use crate::{
     color::ColorRgba,
     graphics::DynamicGPUMeshTriBuffer,
+    math::{Pos, WindowScaleFactor},
     surface::{ParamsBuffer, RenderingContext, SurfaceDependent},
-    util::{Pos, WgpuDescriptor, WindowScaleFactor},
+    util::WgpuDescriptor,
 };
 
 #[repr(C)]

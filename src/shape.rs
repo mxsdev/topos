@@ -1,8 +1,8 @@
 use crate::{
     color::ColorRgba,
+    math::{RoundedRect, ScaleFactor, WindowScaleFactor},
     mesh::PaintMesh,
     surface::SurfaceDependent,
-    util::{RoundedRect, ScaleFactor, WindowScaleFactor},
 };
 
 use std::{
@@ -21,7 +21,7 @@ use crate::{
     graphics::DynamicGPUQuadBuffer,
     num::{MaxNum, Two},
     surface::{ParamsBuffer, RenderingContext},
-    util::{LogicalUnit, PhysicalUnit, Rect, WgpuDescriptor},
+    util::{math::Rect, LogicalUnit, PhysicalUnit, WgpuDescriptor},
 };
 
 pub struct RenderResources {

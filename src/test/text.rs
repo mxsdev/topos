@@ -21,8 +21,8 @@ use taffy::{layout::Cache, style::AvailableSpace};
 use crate::{
     atlas::PlacedTextBox,
     element::Element,
+    math::{Rect, Size},
     scene::{ctx::SceneContext, layout::LayoutPass, scene::SceneResources},
-    util::{Rect, Size},
 };
 
 struct CacheBuffer {

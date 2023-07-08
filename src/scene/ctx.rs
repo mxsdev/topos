@@ -12,8 +12,8 @@ use crate::{
         input_state::InputState,
         output::{CursorIcon, PlatformOutput},
     },
+    math::{Rect, WindowScaleFactor},
     shape::PaintShape,
-    util::{Rect, WindowScaleFactor},
 };
 
 pub struct SceneContext {

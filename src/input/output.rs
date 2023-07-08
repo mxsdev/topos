@@ -1,4 +1,4 @@
-use crate::util::Pos;
+use crate::math::Pos;
 
 /// The non-rendering part of what egui emits each frame.
 ///

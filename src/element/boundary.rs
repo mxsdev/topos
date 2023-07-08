@@ -1,6 +1,7 @@
 use num_traits::{Float, Signed};
 
-use crate::util::{LogicalUnit, Pos, Rect, RoundedRect, Vector};
+use crate::math::{Pos, Rect, RoundedRect, Vector};
+use crate::util::LogicalUnit;
 
 pub trait Boundary<T: Float = f32, U = LogicalUnit> {
     // might want to think about "on boundary" at some point

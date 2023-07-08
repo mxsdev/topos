@@ -12,7 +12,7 @@ use crate::{
     mesh::{MeshVertex, PaintMesh, PaintMeshVertex},
     scene::{ctx::SceneContext, update::UpdatePass, PaintPass, layout::{LayoutPassResult, Manual, FlexBox}},
     shape::{PaintBlur, PaintRectangle, PaintShape},
-    util::{Pos, Rect, RoundedRect, Size, Vector}, accessibility::{AccessNodeBuilder, AccessRole, AsAccessRect}, lib::Response,
+    math::{Pos, Rect, RoundedRect, Size, Vector}, accessibility::{AccessNodeBuilder, AccessRole, AsAccessRect}, lib::Response,
 };
 
 use crate::element::{boundary::Boundary, Element, ElementEvent, MouseButton, SizeConstraint};

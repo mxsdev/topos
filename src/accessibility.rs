@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
-use crate::util::{Pos, Rect, RoundedRect};
+use crate::math::{Pos, Rect, RoundedRect};
 
 pub type AccessNode = accesskit::Node;
 pub type AccessNodeId = accesskit::NodeId;

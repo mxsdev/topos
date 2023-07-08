@@ -8,13 +8,13 @@ use crate::{
     element::{Element, ElementRef, SizeConstraint},
     input::input_state::InputState,
     lib::Response,
+    math::{Rect, Size},
     scene::{
         ctx::SceneContext,
         layout::{FlexBox, LayoutPass, LayoutPassResult, Manual},
         scene::SceneResources,
     },
     shape::PaintRectangle,
-    util::{Rect, Size},
 };
 
 use super::{TestRect, TextBox};

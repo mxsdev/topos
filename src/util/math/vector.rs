@@ -6,7 +6,8 @@ use crate::num::{One, Zero};
 use num_traits::Float;
 use num_traits::{real::Real, Signed};
 
-use super::{markers::*, size, Angle, Pos, ScaleFactor, Size, Trig};
+use super::{size, Angle, Pos, ScaleFactor, Size, Trig};
+use crate::util::{markers::*, max, min};
 
 type Inner<F, U> = euclid::Vector2D<F, U>;
 
@@ -339,13 +340,13 @@ impl<T: PartialOrd, U> Vector<T, U> {
     /// Returns the vector each component of which are minimum of this vector and another.
     #[inline]
     pub fn min(self, other: Self) -> Self {
-        vector(super::min(self.x, other.x), super::min(self.y, other.y))
+        vector(min(self.x, other.x), min(self.y, other.y))
     }
 
     /// Returns the vector each component of which are maximum of this vector and another.
     #[inline]
     pub fn max(self, other: Self) -> Self {
-        vector(super::max(self.x, other.x), super::max(self.y, other.y))
+        vector(max(self.x, other.x), max(self.y, other.y))
     }
 
     /// Returns the vector each component of which is clamped by corresponding

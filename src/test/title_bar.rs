@@ -7,6 +7,7 @@ use crate::{
     color::{ColorRgb, ColorRgba, ColorSrgba},
     element::{transition::Transition, Element, ElementRef, SizeConstraint},
     input::input_state::InputState,
+    math::Rect,
     scene::{
         ctx::SceneContext,
         layout::{
@@ -16,7 +17,7 @@ use crate::{
         scene::SceneResources,
     },
     shape::PaintRectangle,
-    util::{Lerp, Rect},
+    util::Lerp,
 };
 
 use super::{TestRect, TextBox, TitleBarGlyph};

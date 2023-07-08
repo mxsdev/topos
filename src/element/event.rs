@@ -1,4 +1,4 @@
-use crate::util::{Pos, Vector};
+use crate::math::{Pos, Vector};
 use winit::event::*;
 
 #[derive(Debug)]

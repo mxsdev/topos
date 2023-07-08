@@ -1,7 +1,7 @@
 use crate::{
     element::ElementId,
     history::History,
-    util::{Pos, Vector},
+    math::{Pos, Vector},
 };
 
 use super::{

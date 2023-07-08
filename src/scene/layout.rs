@@ -9,7 +9,7 @@ use itertools::Itertools;
 use crate::{
     element::{Element, ElementRef, ElementWeakref},
     input::input_state::InputState,
-    util::{Pos, Rect, Size, WindowScaleFactor},
+    math::{Pos, Rect, Size, WindowScaleFactor},
 };
 
 use super::{ctx::SceneContext, scene::SceneResources};

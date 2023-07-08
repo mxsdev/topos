@@ -4,12 +4,12 @@ use crate::{
     accessibility::{AccessNodeBuilder, AccessRole},
     color::{ColorRgba, ColorSrgba},
     element::{Element, ElementRef},
+    math::{Pos, Rect, RoundedRect},
     scene::{
         layout::{FlexBox, LayoutPass, LayoutPassResult, Percent},
         scene::SceneResources,
     },
     shape::PaintRectangle,
-    util::{Pos, Rect, RoundedRect},
 };
 
 use super::{TestRect, TextBox};

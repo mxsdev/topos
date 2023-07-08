@@ -930,7 +930,7 @@ use winit::window::CursorIcon;
 use crate::{
     debug::HashU64,
     input::{DroppedFile, Event, HoveredFile, Modifiers},
-    util::{Pos, Vector},
+    math::{Pos, Vector},
 };
 
 use super::{

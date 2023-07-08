@@ -1,29 +1,10 @@
 mod markers;
 pub use markers::*;
 
-mod rect;
-pub use rect::*;
-
-mod point;
-pub use point::*;
-
 mod traits;
 pub use traits::*;
 
-mod size;
-pub use size::*;
-
-mod vec;
-pub use vec::*;
-
-mod length;
-pub use length::*;
-
-mod sides;
-pub use sides::*;
-
-mod angle;
-pub use angle::*;
+pub mod math;
 
 #[path = "taffy.rs"]
 mod taffy_util;
