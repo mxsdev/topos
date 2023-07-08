@@ -1,10 +1,15 @@
-use crate::{color::ColorRgba, surface::SurfaceDependent};
+use crate::{
+    color::ColorRgba,
+    surface::SurfaceDependent,
+    util::{PhysicalPos, PhysicalSize, PhysicalVector, Pos, ScaleFactor, WindowScaleFactor},
+};
 
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
     hash::Hash,
     num::NonZeroU64,
+    ops::Mul,
     sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
@@ -24,16 +29,13 @@ use crate::{
     num::NextPowerOfTwo,
     surface::{ParamsBuffer, RenderingContext},
     text::GlyphContentType,
-    util::{
-        CanScale, LogicalToPhysical, LogicalToPhysicalInto, LogicalUnit, PhysicalPos2,
-        PhysicalRect, PhysicalSize2, PhysicalUnit, PhysicalVec2, Pos2, Rect, WgpuDescriptor,
-    },
+    util::{LogicalUnit, PhysicalRect, PhysicalUnit, Rect, WgpuDescriptor},
 };
 
 type GlyphCacheKey = cosmic_text::CacheKey;
 
 pub struct GlyphToRender {
-    size: PhysicalSize2<u32>,
+    size: PhysicalSize<u32>,
     draw_rect: PhysicalRect,
     alloc: AtlasAllocation, // uv: Option<Size2>,
     color: ColorRgba,
@@ -169,7 +171,7 @@ impl FontAtlas {
                      color,
                      ..
                  }| {
-                    let alloc_pos = PhysicalPos2::new(uv.min.x as u32, uv.min.y as u32);
+                    let alloc_pos = PhysicalPos::new(uv.min.x as u32, uv.min.y as u32);
                     let uv = PhysicalRect::new(alloc_pos, alloc_pos + *size);
                     let color = (*color).into();
 
@@ -218,8 +220,8 @@ impl FontAtlas {
         );
     }
 
-    fn try_allocate_space(&mut self, space: &PhysicalSize2<u32>) -> Option<AtlasAllocation> {
-        let space = PhysicalSize2::new(space.width as i32, space.height as i32);
+    fn try_allocate_space(&mut self, space: &PhysicalSize<u32>) -> Option<AtlasAllocation> {
+        let space = PhysicalSize::new(space.width as i32, space.height as i32);
 
         if !self.can_fit(space) {
             return None;
@@ -233,7 +235,7 @@ impl FontAtlas {
         image: &cosmic_text::SwashImage,
         RenderingContext { queue, .. }: &RenderingContext,
     ) -> Option<AtlasAllocation> {
-        let size = PhysicalSize2::new(image.placement.width, image.placement.height);
+        let size = PhysicalSize::new(image.placement.width, image.placement.height);
 
         let alloc = self.try_allocate_space(&size)?;
 
@@ -264,7 +266,7 @@ impl FontAtlas {
         Some(alloc)
     }
 
-    fn can_fit(&self, space: PhysicalSize2<i32>) -> bool {
+    fn can_fit(&self, space: PhysicalSize<i32>) -> bool {
         return space.width <= self.width && space.height <= self.height;
     }
 
@@ -382,7 +384,7 @@ impl SurfaceDependent for FontAtlas {
         &mut self,
         context: &RenderingContext,
         size: winit::dpi::PhysicalSize<u32>,
-        scale_factor: f64,
+        scale_factor: WindowScaleFactor,
     ) {
         let (render_pipeline, bind_group) =
             Self::render_pipeline(&self.shader, &self.sampler, &self.texture_view, context);
@@ -399,8 +401,8 @@ pub struct AtlasId(GlyphContentType, u32);
 struct GlyphAllocation {
     atlas_id: AtlasId,
     allocation: AtlasAllocation,
-    size: PhysicalSize2<u32>,
-    placement: PhysicalPos2<i32>,
+    size: PhysicalSize<u32>,
+    placement: PhysicalPos<i32>,
 }
 
 enum GlyphCacheEntry {
@@ -424,17 +426,13 @@ struct FontAtlasManager {
 
 pub struct PlacedTextBox<F = f32, U = LogicalUnit> {
     glyphs: Vec<PlacedGlyph>,
-    clip_rect: Option<euclid::Box2D<F, U>>,
+    clip_rect: Option<Rect<F, U>>,
     color: ColorRgba,
-    pub pos: euclid::Point2D<F, U>,
+    pub pos: Pos<F, U>,
 }
 
 impl<U> PlacedTextBox<f32, U> {
-    pub fn from_buffer(
-        buffer: &cosmic_text::Buffer,
-        pos: euclid::Point2D<f32, U>,
-        color: ColorRgba,
-    ) -> Self {
+    pub fn from_buffer(buffer: &cosmic_text::Buffer, pos: Pos<f32, U>, color: ColorRgba) -> Self {
         Self {
             glyphs: PlacedGlyph::from_buffer(buffer).collect(),
             clip_rect: None,
@@ -463,21 +461,22 @@ impl PlacedTextBox<f32, PhysicalUnit> {
 }
 
 impl<F, U> PlacedTextBox<F, U> {
-    pub fn with_clip_rect(mut self, rect: impl Into<Option<euclid::Box2D<F, U>>>) -> Self {
+    pub fn with_clip_rect(mut self, rect: impl Into<Option<Rect<F, U>>>) -> Self {
         self.clip_rect = rect.into();
         self
     }
 }
 
-impl<F: CanScale> LogicalToPhysicalInto for PlacedTextBox<F, LogicalUnit> {
-    type PhysicalResult = PlacedTextBox<F, PhysicalUnit>;
+impl<T: Copy + Mul, U1, U2> Mul<ScaleFactor<T, U1, U2>> for PlacedTextBox<T, U1> {
+    type Output = PlacedTextBox<T::Output, U2>;
 
-    fn to_physical(self, scale_factor: impl CanScale) -> Self::PhysicalResult {
-        Self::PhysicalResult {
-            clip_rect: self.clip_rect.map(|x| x.to_physical(scale_factor)),
+    #[inline]
+    fn mul(self, scale: ScaleFactor<T, U1, U2>) -> Self::Output {
+        Self::Output {
+            clip_rect: self.clip_rect.map(|x| x * scale),
             color: self.color,
             glyphs: self.glyphs,
-            pos: self.pos.to_physical(scale_factor),
+            pos: self.pos * scale,
         }
     }
 }
@@ -661,14 +660,14 @@ impl FontAtlasManager {
                         } = text_box;
 
                         let mut glyph_pos = pos
-                            + PhysicalVec2::new(
+                            + PhysicalVector::new(
                                 (g.x_int + placement.x) as f32,
                                 (g.y_int - placement.y) as f32 + g.line_offset,
                             );
 
-                        glyph_pos = glyph_pos.round();
+                        glyph_pos = glyph_pos.map(f32::round);
 
-                        let rect_size = PhysicalSize2::new(size.width as f32, size.height as f32);
+                        let rect_size = PhysicalSize::new(size.width as f32, size.height as f32);
 
                         let draw_rect = PhysicalRect::new(glyph_pos, glyph_pos + rect_size);
 
@@ -764,13 +763,13 @@ impl FontAtlasManager {
     pub fn allocate_glyph(
         &mut self,
         kind: GlyphContentType,
-        // glyph_size: PhysicalSize2<u32>,
+        // glyph_size: PhysicalSize<u32>,
         image: cosmic_text::SwashImage,
         cache_key: GlyphCacheKey,
     ) -> Option<GlyphAllocation> {
-        let glyph_size = PhysicalSize2::<u32>::new(image.placement.width, image.placement.height);
+        let glyph_size = PhysicalSize::<u32>::new(image.placement.width, image.placement.height);
 
-        let glyph_placement = PhysicalPos2::<i32>::new(image.placement.left, image.placement.top);
+        let glyph_placement = PhysicalPos::<i32>::new(image.placement.left, image.placement.top);
 
         if glyph_size.is_empty() {
             self.glyphs.insert(cache_key, GlyphCacheEntry::Noop);
@@ -847,7 +846,7 @@ impl SurfaceDependent for FontAtlasManager {
         &mut self,
         context: &RenderingContext,
         size: winit::dpi::PhysicalSize<u32>,
-        scale_factor: f64,
+        scale_factor: WindowScaleFactor,
     ) {
         for atlas in [
             self.color_atlases.values_mut(),
@@ -1063,7 +1062,7 @@ impl SurfaceDependent for FontManager {
         &mut self,
         context: &RenderingContext,
         size: winit::dpi::PhysicalSize<u32>,
-        scale_factor: f64,
+        scale_factor: WindowScaleFactor,
     ) {
         self.atlas_manager
             .write()

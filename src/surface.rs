@@ -1,25 +1,10 @@
-use core::num;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
-use euclid::default;
-use swash::scale;
 use wgpu::util::DeviceExt;
 use winit::dpi::PhysicalSize;
-use winit::{event::WindowEvent, window::Window};
+use winit::window::Window;
 
-use crate::{
-    atlas::{self},
-    element::boundary::Boundary,
-    shape::{BoxShaderVertex, ShapeRenderer},
-    time::FramerateCounter,
-    util::{
-        LogicalToPhysical, PhysicalPos2, PhysicalRect, PhysicalRoundedRect, Pos2, Rect,
-        RoundedRect, ToEuclid,
-    },
-};
-
-use crate::shape::{self};
+use crate::util::WindowScaleFactor;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -28,8 +13,8 @@ pub(crate) struct ParamsBuffer {
 }
 
 struct ScreenDescriptor {
-    size: winit::dpi::PhysicalSize<u32>,
-    scale_factor: f64,
+    size: PhysicalSize<u32>,
+    scale_factor: WindowScaleFactor,
 }
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
@@ -66,18 +51,16 @@ pub struct RenderSurface {
 
 struct TextureInfoInner {
     num_samples: u32,
-    scale_factor: f64,
-    scale_factor_f32: f32,
+    scale_factor: WindowScaleFactor,
 }
 
 pub struct TextureInfo(RwLock<TextureInfoInner>);
 
 impl TextureInfo {
-    fn new(num_samples: u32, scale_factor: f64) -> Self {
+    fn new(num_samples: u32, scale_factor: WindowScaleFactor) -> Self {
         Self(RwLock::new(TextureInfoInner {
             num_samples,
             scale_factor,
-            scale_factor_f32: scale_factor as f32,
         }))
     }
 
@@ -89,18 +72,13 @@ impl TextureInfo {
         self.0.write().unwrap().num_samples = num_samples
     }
 
-    pub(crate) fn set_scale_factor(&self, scale_factor: f64) {
+    pub(crate) fn set_scale_factor(&self, scale_factor: WindowScaleFactor) {
         let mut inner = self.0.write().unwrap();
         inner.scale_factor = scale_factor;
-        inner.scale_factor_f32 = scale_factor as f32;
     }
 
-    pub fn get_scale_factor(&self) -> f64 {
+    pub fn get_scale_factor(&self) -> WindowScaleFactor {
         self.0.read().unwrap().scale_factor
-    }
-
-    pub fn get_scale_factor_f32(&self) -> f32 {
-        self.0.read().unwrap().scale_factor_f32
     }
 
     pub fn default_multisample_state(&self) -> wgpu::MultisampleState {
@@ -125,7 +103,7 @@ pub trait SurfaceDependent {
         &mut self,
         context: &RenderingContext,
         size: winit::dpi::PhysicalSize<u32>,
-        scale_factor: f64,
+        scale_factor: WindowScaleFactor,
     );
 }
 
@@ -140,7 +118,7 @@ impl RenderSurface {
         let size = window.inner_size();
 
         let screen_descriptor = ScreenDescriptor {
-            scale_factor: window.scale_factor(),
+            scale_factor: WindowScaleFactor::new(window.scale_factor() as f32),
             size,
         };
 
@@ -228,7 +206,10 @@ impl RenderSurface {
             params_buffer,
             queue,
             texture_format,
-            texture_info: TextureInfo::new(multisample_mode.num_samples(), window.scale_factor()),
+            texture_info: TextureInfo::new(
+                multisample_mode.num_samples(),
+                WindowScaleFactor::new(window.scale_factor() as f32),
+            ),
         }
         .into();
 
@@ -310,9 +291,9 @@ impl RenderSurface {
             if let Some(scale_factor) = scale_factor {
                 self.rendering_context
                     .texture_info
-                    .set_scale_factor(scale_factor);
+                    .set_scale_factor(WindowScaleFactor::new(scale_factor as f32));
 
-                self.screen_descriptor.scale_factor = scale_factor;
+                self.screen_descriptor.scale_factor = WindowScaleFactor::new(scale_factor as f32);
             }
 
             self.rendering_context.queue.write_buffer(
@@ -351,7 +332,7 @@ impl RenderSurface {
         &self.rendering_context
     }
 
-    pub fn scale_factor(&self) -> f64 {
+    pub fn scale_factor(&self) -> WindowScaleFactor {
         self.screen_descriptor.scale_factor
     }
 

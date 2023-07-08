@@ -12,41 +12,41 @@ use crate::{
     mesh::{MeshVertex, PaintMesh, PaintMeshVertex},
     scene::{ctx::SceneContext, update::UpdatePass, PaintPass, layout::{LayoutPassResult, Manual, FlexBox}},
     shape::{PaintBlur, PaintRectangle, PaintShape},
-    util::{FromMinSize, Pos2, Rect, RoundedRect, Size2, Translate2D, Translate2DMut, Vec2}, accessibility::{AccessNodeBuilder, AccessRole, AsAccessRect}, lib::Response,
+    util::{Pos, Rect, RoundedRect, Size, Vector}, accessibility::{AccessNodeBuilder, AccessRole, AsAccessRect}, lib::Response,
 };
 
 use crate::element::{boundary::Boundary, Element, ElementEvent, MouseButton, SizeConstraint};
 
 pub struct TestRect {
-    size: Size2,
+    size: Size,
     
     pub response: Response,
-    drag: Vec2,
+    drag: Vector,
 
     focused: bool,
 
     transition: Transition,
 
-    glyph_tris: VertexBuffers<Pos2>,
+    glyph_tris: VertexBuffers<Pos>,
 }
 
 struct VertexCtor;
-impl lyon::tessellation::FillVertexConstructor<Pos2> for VertexCtor {
-    fn new_vertex(&mut self, vertex: lyon::lyon_tessellation::FillVertex) -> Pos2 {
+impl lyon::tessellation::FillVertexConstructor<Pos> for VertexCtor {
+    fn new_vertex(&mut self, vertex: lyon::lyon_tessellation::FillVertex) -> Pos {
         let pos = vertex.position();
-        Pos2::new(pos.x, pos.y)
+        Pos::new(pos.x, pos.y)
     }
 }
 
-impl lyon::tessellation::StrokeVertexConstructor<Pos2> for VertexCtor {
-    fn new_vertex(&mut self, vertex: lyon::lyon_tessellation::StrokeVertex) -> Pos2 {
+impl lyon::tessellation::StrokeVertexConstructor<Pos> for VertexCtor {
+    fn new_vertex(&mut self, vertex: lyon::lyon_tessellation::StrokeVertex) -> Pos {
         let pos = vertex.position();
-        Pos2::new(pos.x, pos.y)
+        Pos::new(pos.x, pos.y)
     }
 }
 
 impl TestRect {
-    pub fn new(pos: Pos2) -> Self {
+    pub fn new(pos: Pos) -> Self {
         // keyframe::ease(function, from, to, time)
         // keyframe::functions::BezierCurve::from([])
 
@@ -201,15 +201,15 @@ impl TestRect {
 
         Self {
             // rect: RoundedRect::new(
-            //     // Rect::new(Pos2::new(20., 20.), Pos2::new(200., 100.)),
-            //     Rect::from_min_size(pos, Size2::new(180., 180.)),
+            //     // Rect::new(Pos::new(20., 20.), Pos::new(200., 100.)),
+            //     Rect::from_min_size(pos, Size::new(180., 180.)),
             //     Some(10.),
             //     // None,
             // ),
-            size: Size2::new(180., 180.),
+            size: Size::new(180., 180.),
 
             // input_rect: Rect::zero().into(),
-            response: Response::new(RoundedRect::default().with_radius(10.))
+            response: Response::new(RoundedRect::default().with_radius_from(10.))
                 .with_clickable(true)
                 .with_focusable(true)
                 .with_hoverable(true),
@@ -250,7 +250,7 @@ impl Element for TestRect {
                 .vertices
                 .iter()
                 .map(|p| PaintMeshVertex {
-                    pos: (*p * 1.) + self.response.boundary.min.to_vector() + Vec2::splat(10.),
+                    pos: (*p * 1.) + self.response.boundary.min().to_vector() + Vector::splat(10.),
                     color: ColorRgba::new(0., 0., 0., 1.).into(),
                 })
                 .collect(),

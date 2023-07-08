@@ -6,7 +6,7 @@ use crate::{
     color::ColorRgba,
     graphics::DynamicGPUMeshTriBuffer,
     surface::{ParamsBuffer, RenderingContext, SurfaceDependent},
-    util::{LogicalToPhysical, Pos2, WgpuDescriptor},
+    util::{Pos, WgpuDescriptor, WindowScaleFactor},
 };
 
 #[repr(C)]
@@ -24,18 +24,21 @@ impl WgpuDescriptor<2> for MeshVertex {
 }
 
 impl MeshVertex {
-    pub fn from_paint_vertex(vertex: impl Into<PaintMeshVertex>, scale_fac: f64) -> Self {
+    pub fn from_paint_vertex(
+        vertex: impl Into<PaintMeshVertex>,
+        scale_fac: WindowScaleFactor,
+    ) -> Self {
         let vertex = vertex.into();
 
         Self {
-            pos: vertex.pos.to_physical(scale_fac).into(),
+            pos: (vertex.pos * scale_fac).into(),
             color: vertex.color.into(),
         }
     }
 }
 
 pub struct PaintMeshVertex {
-    pub pos: Pos2,
+    pub pos: Pos,
     pub color: ColorRgba,
 }
 
@@ -48,7 +51,7 @@ pub type PaintMesh = Mesh<PaintMeshVertex>;
 pub type GpuMesh = Mesh<MeshVertex>;
 
 impl PaintMesh {
-    pub fn as_gpu_mesh(self, scale_fac: f64) -> GpuMesh {
+    pub fn as_gpu_mesh(self, scale_fac: WindowScaleFactor) -> GpuMesh {
         Mesh {
             vertices: self
                 .vertices
@@ -184,7 +187,7 @@ impl SurfaceDependent for MeshRenderer {
         &mut self,
         context: &RenderingContext,
         _size: winit::dpi::PhysicalSize<u32>,
-        _scale_factor: f64,
+        _scale_factor: WindowScaleFactor,
     ) {
         let (render_pipeline, bind_group) = Self::create_resources(context);
 

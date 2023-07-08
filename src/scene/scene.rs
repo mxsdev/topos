@@ -14,7 +14,7 @@ use crate::{
     accessibility::AccessNode,
     atlas::{
         self, BatchedAtlasRender, BatchedAtlasRenderBoxIterator, BatchedAtlasRenderBoxesEntry,
-        FontManagerRenderResources,
+        FontManagerRenderResources, PlacedTextBox,
     },
     element::{Element, ElementEvent, ElementId, ElementRef, RootConstructor, SizeConstraint},
     input::{input_state::InputState, output::PlatformOutput, winit::WinitState},
@@ -22,10 +22,7 @@ use crate::{
     scene::update::UpdatePass,
     shape::{self, BoxShaderVertex, PaintRectangle, PaintShape},
     surface::{RenderAttachment, RenderSurface, RenderingContext, SurfaceDependent},
-    util::{
-        LogicalToPhysical, LogicalToPhysicalInto, PhysicalRect, PhysicalToLogical, Pos2, Rect,
-        RoundToInt, Size2, ToEuclid,
-    },
+    util::{PhysicalRect, PhysicalSize, PhysicalUnit, Rect, WindowScaleFactor},
 };
 
 use super::{
@@ -39,29 +36,28 @@ pub struct SceneResources<'a> {
     font_system: Arc<Mutex<FontSystem>>,
     rendering_context: Arc<RenderingContext>,
     layout_engine: &'a mut LayoutEngine,
-    scale_factor: f64,
-    scale_factor_f32: f32,
+    scale_factor: WindowScaleFactor,
+    // scale_factor: f64,
+    // scale_factor_f32: f32,
 }
 
 impl<'a> SceneResources<'a> {
     pub fn new(
         font_system: Arc<Mutex<FontSystem>>,
         rendering_context: Arc<RenderingContext>,
-        scale_factor: f64,
+        scale_factor: WindowScaleFactor,
         layout_engine: &'a mut LayoutEngine,
     ) -> Self {
         Self {
             font_system,
             rendering_context,
             scale_factor,
-            scale_factor_f32: scale_factor as f32,
             layout_engine,
         }
     }
 
-    pub(super) fn set_scale_factor(&mut self, fac: f64) {
+    pub(super) fn set_scale_factor(&mut self, fac: WindowScaleFactor) {
         self.scale_factor = fac;
-        self.scale_factor_f32 = fac as f32;
     }
 
     pub fn font_system(&self) -> impl DerefMut<Target = FontSystem> + '_ {
@@ -76,12 +72,8 @@ impl<'a> SceneResources<'a> {
         self.rendering_context.clone()
     }
 
-    pub fn scale_factor(&self) -> f64 {
+    pub fn scale_factor(&self) -> WindowScaleFactor {
         self.scale_factor
-    }
-
-    pub fn scale_factor_f32(&self) -> f32 {
-        self.scale_factor_f32
     }
 
     pub fn layout_engine(&mut self) -> &mut LayoutEngine {
@@ -121,7 +113,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         let mut scene_resources = SceneResources::new(
             font_manager.get_font_system_ref(),
             rendering_context,
-            scale_fac,
+            WindowScaleFactor::new(scale_fac as f32),
             &mut layout_engine,
         );
 
@@ -151,15 +143,17 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
             .create_view(&wgpu::TextureViewDescriptor::default());
 
         let RenderingContext { device, queue, .. } = render_surface.rendering_context();
+
         let scale_fac = render_surface.scale_factor();
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         });
 
-        let physical_screen_size = render_surface.get_size().to_euclid();
+        // PhysicalSize::<u32>::into();
+        let physical_screen_size: PhysicalSize<u32> = render_surface.get_size().into();
 
-        let screen_size = physical_screen_size.to_f32().to_logical(scale_fac);
+        let screen_size = physical_screen_size.map(|x| x as f32) * scale_fac.inverse();
 
         // layout pass
         let mut scene_resources = SceneResources::new(
@@ -175,7 +169,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
         scene_layout.do_input_pass(&mut input);
 
-        let mut scene_context = SceneContext::new(scale_fac as f32);
+        let mut scene_context = SceneContext::new(scale_fac);
         scene_layout.do_ui_pass(&mut scene_context);
 
         scene_context.output.accesskit_update().tree =
@@ -197,12 +191,12 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         let mut num_mesh_vertices = 0;
         let mut num_mesh_indices = 0;
 
-        let mut last_clip_rect = None;
+        let mut last_clip_rect: Option<PhysicalRect> = None;
 
         for shape in shapes.into_iter() {
             match shape {
                 shape::PaintShape::Rectangle(paint_rect) => {
-                    let physical_paint_rect = paint_rect.to_physical(scale_fac);
+                    let physical_paint_rect = paint_rect * scale_fac;
 
                     if let Some(clip_rect) = last_clip_rect {
                         if physical_paint_rect
@@ -225,8 +219,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
                 shape::PaintShape::Text(text_box) => {
                     batcher.add_text_box();
                     text_boxes.push(
-                        text_box
-                            .to_physical(scale_fac)
+                        ((text_box * scale_fac) as PlacedTextBox<f32, PhysicalUnit>)
                             .with_clip_rect(last_clip_rect),
                     );
                 }
@@ -242,10 +235,10 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
                     meshes.push(paint_mesh);
                 }
                 shape::PaintShape::ClipRect(rect) => {
-                    let physical_rect = rect.map(|r| r.to_physical(scale_fac));
+                    let physical_rect = rect.map(|r| r * scale_fac);
                     last_clip_rect = physical_rect;
 
-                    batcher.set_clip_rect(physical_rect.map(|r| r.round_to_int()))
+                    batcher.set_clip_rect(physical_rect.map(|r| r.map(|x| x.round() as u32)))
                 }
             }
         }

@@ -1,6 +1,6 @@
 use std::ops::Shl;
 
-use num_traits::{Float, Num, One};
+use num_traits::{Float, Num};
 
 pub trait MaxNum {
     fn max_num(self, other: Self) -> Self;
@@ -34,6 +34,18 @@ impl Two for f32 {
 
 impl Two for f64 {
     const TWO: Self = 2.;
+}
+
+impl Two for u16 {
+    const TWO: Self = 2;
+}
+
+impl Two for u32 {
+    const TWO: Self = 2;
+}
+
+impl Two for u64 {
+    const TWO: Self = 2;
 }
 
 pub trait Infty {
@@ -92,3 +104,23 @@ impl NextPowerOfTwo for u32 {
 //         1 << ((self as f32).log2().ceil() as Self::ClosestInt)
 //     }
 // }
+
+pub trait Zero {
+    fn zero() -> Self;
+}
+
+impl<T: num_traits::Zero> Zero for T {
+    fn zero() -> T {
+        num_traits::Zero::zero()
+    }
+}
+
+pub trait One {
+    fn one() -> Self;
+}
+
+impl<T: num_traits::One> One for T {
+    fn one() -> T {
+        num_traits::One::one()
+    }
+}

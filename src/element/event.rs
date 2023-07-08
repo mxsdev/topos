@@ -1,9 +1,9 @@
-use crate::util::{Pos2, Vec2};
+use crate::util::{Pos, Vector};
 use winit::event::*;
 
 #[derive(Debug)]
 pub enum ElementEvent {
-    CursorMove { pos: Pos2, del: Option<Vec2> },
+    CursorMove { pos: Pos, del: Option<Vector> },
     MouseDown { button: MouseButton },
     MouseUp { button: MouseButton },
 }

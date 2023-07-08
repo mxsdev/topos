@@ -9,7 +9,7 @@ use crate::{
         scene::SceneResources,
     },
     shape::PaintRectangle,
-    util::{Pos2, Rect},
+    util::{Pos, Rect, RoundedRect},
 };
 
 use super::{TestRect, TextBox};
@@ -31,9 +31,9 @@ impl MainElement {
 
         Self {
             rects: vec![
-                TestRect::new(Pos2::new(20., 20.)).into(),
-                TestRect::new(Pos2::new(40., 40.)).into(),
-                TestRect::new(Pos2::new(60., 60.)).into(),
+                TestRect::new(Pos::new(20., 20.)).into(),
+                TestRect::new(Pos::new(40., 40.)).into(),
+                TestRect::new(Pos::new(60., 60.)).into(),
             ],
             text_box: text_box.into(),
         }

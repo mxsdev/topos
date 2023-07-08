@@ -1,9 +1,9 @@
 use std::{collections::BTreeMap, fmt::Debug};
 
-use crate::util::{Pos2, Vec2};
+use crate::util::{Angle, Pos, Vector};
 
 use super::{
-    // emath::{normalized_angle, Pos2, Vec2},
+    // emath::{normalized_angle, Pos, Vector},
     Event,
     RawInput,
     TouchDeviceId,
@@ -18,7 +18,7 @@ pub struct MultiTouchInfo {
     pub start_time: f64,
 
     /// Position of the pointer at the time the gesture started.
-    pub start_pos: Pos2,
+    pub start_pos: Pos,
 
     /// Number of touches (fingers) on the surface. Value is ≥ 2 since for a single touch no
     /// [`MultiTouchInfo`] is created.
@@ -39,7 +39,7 @@ pub struct MultiTouchInfo {
     /// * `zoom = 1`: no change
     /// * `zoom < 1`: pinch together
     /// * `zoom > 1`: pinch spread
-    pub zoom_delta_2d: Vec2,
+    pub zoom_delta_2d: Vector,
 
     /// Rotation in radians. Moving fingers around each other will change this value. This is a
     /// relative value, comparing the orientation of fingers in the current frame with the previous
@@ -47,14 +47,14 @@ pub struct MultiTouchInfo {
     pub rotation_delta: f32,
 
     /// Relative movement (comparing previous frame and current frame) of the average position of
-    /// all touch points. Without movement this value is `Vec2::ZERO`.
+    /// all touch points. Without movement this value is `Vector::ZERO`.
     ///
     /// Note that this may not necessarily be measured in screen points (although it _will_ be for
     /// most mobile devices). In general (depending on the touch device), touch coordinates cannot
     /// be directly mapped to the screen. A touch always is considered to start at the position of
     /// the pointer, but touch movement is always measured in the units delivered by the device,
     /// and may depend on hardware and system settings.
-    pub translation_delta: Vec2,
+    pub translation_delta: Vector,
 
     /// Current force of the touch (average of the forces of the individual fingers). This is a
     /// value in the interval `[0.0 .. =1.0]`.
@@ -90,7 +90,7 @@ pub(crate) struct TouchState {
 #[derive(Clone, Debug)]
 struct GestureState {
     start_time: f64,
-    start_pointer_pos: Pos2,
+    start_pointer_pos: Pos,
     pinch_type: PinchType,
     previous: Option<DynGestureState>,
     current: DynGestureState,
@@ -103,13 +103,13 @@ struct DynGestureState {
     avg_distance: f32,
 
     /// used for non-proportional zooming
-    avg_abs_distance2: Vec2,
+    avg_abs_distance2: Vector,
 
-    avg_pos: Pos2,
+    avg_pos: Pos,
 
     avg_force: f32,
 
-    heading: euclid::Angle<f32>,
+    heading: Angle<f32>,
 }
 
 /// Describes an individual touch (finger or digitizer) on the touch surface. Instances exist as
@@ -117,7 +117,7 @@ struct DynGestureState {
 #[derive(Clone, Copy, Debug)]
 struct ActiveTouch {
     /// Current position of this touch, in device coordinates (not necessarily screen position)
-    pos: Pos2,
+    pos: Pos,
 
     /// Current force of the touch. A value in the interval [0.0 .. 1.0]
     ///
@@ -135,7 +135,7 @@ impl TouchState {
         }
     }
 
-    pub fn begin_frame(&mut self, time: f64, new: &RawInput, pointer_pos: Option<Pos2>) {
+    pub fn begin_frame(&mut self, time: f64, new: &RawInput, pointer_pos: Option<Pos>) {
         let mut added_or_removed_touches = false;
         for event in &new.events {
             match *event {
@@ -191,15 +191,15 @@ impl TouchState {
             let zoom_delta = state.current.avg_distance / state_previous.avg_distance;
 
             let zoom_delta2 = match state.pinch_type {
-                PinchType::Horizontal => Vec2::new(
+                PinchType::Horizontal => Vector::new(
                     state.current.avg_abs_distance2.x / state_previous.avg_abs_distance2.x,
                     1.0,
                 ),
-                PinchType::Vertical => Vec2::new(
+                PinchType::Vertical => Vector::new(
                     1.0,
                     state.current.avg_abs_distance2.y / state_previous.avg_abs_distance2.y,
                 ),
-                PinchType::Proportional => Vec2::splat(zoom_delta),
+                PinchType::Proportional => Vector::splat(zoom_delta),
             };
 
             MultiTouchInfo {
@@ -217,7 +217,7 @@ impl TouchState {
         })
     }
 
-    fn update_gesture(&mut self, time: f64, pointer_pos: Option<Pos2>) {
+    fn update_gesture(&mut self, time: f64, pointer_pos: Option<Pos>) {
         if let Some(dyn_state) = self.calc_dynamic_state() {
             if let Some(ref mut state) = &mut self.gesture_state {
                 // updating an ongoing gesture
@@ -247,10 +247,10 @@ impl TouchState {
         } else {
             let mut state = DynGestureState {
                 avg_distance: 0.0,
-                avg_abs_distance2: Vec2::zero(),
-                avg_pos: Pos2::zero(),
+                avg_abs_distance2: Vector::zero(),
+                avg_pos: Pos::zero(),
                 avg_force: 0.0,
-                heading: euclid::Angle::<f32>::zero(),
+                heading: Angle::<f32>::zero(),
             };
             let num_touches_recip = 1. / num_touches as f32;
 

@@ -1,25 +1,27 @@
-use crate::{color::ColorRgba, mesh::PaintMesh, surface::SurfaceDependent, util::Pos2};
+use crate::{
+    color::ColorRgba,
+    mesh::PaintMesh,
+    surface::SurfaceDependent,
+    util::{RoundedRect, ScaleFactor, WindowScaleFactor},
+};
 
 use std::{
     fmt::Debug,
     marker::PhantomData,
     num::NonZeroU64,
-    ops::{Add, Range},
+    ops::{Add, Mul, Range},
 };
 
 use bytemuck::Pod;
 use euclid::Vector2D;
-use num_traits::Num;
+use num_traits::{Float, Num};
 
 use crate::{
     atlas::PlacedTextBox,
     graphics::DynamicGPUQuadBuffer,
     num::{MaxNum, Two},
     surface::{ParamsBuffer, RenderingContext},
-    util::{
-        CanScale, LogicalToPhysical, LogicalUnit, PhysicalUnit, Rect, RoundedBox2D, Translate2DMut,
-        WgpuDescriptor,
-    },
+    util::{LogicalUnit, PhysicalUnit, Rect, WgpuDescriptor},
 };
 
 pub struct RenderResources {
@@ -147,7 +149,7 @@ impl SurfaceDependent for ShapeRenderer {
         &mut self,
         context: &RenderingContext,
         _size: winit::dpi::PhysicalSize<u32>,
-        _scale_factor: f64,
+        _scale_factor: WindowScaleFactor,
     ) {
         self.box_resources = Self::create_box_resources(context)
     }
@@ -209,11 +211,16 @@ impl BoxShaderVertex {
     }
 
     fn from_rect_stroked(
-        rect: RoundedBox2D<f32, PhysicalUnit>,
+        rounded_rect: RoundedRect<f32, PhysicalUnit>,
         color: ColorRgba,
         stroke_width: Option<f32>,
         blur_radius: Option<f32>,
     ) -> [Self; 4] {
+        let RoundedRect {
+            inner: rect,
+            radius,
+        } = rounded_rect;
+
         let dims = rect.max - rect.center();
 
         let color: [f32; 4] = color.into();
@@ -226,7 +233,7 @@ impl BoxShaderVertex {
                 dims: [dims.x, dims.y],
                 color,
                 depth: 0.,
-                rounding: rect.radius.unwrap_or(0.),
+                rounding: radius.unwrap_or(0.),
                 stroke_width,
                 blur_radius,
             },
@@ -235,7 +242,7 @@ impl BoxShaderVertex {
                 dims: [dims.x, dims.y],
                 color,
                 depth: 0.,
-                rounding: rect.radius.unwrap_or(0.),
+                rounding: radius.unwrap_or(0.),
                 stroke_width,
                 blur_radius,
             },
@@ -244,7 +251,7 @@ impl BoxShaderVertex {
                 dims: [dims.x, dims.y],
                 color,
                 depth: 0.,
-                rounding: rect.radius.unwrap_or(0.),
+                rounding: radius.unwrap_or(0.),
                 stroke_width,
                 blur_radius,
             },
@@ -253,7 +260,7 @@ impl BoxShaderVertex {
                 dims: [dims.x, dims.y],
                 color,
                 depth: 0.,
-                rounding: rect.radius.unwrap_or(0.),
+                rounding: radius.unwrap_or(0.),
                 stroke_width,
                 blur_radius,
             },
@@ -268,7 +275,7 @@ pub struct PaintBlur<F = f32, U = LogicalUnit> {
     _unit: PhantomData<U>,
 }
 
-impl<F: CanScale, U> PaintBlur<F, U> {
+impl<F: Float, U> PaintBlur<F, U> {
     pub fn new(blur_radius: F, color: ColorRgba) -> Self {
         Self {
             blur_radius,
@@ -278,10 +285,23 @@ impl<F: CanScale, U> PaintBlur<F, U> {
     }
 }
 
+impl<T: Copy + Mul, U1, U2> Mul<ScaleFactor<T, U1, U2>> for PaintBlur<T, U1> {
+    type Output = PaintBlur<T::Output, U2>;
+
+    #[inline]
+    fn mul(self, scale: ScaleFactor<T, U1, U2>) -> Self::Output {
+        Self::Output {
+            blur_radius: self.blur_radius * scale.get(),
+            color: self.color,
+            _unit: PhantomData,
+        }
+    }
+}
+
 // TODO: adopt builder pattern (with `impl` args)
 #[derive(Clone, Default)]
 pub struct PaintRectangle<F = f32, U = LogicalUnit> {
-    pub rect: RoundedBox2D<F, U>,
+    pub rect: RoundedRect<F, U>,
     pub fill: Option<ColorRgba>,
     pub stroke_color: Option<ColorRgba>,
     pub stroke_width: Option<F>,
@@ -299,7 +319,7 @@ custom_derive! {
 }
 
 impl<F: Num + Copy + Default + Two + MaxNum, U> PaintRectangle<F, U> {
-    pub fn get_bounding_box(&self) -> euclid::Box2D<F, U> {
+    pub fn get_bounding_box(&self) -> Rect<F, U> {
         let fac = [
             self.stroke_width.map(|w| w / F::TWO),
             self.blur.as_ref().map(|b| b.blur_radius),
@@ -310,48 +330,47 @@ impl<F: Num + Copy + Default + Two + MaxNum, U> PaintRectangle<F, U> {
         .reduce(MaxNum::max_num)
         .unwrap_or_default();
 
-        self.rect.rect.inflate(fac, fac)
+        self.rect.inner.inflate(fac, fac)
     }
 }
 
-impl<F: CanScale> LogicalToPhysical for PaintRectangle<F, LogicalUnit> {
-    type PhysicalResult = PaintRectangle<F, PhysicalUnit>;
+impl<T: Copy + Mul, U1, U2> Mul<ScaleFactor<T, U1, U2>> for PaintRectangle<T, U1> {
+    type Output = PaintRectangle<T::Output, U2>;
 
-    fn to_physical(&self, scale_factor: impl CanScale) -> Self::PhysicalResult {
-        Self::PhysicalResult {
+    #[inline]
+    fn mul(self, scale: ScaleFactor<T, U1, U2>) -> Self::Output {
+        Self::Output {
+            blur: self.blur.map(|x| x * scale),
             fill: self.fill,
+            rect: self.rect * scale,
             stroke_color: self.stroke_color,
-            stroke_width: self.stroke_width.map(|w| w.to_physical(scale_factor)),
-            rect: self.rect.to_physical(scale_factor),
-            blur: self
-                .blur
-                .as_ref()
-                .map(|b| PaintBlur::new(b.blur_radius.to_physical(scale_factor), b.color)),
+            stroke_width: self.stroke_width.map(|x| x * scale.get()),
         }
     }
 }
 
-impl<F: CanScale, U> Translate2DMut<F, U> for PaintRectangle<F, U> {
-    fn translate_mut(&mut self, x: F, y: F) {
-        self.rect.translate_mut(x, y);
-    }
-}
+// FIXME
+// impl<F: Float, U> Translate2DMut<F, U> for PaintRectangle<F, U> {
+//     fn translate_mut(&mut self, x: F, y: F) {
+//         self.rect.translate_mut(x, y);
+//     }
+// }
 
-impl Translate2DMut<f32, LogicalUnit> for PaintShape {
-    fn translate_mut(&mut self, x: f32, y: f32) {
-        match self {
-            PaintShape::Rectangle(rect) => rect.translate_mut(x, y),
-            PaintShape::Text(text_box) => text_box.pos.translate_mut(x, y),
-            PaintShape::ClipRect(rect) => {
-                if let Some(rect) = rect.as_mut() {
-                    rect.translate_mut(x, y)
-                }
-            }
-            PaintShape::Mesh(PaintMesh { vertices, .. }) => {
-                vertices.iter_mut().for_each(|v| {
-                    v.pos.translate_mut(x, y);
-                });
-            }
-        }
-    }
-}
+// impl Translate2DMut<f32, LogicalUnit> for PaintShape {
+//     fn translate_mut(&mut self, x: f32, y: f32) {
+//         match self {
+//             PaintShape::Rectangle(rect) => rect.translate_mut(x, y),
+//             PaintShape::Text(text_box) => text_box.pos.translate_mut(x, y),
+//             PaintShape::ClipRect(rect) => {
+//                 if let Some(rect) = rect.as_mut() {
+//                     rect.translate_mut(x, y)
+//                 }
+//             }
+//             PaintShape::Mesh(PaintMesh { vertices, .. }) => {
+//                 vertices.iter_mut().for_each(|v| {
+//                     v.pos.translate_mut(x, y);
+//                 });
+//             }
+//         }
+//     }
+// }

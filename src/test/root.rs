@@ -7,13 +7,13 @@ use crate::{
         layout::{ColumnReverse, FlexBox, LayoutPass, LayoutPassResult, Percent},
         scene::SceneResources,
     },
-    util::Rect,
+    util::{Rect, WindowScaleFactor},
 };
 
 use super::{MainElement, TitleBar};
 
 pub struct TestRoot {
-    scale_factor: f64,
+    scale_factor: WindowScaleFactor,
 
     main: ElementRef<MainElement>,
     title_bar: ElementRef<TitleBar>,
@@ -53,7 +53,7 @@ impl Element for TestRoot {
 
     fn node(&self) -> AccessNodeBuilder {
         let mut builder = AccessNodeBuilder::new(AccessRole::Window);
-        builder.set_transform(accesskit::Affine::scale(self.scale_factor));
+        builder.set_transform(accesskit::Affine::scale(self.scale_factor.get() as f64));
         builder
     }
 }

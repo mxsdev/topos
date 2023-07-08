@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
-use crate::util::{Pos2, Rect};
+use crate::util::{Pos, Rect, RoundedRect};
 
 pub type AccessNode = accesskit::Node;
 pub type AccessNodeId = accesskit::NodeId;
@@ -44,7 +44,7 @@ pub trait AsAccessPoint {
     fn as_access_point(&self) -> AccessPoint;
 }
 
-impl AsAccessPoint for Pos2 {
+impl AsAccessPoint for Pos {
     fn as_access_point(&self) -> AccessPoint {
         AccessPoint::new(self.x as f64, self.y as f64)
     }
@@ -57,5 +57,11 @@ pub trait AsAccessRect {
 impl AsAccessRect for Rect {
     fn as_access_rect(&self) -> AccessRect {
         AccessRect::from_points(self.min.as_access_point(), self.max.as_access_point())
+    }
+}
+
+impl AsAccessRect for RoundedRect {
+    fn as_access_rect(&self) -> AccessRect {
+        AccessRect::from_points(self.min().as_access_point(), self.max().as_access_point())
     }
 }

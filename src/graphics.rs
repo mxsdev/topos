@@ -2,7 +2,7 @@ use std::{fmt::Debug, marker::PhantomData, ops::Range, sync::Mutex};
 
 use bytemuck::Pod;
 
-use crate::{mesh::Mesh, util::ScaleRange};
+use crate::mesh::Mesh;
 
 pub struct DynamicGPUQuadBuffer<T: Sized + Pod + Debug> {
     vertex_buffer: wgpu::Buffer,
@@ -83,7 +83,10 @@ impl<T: Sized + Pod + Debug> DynamicGPUQuadBuffer<T> {
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
 
         render_pass.set_index_buffer(
-            self.index_buffer.slice(quads.scale(Self::QUAD_INDEX_BYTES)),
+            self.index_buffer.slice(Range {
+                start: quads.start * Self::QUAD_INDEX_BYTES,
+                end: quads.end * Self::QUAD_INDEX_BYTES,
+            }),
             wgpu::IndexFormat::Uint16,
         );
 

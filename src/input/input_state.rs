@@ -1,4 +1,8 @@
-use crate::{element::ElementId, history::History, util::*};
+use crate::{
+    element::ElementId,
+    history::History,
+    util::{Pos, Vector},
+};
 
 use super::{
     focus::FocusState, touch_state, Event, Key, KeyboardShortcut, Modifiers, PointerButton,
@@ -51,7 +55,7 @@ pub struct InputState {
     ///
     /// A positive Y-value indicates the content is being moved down,
     /// as when swiping down on a touch-screen or track-pad with natural scrolling.
-    pub scroll_delta: Vec2,
+    pub scroll_delta: Vector,
 
     /// Zoom scale factor this frame (e.g. from ctrl-scroll or pinch gesture).
     ///
@@ -140,7 +144,7 @@ impl Default for InputState {
             raw: Default::default(),
             pointer: Default::default(),
             touch_states: Default::default(),
-            scroll_delta: Vec2::zero(),
+            scroll_delta: Vector::zero(),
             zoom_factor_delta: 1.0,
             // screen_rect: Rect::from_min_size(Default::default(), Size2::new(10_000.0, 10_000.0)),
             // pixels_per_point: 1.0,
@@ -191,7 +195,7 @@ impl InputState {
         let pointer = self.pointer.begin_frame(time, &new);
 
         let mut keys_down = self.keys_down;
-        let mut scroll_delta = Vec2::zero();
+        let mut scroll_delta = Vector::zero();
         let mut zoom_factor_delta = 1.0;
         let mut accesskit_actions = Vec::new();
         for event in &mut new.events {
@@ -350,7 +354,7 @@ impl InputState {
     ///
     /// For multitouch devices the user can do a horizontal or vertical pinch gesture.
     /// In these cases a non-proportional zoom factor is a available.
-    /// In other cases, this reverts to `Vec2::splat(self.zoom_delta())`.
+    /// In other cases, this reverts to `Vector::splat(self.zoom_delta())`.
     ///
     /// For horizontal pinches, this will return `[z, 1]`,
     /// for vertical pinches this will return `[1, z]`,
@@ -360,19 +364,19 @@ impl InputState {
     /// * `zoom < 1`: pinch together
     /// * `zoom > 1`: pinch spread
     #[inline(always)]
-    pub fn zoom_delta_2d(&self) -> Vec2 {
+    pub fn zoom_delta_2d(&self) -> Vector {
         // If a multi touch gesture is detected, it measures the exact and linear proportions of
         // the distances of the finger tips.  It is therefore potentially more accurate than
         // `zoom_factor_delta` which is based on the `ctrl-scroll` event which, in turn, may be
         // synthesized from an original touch gesture.
         self.multi_touch().map_or_else(
-            || Vec2::splat(self.zoom_factor_delta),
+            || Vector::splat(self.zoom_factor_delta),
             |touch| touch.zoom_delta_2d,
         )
     }
 
     // pub fn wants_repaint(&self) -> bool {
-    //     self.pointer.wants_repaint() || self.scroll_delta != Vec2::zero() || !self.events.is_empty()
+    //     self.pointer.wants_repaint() || self.scroll_delta != Vector::zero() || !self.events.is_empty()
     // }
 
     /// Count presses of a key. If non-zero, the presses are consumed, so that this will only return non-zero once.
@@ -561,7 +565,7 @@ impl InputState {
 /// A pointer (mouse or touch) click.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Click {
-    pub pos: Pos2,
+    pub pos: Pos,
 
     /// 1 or 2 (double-click) or 3 (triple-click)
     pub count: u32,
@@ -582,9 +586,9 @@ impl Click {
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum PointerEvent {
-    Moved(Pos2),
+    Moved(Pos),
     Pressed {
-        position: Pos2,
+        position: Pos,
         button: PointerButton,
     },
     Released {
@@ -621,29 +625,29 @@ pub struct PointerState {
     // For showing tooltips, we want the latter (no tooltips, since there are no fingers).
     /// Latest reported pointer position.
     /// When tapping a touch screen, this will be `None`.
-    latest_pos: Option<Pos2>,
+    latest_pos: Option<Pos>,
 
     /// Latest position of the mouse, but ignoring any [`Event::PointerGone`]
     /// if there were interactions this frame.
     /// When tapping a touch screen, this will be the location of the touch.
-    interact_pos: Option<Pos2>,
+    interact_pos: Option<Pos>,
 
     /// How much the pointer moved compared to last frame, in points.
-    delta: Vec2,
+    delta: Vector,
 
     /// Current velocity of pointer.
-    velocity: Vec2,
+    velocity: Vector,
 
     /// Recent movement of the pointer.
     /// Used for calculating velocity of pointer.
-    pos_history: History<Pos2>,
+    pos_history: History<Pos>,
 
     // down: [bool; NUM_POINTER_BUTTONS],
     down: FxHashMap<PointerButton, bool>,
 
     /// Where did the current click/drag originate?
     /// `None` if no mouse button is down.
-    press_origin: Option<Pos2>,
+    press_origin: Option<Pos>,
 
     /// When did the current click/drag originate?
     /// `None` if no mouse button is down.
@@ -673,8 +677,8 @@ impl Default for PointerState {
             time: -f64::INFINITY,
             latest_pos: None,
             interact_pos: None,
-            delta: Vec2::zero(),
-            velocity: Vec2::zero(),
+            delta: Vector::zero(),
+            velocity: Vector::zero(),
             pos_history: History::new(0..1000, 0.1),
             down: Default::default(),
             press_origin: None,
@@ -792,7 +796,7 @@ impl PointerState {
         self.delta = if let (Some(old_pos), Some(new_pos)) = (old_pos, self.latest_pos) {
             new_pos - old_pos
         } else {
-            Vec2::zero()
+            Vector::zero()
         };
 
         if let Some(pos) = self.latest_pos {
@@ -808,7 +812,7 @@ impl PointerState {
         self.velocity = if self.pos_history.len() >= 3 && self.pos_history.duration() > 0.01 {
             self.pos_history.velocity().unwrap_or_default()
         } else {
-            Vec2::default()
+            Vector::default()
         };
 
         self.hover_consumed = false;
@@ -821,25 +825,25 @@ impl PointerState {
     }
 
     // fn wants_repaint(&self) -> bool {
-    //     !self.pointer_events.is_empty() || self.delta != Vec2::zero()
+    //     !self.pointer_events.is_empty() || self.delta != Vector::zero()
     // }
 
     /// How much the pointer moved compared to last frame, in points.
     #[inline(always)]
-    pub fn delta(&self) -> Vec2 {
+    pub fn delta(&self) -> Vector {
         self.delta
     }
 
     /// Current velocity of pointer.
     #[inline(always)]
-    pub fn velocity(&self) -> Vec2 {
+    pub fn velocity(&self) -> Vector {
         self.velocity
     }
 
     /// Where did the current click/drag originate?
     /// `None` if no mouse button is down.
     #[inline(always)]
-    pub fn press_origin(&self) -> Option<Pos2> {
+    pub fn press_origin(&self) -> Option<Pos> {
         self.press_origin
     }
 
@@ -853,13 +857,13 @@ impl PointerState {
     /// Latest reported pointer position.
     /// When tapping a touch screen, this will be `None`.
     #[inline(always)]
-    pub(crate) fn latest_pos(&self) -> Option<Pos2> {
+    pub(crate) fn latest_pos(&self) -> Option<Pos> {
         self.latest_pos
     }
 
     /// If it is a good idea to show a tooltip, where is pointer?
     #[inline(always)]
-    pub fn hover_pos(&self) -> Option<Pos2> {
+    pub fn hover_pos(&self) -> Option<Pos> {
         if self.hover_consumed {
             return None;
         }
@@ -873,7 +877,7 @@ impl PointerState {
     /// if there were interactions this frame.
     /// When tapping a touch screen, this will be the location of the touch.
     #[inline(always)]
-    pub fn interact_pos(&self) -> Option<Pos2> {
+    pub fn interact_pos(&self) -> Option<Pos> {
         self.interact_pos
     }
 
@@ -889,14 +893,14 @@ impl PointerState {
     /// This is smoothed so a few frames of stillness is required before this returns `true`.
     #[inline(always)]
     pub fn is_still(&self) -> bool {
-        self.velocity == Vec2::zero()
+        self.velocity == Vector::zero()
     }
 
     /// Is the pointer currently moving?
     /// This is smoothed so a few frames of stillness is required before this returns `false`.
     #[inline]
     pub fn is_moving(&self) -> bool {
-        self.velocity != Vec2::zero()
+        self.velocity != Vector::zero()
     }
 
     /// Was any pointer button pressed (`!down -> down`) this frame?

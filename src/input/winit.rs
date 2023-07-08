@@ -24,9 +24,9 @@ pub fn native_pixels_per_point(window: &winit::window::Window) -> f32 {
     window.scale_factor() as f32
 }
 
-pub fn screen_size_in_pixels(window: &winit::window::Window) -> Vec2 {
+pub fn screen_size_in_pixels(window: &winit::window::Window) -> Vector {
     let size = window.inner_size();
-    Vec2::new(size.width as f32, size.height as f32)
+    Vector::new(size.width as f32, size.height as f32)
 }
 
 // ----------------------------------------------------------------------------
@@ -51,7 +51,7 @@ pub struct EventResponse {
 pub struct WinitState {
     start_time: Instant,
     egui_input: RawInput,
-    pointer_pos_in_points: Option<Pos2>,
+    pointer_pos_in_points: Option<Pos>,
     any_pointer_button_down: bool,
     current_cursor_icon: Option<super::output::CursorIcon>,
 
@@ -189,7 +189,7 @@ impl WinitState {
         // self.egui_input.screen_rect =
         //     if screen_size_in_points.x > 0.0 && screen_size_in_points.y > 0.0 {
         //         Some(Rect::from_min_size(
-        //             Pos2::zero(),
+        //             Pos::zero(),
         //             screen_size_in_points.into(),
         //         ))
         //     } else {
@@ -466,7 +466,7 @@ impl WinitState {
     }
 
     fn on_cursor_moved(&mut self, pos_in_pixels: winit::dpi::PhysicalPosition<f64>) {
-        let pos_in_points = Pos2::new(
+        let pos_in_points = Pos::new(
             pos_in_pixels.x as f32 / self.pixels_per_point(),
             pos_in_pixels.y as f32 / self.pixels_per_point(),
         );
@@ -504,7 +504,7 @@ impl WinitState {
                 winit::event::TouchPhase::Ended => TouchPhase::End,
                 winit::event::TouchPhase::Cancelled => TouchPhase::Cancel,
             },
-            pos: Pos2::new(
+            pos: Pos::new(
                 touch.location.x as f32 / self.pixels_per_point(),
                 touch.location.y as f32 / self.pixels_per_point(),
             ),
@@ -559,14 +559,14 @@ impl WinitState {
         {
             let (unit, delta) = match delta {
                 winit::event::MouseScrollDelta::LineDelta(x, y) => {
-                    (MouseWheelUnit::Line, Vec2::new(x, y))
+                    (MouseWheelUnit::Line, Vector::new(x, y))
                 }
                 winit::event::MouseScrollDelta::PixelDelta(winit::dpi::PhysicalPosition {
                     x,
                     y,
                 }) => (
                     MouseWheelUnit::Point,
-                    Vec2::new(x as f32, y as f32) / self.pixels_per_point(),
+                    Vector::new(x as f32, y as f32) / self.pixels_per_point(),
                 ),
             };
             let modifiers = self.egui_input.modifiers;
@@ -579,10 +579,10 @@ impl WinitState {
         let delta = match delta {
             winit::event::MouseScrollDelta::LineDelta(x, y) => {
                 let points_per_scroll_line = 50.0; // Scroll speed decided by consensus: https://github.com/emilk/egui/issues/461
-                Vec2::new(x, y) * points_per_scroll_line
+                Vector::new(x, y) * points_per_scroll_line
             }
             winit::event::MouseScrollDelta::PixelDelta(delta) => {
-                Vec2::new(delta.x as f32, delta.y as f32) / self.pixels_per_point()
+                Vector::new(delta.x as f32, delta.y as f32) / self.pixels_per_point()
             }
         };
 
@@ -595,7 +595,7 @@ impl WinitState {
             // Note: one Mac we already get horizontal scroll events when shift is down.
             self.egui_input
                 .events
-                .push(Event::Scroll(Vec2::new(delta.x + delta.y, 0.0)));
+                .push(Event::Scroll(Vector::new(delta.x + delta.y, 0.0)));
         } else {
             self.egui_input.events.push(Event::Scroll(delta));
         }
@@ -669,7 +669,7 @@ impl WinitState {
             self.clipboard.set(copied_text);
         }
 
-        if let Some(Pos2 { x, y, .. }) = text_cursor_pos {
+        if let Some(Pos { x, y, .. }) = text_cursor_pos {
             window.set_ime_position(winit::dpi::LogicalPosition { x, y });
         }
 
@@ -930,7 +930,7 @@ use winit::window::CursorIcon;
 use crate::{
     debug::HashU64,
     input::{DroppedFile, Event, HoveredFile, Modifiers},
-    util::{FromMinSize, Pos2, Rect, Vec2},
+    util::{Pos, Vector},
 };
 
 use super::{

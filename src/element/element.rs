@@ -13,28 +13,28 @@ use crate::scene::scene::SceneResources;
 use crate::util::LogicalUnit;
 use crate::{
     scene::{ctx::SceneContext, layout::LayoutPass},
-    util::{Pos2, Rect, Size2},
+    util::{Rect, Size},
 };
 
 #[derive(Clone, Copy)]
 pub struct SizeConstraint<F = f32> {
-    pub min: Size2<F>,
-    pub max: Size2<F>,
+    pub min: Size<F>,
+    pub max: Size<F>,
 }
 
-impl<F: euclid::num::Zero> Into<SizeConstraint<F>> for euclid::Size2D<F, LogicalUnit> {
+impl<F: crate::num::Zero> Into<SizeConstraint<F>> for Size<F, LogicalUnit> {
     fn into(self) -> SizeConstraint<F> {
         SizeConstraint::max(self)
     }
 }
 
 impl<F> SizeConstraint<F> {
-    pub fn max(size: Size2<F>) -> Self
+    pub fn max(size: Size<F>) -> Self
     where
-        F: euclid::num::Zero,
+        F: crate::num::Zero,
     {
         Self {
-            min: Size2::zero(),
+            min: Size::zero(),
             max: size,
         }
     }

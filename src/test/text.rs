@@ -11,7 +11,6 @@ use crate::{
         layout::{self, FlexBox, LayoutPassResult},
     },
     surface::RenderingContext,
-    util::AsRect,
 };
 
 use cosmic_text::{Attrs, FontSystem, Metrics};
@@ -23,7 +22,7 @@ use crate::{
     atlas::PlacedTextBox,
     element::Element,
     scene::{ctx::SceneContext, layout::LayoutPass, scene::SceneResources},
-    util::{IntoTaffy, Rect, Size2},
+    util::{Rect, Size},
 };
 
 struct CacheBuffer {
@@ -32,7 +31,7 @@ struct CacheBuffer {
     invalidate_cache: bool,
 
     // TODO: make this a LRU cache to ease memory consumption...
-    cache: FxHashMap<MeasureTextBoxCacheKey, Size2>,
+    cache: FxHashMap<MeasureTextBoxCacheKey, Size>,
 }
 
 impl From<cosmic_text::Buffer> for CacheBuffer {
@@ -72,7 +71,7 @@ impl TextBox {
 
             let mut buffer = cosmic_text::Buffer::new(
                 &mut font_system,
-                metrics.scale(scene_resources.scale_factor_f32()),
+                metrics.scale(scene_resources.scale_factor().get()),
             );
 
             buffer.set_text(&mut font_system, &text, attrs);
@@ -119,8 +118,8 @@ impl Element for TextBox {
     fn layout_post(&mut self, resources: &mut SceneResources, rect: Rect) {
         self.buffer.lock().unwrap().set_size(
             &mut resources.font_system(),
-            rect.width() * resources.scale_factor_f32(),
-            rect.height() * resources.scale_factor_f32(),
+            rect.width() * resources.scale_factor().get(),
+            rect.height() * resources.scale_factor().get(),
         );
     }
 
@@ -224,7 +223,7 @@ impl
         let result = match buffer.cache.get(&cache_key).cloned() {
             Some(res) => res,
             None => {
-                let scale_factor = self.rendering_context.texture_info.get_scale_factor_f32();
+                let scale_factor = self.rendering_context.texture_info.get_scale_factor().get();
 
                 buffer.set_size(
                     &mut self.font_system.lock().unwrap(),
@@ -236,7 +235,7 @@ impl
 
                 let size = buffer
                     .layout_runs()
-                    .fold(Size2::new(0.0, 0.0), |mut size, run| {
+                    .fold(Size::new(0.0, 0.0), |mut size, run| {
                         let new_width = run.line_w;
                         if new_width > size.width {
                             size.width = new_width;
@@ -252,7 +251,7 @@ impl
                 size
             }
         }
-        .into_taffy();
+        .into();
 
         result
     }

@@ -1,94 +1,133 @@
 use std::iter::Sum;
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+use std::marker::PhantomData;
+use std::ops::*;
 
-use euclid::Size2D;
+use crate::num::{One, Zero};
 use num_traits::{Float, Signed};
 
-use crate::impl_euclid_wrapper;
+use super::{markers::*, ScaleFactor, Vector};
 
-use super::traits::{CastUnit, MultiplyNumericFields};
+#[derive(Debug, Default, PartialEq, Eq, Hash)]
+pub struct Size<T = f32, U = LogicalUnit> {
+    /// The extent of the element in the `U` units along the `x` axis (usually horizontal).
+    pub width: T,
+    /// The extent of the element in the `U` units along the `y` axis (usually vertical).
+    pub height: T,
+    #[doc(hidden)]
+    pub _unit: PhantomData<U>,
+}
 
-use super::{markers::*, ScaleFactor};
+impl<T: Copy, U> Copy for Size<T, U> {}
 
-type Inner<F, U> = euclid::Size2D<F, U>;
-
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
-pub struct Size<F = f32, U = LogicalUnit> {
-    inner: Inner<F, U>,
+impl<T: Clone, U> Clone for Size<T, U> {
+    fn clone(&self) -> Self {
+        Size {
+            width: self.width.clone(),
+            height: self.height.clone(),
+            _unit: PhantomData,
+        }
+    }
 }
 
 pub type PhysicalSize<F = f32> = Size<F, PhysicalUnit>;
 
-impl_euclid_wrapper!(Size, Size2D);
+impl<T, U> Size<T, U> {
+    /// The same as [`Zero::zero()`] but available without importing trait.
+    ///
+    /// [`Zero::zero()`]: ./num/trait.Zero.html#tymethod.zero
+    #[inline]
+    pub fn zero() -> Self
+    where
+        T: Zero,
+    {
+        Size::new(Zero::zero(), Zero::zero())
+    }
 
-impl<F, U> Size<F, U> {
-    pub const fn new(width: F, height: F) -> Self {
-        Self {
-            inner: Inner::new(width, height),
+    /// Constructor taking scalar values.
+    #[inline]
+    pub const fn new(width: T, height: T) -> Self {
+        Size {
+            width,
+            height,
+            _unit: PhantomData,
         }
     }
 
-    #[inline(always)]
-    pub const fn inner_ref(&self) -> &euclid::Size2D<F, U> {
-        &self.inner
+    /// Constructor setting all components to the same value.
+    #[inline]
+    pub fn splat(v: T) -> Self
+    where
+        T: Clone,
+    {
+        Size {
+            width: v.clone(),
+            height: v,
+            _unit: PhantomData,
+        }
     }
 }
 
-#[inline]
-pub const fn size<T, U>(width: T, height: T) -> Size<T, U> {
-    Size::<T, U>::new(width, height)
-}
-
-impl<F: Copy, U> Size<F, U> {
-    #[inline(always)]
-    pub fn width(&self) -> F {
-        self.inner.width
-    }
-
-    #[inline(always)]
-    pub const fn height(&self) -> F {
-        self.inner.height
-    }
-
+impl<T: Copy, U> Size<T, U> {
     /// Return this size as an array of two elements (width, then height).
-    #[inline(always)]
-    pub fn to_array(self) -> [F; 2] {
-        self.inner.to_array()
+    #[inline]
+    pub fn to_array(self) -> [T; 2] {
+        [self.width, self.height]
     }
 
     /// Return this size as a tuple of two elements (width, then height).
-    #[inline(always)]
-    pub fn to_tuple(self) -> (F, F) {
-        self.inner.to_tuple()
+    #[inline]
+    pub fn to_tuple(self) -> (T, T) {
+        (self.width, self.height)
     }
 
     /// Return this size as a vector with width and height.
-    #[inline(always)]
-    pub fn to_vector(self) -> super::Vector<F, U> {
-        self.inner.to_vector().into()
+    #[inline]
+    pub fn to_vector(self) -> Vector<T, U> {
+        Vector::new(self.width, self.height)
+    }
+
+    /// Cast the unit
+    #[inline]
+    pub fn cast_unit<V>(self) -> Size<T, V> {
+        Size::new(self.width, self.height)
     }
 
     #[inline]
-    pub fn map<T>(self, f: impl Fn(F) -> T) -> Size<T, U> {
-        Size::new(f(self.inner.width), f(self.inner.height))
+    #[must_use]
+    pub fn map<R>(self, f: impl Fn(T) -> R) -> Size<R, U> {
+        Size::new(f(self.width), f(self.height))
     }
 
     /// Returns result of multiplication of both components
-    #[inline(always)]
-    pub fn area(self) -> F::Output
+    pub fn area(self) -> T::Output
     where
-        F: Mul,
+        T: Mul,
     {
-        self.inner.area()
+        self.width * self.height
     }
 
     /// Linearly interpolate each component between this size and another size.
-    #[inline(always)]
-    pub fn lerp(self, other: Self, t: F) -> Self
+    #[inline]
+    pub fn lerp(self, other: Self, t: T) -> Self
     where
-        F: euclid::num::One + Sub<Output = F> + Mul<Output = F> + Add<Output = F>,
+        T: One + Sub<Output = T> + Mul<Output = T> + Add<Output = T>,
     {
-        self.inner.lerp(other.into(), t).into()
+        let one_t = T::one() - t;
+        self * one_t + other * t
+    }
+}
+
+impl<T, U> Size<Option<T>, U> {
+    pub fn try_unwrap(self) -> Option<Size<T, U>> {
+        Option::zip(self.width, self.height).map(|(w, h)| Size::new(w, h))
+    }
+}
+
+impl<T: Float, U> Size<T, U> {
+    /// Returns true if all members are finite.
+    #[inline]
+    pub fn is_finite(self) -> bool {
+        self.width.is_finite() && self.height.is_finite()
     }
 }
 
@@ -98,106 +137,78 @@ impl<T: Signed, U> Size<T, U> {
     /// For `f32` and `f64`, `NaN` will be returned for component if the component is `NaN`.
     ///
     /// For signed integers, `::MIN` will be returned for component if the component is `::MIN`.
-    #[inline(always)]
     pub fn abs(self) -> Self {
-        self.inner.abs().into()
+        size(self.width.abs(), self.height.abs())
     }
 
     /// Returns `true` if both components is positive and `false` any component is zero or negative.
-    #[inline(always)]
     pub fn is_positive(self) -> bool {
-        self.inner.is_positive()
+        self.width.is_positive() && self.height.is_positive()
     }
 }
 
 impl<T: PartialOrd, U> Size<T, U> {
     /// Returns the size each component of which are minimum of this size and another.
-    #[inline(always)]
+    #[inline]
     pub fn min(self, other: Self) -> Self {
-        self.inner.min(other.into()).into()
+        size(
+            super::min(self.width, other.width),
+            super::min(self.height, other.height),
+        )
     }
 
     /// Returns the size each component of which are maximum of this size and another.
-    #[inline(always)]
+    #[inline]
     pub fn max(self, other: Self) -> Self {
-        self.inner.max(other.into()).into()
+        size(
+            super::max(self.width, other.width),
+            super::max(self.height, other.height),
+        )
     }
 
     /// Returns the size each component of which clamped by corresponding
     /// components of `start` and `end`.
     ///
     /// Shortcut for `self.max(start).min(end)`.
-    #[inline(always)]
+    #[inline]
     pub fn clamp(self, start: Self, end: Self) -> Self
     where
         T: Copy,
     {
-        self.inner.clamp(start.into(), end.into()).into()
+        self.max(start).min(end)
     }
 
     // Returns true if this size is larger or equal to the other size in all dimensions.
-    #[inline(always)]
+    #[inline]
     pub fn contains(self, other: Self) -> bool {
-        self.inner.contains(other.into())
-    }
-
-    /// Returns vector with results of "greater then" operation on each component.
-    #[inline(always)]
-    pub fn greater_than(self, other: Self) -> euclid::BoolVector2D {
-        self.inner.greater_than(other.into())
-    }
-
-    /// Returns vector with results of "lower then" operation on each component.
-    #[inline(always)]
-    pub fn lower_than(self, other: Self) -> euclid::BoolVector2D {
-        self.inner.lower_than(other.into())
+        self.width >= other.width && self.height >= other.height
     }
 
     /// Returns `true` if any component of size is zero, negative, or NaN.
-    #[inline(always)]
     pub fn is_empty(self) -> bool
     where
-        T: euclid::num::Zero,
+        T: Zero,
     {
-        self.inner.is_empty()
+        let zero = T::zero();
+        // The condition is experessed this way so that we return true in
+        // the presence of NaN.
+        !(self.width > zero && self.height > zero)
     }
 }
 
-impl<T: PartialEq, U> Size<T, U> {
-    /// Returns vector with results of "equal" operation on each component.
-    #[inline(always)]
-    pub fn equal(self, other: Self) -> euclid::BoolVector2D {
-        self.inner.equal(other.into())
-    }
-
-    /// Returns vector with results of "not equal" operation on each component.
-    #[inline(always)]
-    pub fn not_equal(self, other: Self) -> euclid::BoolVector2D {
-        self.inner.not_equal(other.into())
-    }
-}
-
-impl<F, U> Size<Option<F>, U> {
-    /// Tries to unwrap every inner option;
-    pub fn try_unwrap(self) -> Option<Size<F, U>> {
-        Option::zip(self.inner.width, self.inner.height)
-            .map(|(width, height)| Size::new(width, height))
-    }
-}
-
-impl<T: euclid::num::Zero, U> euclid::num::Zero for Size<T, U> {
-    #[inline(always)]
+impl<T: Zero, U> Zero for Size<T, U> {
+    #[inline]
     fn zero() -> Self {
-        Inner::zero().into()
+        Size::new(Zero::zero(), Zero::zero())
     }
 }
 
 impl<T: Neg, U> Neg for Size<T, U> {
     type Output = Size<T::Output, U>;
 
-    #[inline(always)]
+    #[inline]
     fn neg(self) -> Self::Output {
-        self.inner.neg().into()
+        Size::new(-self.width, -self.height)
     }
 }
 
@@ -206,150 +217,158 @@ impl<T: Add, U> Add for Size<T, U> {
 
     #[inline]
     fn add(self, other: Self) -> Self::Output {
-        self.inner.add(other.into()).into()
+        Size::new(self.width + other.width, self.height + other.height)
     }
 }
 
 impl<T: Copy + Add<T, Output = T>, U> Add<&Self> for Size<T, U> {
     type Output = Self;
     fn add(self, other: &Self) -> Self {
-        self.inner.add(&other.inner).into()
+        Size::new(self.width + other.width, self.height + other.height)
     }
 }
 
-impl<T: Add<Output = T> + euclid::num::Zero, U> Sum for Size<T, U> {
+impl<T: Add<Output = T> + Zero, U> Sum for Size<T, U> {
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-        use euclid::num::Zero;
         iter.fold(Self::zero(), Add::add)
     }
 }
 
-impl<'a, T: 'a + Add<Output = T> + Copy + euclid::num::Zero, U: 'a> Sum<&'a Self> for Size<T, U> {
+impl<'a, T: 'a + Add<Output = T> + Copy + Zero, U: 'a> Sum<&'a Self> for Size<T, U> {
     fn sum<I: Iterator<Item = &'a Self>>(iter: I) -> Self {
-        use euclid::num::Zero;
         iter.fold(Self::zero(), Add::add)
     }
 }
 
 impl<T: AddAssign, U> AddAssign for Size<T, U> {
-    #[inline(always)]
+    #[inline]
     fn add_assign(&mut self, other: Self) {
-        self.inner.add_assign(other.into())
+        self.width += other.width;
+        self.height += other.height;
     }
 }
 
 impl<T: Sub, U> Sub for Size<T, U> {
     type Output = Size<T::Output, U>;
 
-    #[inline(always)]
+    #[inline]
     fn sub(self, other: Self) -> Self::Output {
-        self.inner.sub(other.into()).into()
+        Size::new(self.width - other.width, self.height - other.height)
     }
 }
 
 impl<T: SubAssign, U> SubAssign for Size<T, U> {
-    #[inline(always)]
+    #[inline]
     fn sub_assign(&mut self, other: Self) {
-        self.inner.sub_assign(other.into())
+        self.width -= other.width;
+        self.height -= other.height;
     }
 }
 
 impl<T: Copy + Mul, U> Mul<T> for Size<T, U> {
     type Output = Size<T::Output, U>;
 
-    #[inline(always)]
+    #[inline]
     fn mul(self, scale: T) -> Self::Output {
-        self.inner.mul(scale).into()
+        Size::new(self.width * scale, self.height * scale)
     }
 }
 
 impl<T: Copy + MulAssign, U> MulAssign<T> for Size<T, U> {
-    #[inline(always)]
+    #[inline]
     fn mul_assign(&mut self, other: T) {
-        self.inner.mul_assign(other)
+        self.width *= other;
+        self.height *= other;
     }
 }
 
 impl<T: Copy + Mul, U1, U2> Mul<ScaleFactor<T, U1, U2>> for Size<T, U1> {
     type Output = Size<T::Output, U2>;
 
-    #[inline(always)]
+    #[inline]
     fn mul(self, scale: ScaleFactor<T, U1, U2>) -> Self::Output {
-        self.inner.mul(scale.inner).into()
+        Size::new(self.width * scale.0, self.height * scale.0)
     }
 }
 
 impl<T: Copy + MulAssign, U> MulAssign<ScaleFactor<T, U, U>> for Size<T, U> {
-    #[inline(always)]
+    #[inline]
     fn mul_assign(&mut self, other: ScaleFactor<T, U, U>) {
-        self.inner.mul_assign(other.inner)
+        *self *= other.0;
     }
 }
 
 impl<T: Copy + Div, U> Div<T> for Size<T, U> {
     type Output = Size<T::Output, U>;
 
-    #[inline(always)]
+    #[inline]
     fn div(self, scale: T) -> Self::Output {
-        self.inner.div(scale).into()
+        Size::new(self.width / scale, self.height / scale)
     }
 }
 
 impl<T: Copy + DivAssign, U> DivAssign<T> for Size<T, U> {
-    #[inline(always)]
+    #[inline]
     fn div_assign(&mut self, other: T) {
-        self.inner.div_assign(other)
+        self.width /= other;
+        self.height /= other;
     }
 }
 
 impl<T: Copy + Div, U1, U2> Div<ScaleFactor<T, U1, U2>> for Size<T, U2> {
-    type Output = Size2D<T::Output, U1>;
+    type Output = Size<T::Output, U1>;
 
-    #[inline(always)]
+    #[inline]
     fn div(self, scale: ScaleFactor<T, U1, U2>) -> Self::Output {
-        self.inner.div(scale.inner).into()
+        Size::new(self.width / scale.0, self.height / scale.0)
     }
 }
 
 impl<T: Copy + DivAssign, U> DivAssign<ScaleFactor<T, U, U>> for Size<T, U> {
-    #[inline(always)]
+    #[inline]
     fn div_assign(&mut self, other: ScaleFactor<T, U, U>) {
-        self.inner.div_assign(other.inner)
+        *self /= other.0;
     }
 }
 
-impl<T, U> From<super::Vector<T, U>> for Size<T, U> {
-    #[inline(always)]
-    fn from(v: super::Vector<T, U>) -> Self {
-        Into::<Inner<T, U>>::into(v.inner).into()
+/// Shorthand for `Size::new(w, h)`.
+#[inline]
+pub const fn size<T, U>(w: T, h: T) -> Size<T, U> {
+    Size::new(w, h)
+}
+
+impl<T, U> From<Vector<T, U>> for Size<T, U> {
+    #[inline]
+    fn from(v: Vector<T, U>) -> Self {
+        size(v.x, v.y)
     }
 }
 
 impl<T, U> Into<[T; 2]> for Size<T, U> {
-    #[inline(always)]
+    #[inline]
     fn into(self) -> [T; 2] {
-        self.inner.into()
+        [self.width, self.height]
     }
 }
 
 impl<T, U> From<[T; 2]> for Size<T, U> {
-    #[inline(always)]
-    fn from(x: [T; 2]) -> Self {
-        Inner::from(x).into()
+    #[inline]
+    fn from([w, h]: [T; 2]) -> Self {
+        size(w, h)
     }
 }
 
 impl<T, U> Into<(T, T)> for Size<T, U> {
-    #[inline(always)]
+    #[inline]
     fn into(self) -> (T, T) {
-        self.inner.into()
+        (self.width, self.height)
     }
 }
 
 impl<T, U> From<(T, T)> for Size<T, U> {
-    #[inline(always)]
+    #[inline]
     fn from(tuple: (T, T)) -> Self {
-        Into::into(tuple)
+        size(tuple.0, tuple.1)
     }
 }
 
@@ -357,17 +376,17 @@ impl Into<taffy::geometry::Size<taffy::style::AvailableSpace>> for Size {
     fn into(self) -> taffy::geometry::Size<taffy::style::AvailableSpace> {
         taffy::geometry::Size {
             // TODO: support max-content and min-content
-            height: self.inner.height.into(),
-            width: self.inner.width.into(),
+            height: self.height.into(),
+            width: self.width.into(),
         }
     }
 }
 
-impl Into<taffy::geometry::Size<f32>> for Size {
-    fn into(self) -> taffy::geometry::Size<f32> {
+impl<T> Into<taffy::geometry::Size<T>> for Size<T, LogicalUnit> {
+    fn into(self) -> taffy::geometry::Size<T> {
         taffy::geometry::Size {
-            height: self.inner.height.into(),
-            width: self.inner.width.into(),
+            height: self.height.into(),
+            width: self.width.into(),
         }
     }
 }
@@ -375,14 +394,26 @@ impl Into<taffy::geometry::Size<f32>> for Size {
 impl Into<taffy::geometry::Size<taffy::style::Dimension>> for Size {
     fn into(self) -> taffy::geometry::Size<taffy::style::Dimension> {
         taffy::geometry::Size {
-            height: taffy::style::Dimension::Points(self.inner.height),
-            width: taffy::style::Dimension::Points(self.inner.width),
+            height: taffy::style::Dimension::Points(self.height),
+            width: taffy::style::Dimension::Points(self.width),
         }
     }
 }
 
-impl From<taffy::geometry::Size<f32>> for Size {
-    fn from(value: taffy::geometry::Size<f32>) -> Self {
+impl<T> From<taffy::geometry::Size<T>> for Size<T, LogicalUnit> {
+    fn from(value: taffy::geometry::Size<T>) -> Self {
+        Self::new(value.width, value.height)
+    }
+}
+
+impl<T> From<winit::dpi::LogicalSize<T>> for Size<T, LogicalUnit> {
+    fn from(value: winit::dpi::LogicalSize<T>) -> Self {
+        Self::new(value.width, value.height)
+    }
+}
+
+impl<T> From<winit::dpi::PhysicalSize<T>> for Size<T, PhysicalUnit> {
+    fn from(value: winit::dpi::PhysicalSize<T>) -> Self {
         Self::new(value.width, value.height)
     }
 }

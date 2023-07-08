@@ -9,7 +9,7 @@ use itertools::Itertools;
 use crate::{
     element::{Element, ElementRef, ElementWeakref},
     input::input_state::InputState,
-    util::{AsRect, IntoTaffy, Pos2, Rect, Size2},
+    util::{Pos, Rect, Size, WindowScaleFactor},
 };
 
 use super::{ctx::SceneContext, scene::SceneResources};
@@ -354,7 +354,7 @@ impl CSSLayoutBuilder {
         }
     }
 
-    pub fn size(mut self, size: Size2<impl Into<Dimension>>) -> Self {
+    pub fn size(mut self, size: Size<impl Into<Dimension>>) -> Self {
         self.style.size = taffy::geometry::Size::<taffy::style::Dimension> {
             width: size.width.into().into(),
             height: size.height.into().into(),
@@ -566,7 +566,7 @@ impl<'a, 'b> LayoutPass<'a, 'b> {
 
     pub(super) fn do_layout_pass(
         mut self,
-        screen_size: Size2,
+        screen_size: Size,
         root: &mut ElementRef<impl Element>,
     ) -> ElementTree {
         let root_layout_node = root.get().layout(&mut self);
@@ -575,16 +575,16 @@ impl<'a, 'b> LayoutPass<'a, 'b> {
         let layout_engine = resources.layout_engine();
 
         layout_engine
-            .compute_layout(root_layout_node, screen_size.into_taffy())
+            .compute_layout(root_layout_node, screen_size.into())
             .unwrap();
 
-        let mut tree = node.finish_rec(layout_engine, Pos2::zero());
+        let mut tree = node.finish_rec(layout_engine, Pos::zero());
         tree.do_layout_post_pass(resources);
 
         tree
     }
 
-    pub fn scale_factor(&self) -> f64 {
+    pub fn scale_factor(&self) -> WindowScaleFactor {
         self.resources.scale_factor()
     }
 
@@ -602,15 +602,13 @@ impl<'a, 'b> LayoutPass<'a, 'b> {
 }
 
 impl LayoutNode {
-    fn finish_rec(self, layout_engine: &mut LayoutEngine, parent_pos: Pos2) -> ElementTreeNode {
+    fn finish_rec(self, layout_engine: &mut LayoutEngine, parent_pos: Pos) -> ElementTreeNode {
+        let result_rect: Rect = layout_engine.layout(self.result).unwrap().into();
+
         let mut scene_layout = ElementTreeNode {
             children: Default::default(),
             element: self.element,
-            rect: layout_engine
-                .layout(self.result)
-                .unwrap()
-                .as_rect()
-                .translate(parent_pos.to_vector()),
+            rect: result_rect.translate(parent_pos.to_vector()),
         };
 
         for child in self.children.into_iter() {

@@ -14,7 +14,7 @@ use crate::{
         scene::SceneResources,
     },
     shape::PaintRectangle,
-    util::{FromMinSize, Pos2, Rect, Size2},
+    util::{Rect, Size},
 };
 
 use super::{TestRect, TextBox};
@@ -45,7 +45,7 @@ impl Element for TitleBarGlyph {
             .engine()
             .new_leaf(
                 FlexBox::builder()
-                    .size(Size2::splat(self.glyph_size))
+                    .size(Size::splat(self.glyph_size))
                     .to_taffy(),
             )
             .unwrap()

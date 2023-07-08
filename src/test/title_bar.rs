@@ -16,7 +16,7 @@ use crate::{
         scene::SceneResources,
     },
     shape::PaintRectangle,
-    util::{AsRect, FromMinSize, IntoTaffy, Lerp, Pos2, Rect, Size2},
+    util::{Lerp, Rect},
 };
 
 use super::{TestRect, TextBox, TitleBarGlyph};

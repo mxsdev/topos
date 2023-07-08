@@ -13,21 +13,20 @@ use crate::{
         output::{CursorIcon, PlatformOutput},
     },
     shape::PaintShape,
-    util::{Pos2, Rect, Size2, Translate2DMut},
+    util::{Rect, WindowScaleFactor},
 };
 
 pub struct SceneContext {
-    // internal: Rc<RefCell<SceneContextInternal>>,
-    // input: Rc<RefCell<InputState>>,
     pub(super) shapes: Vec<PaintShape>,
-    clip_rects: Vec<Option<Rect>>,
-    scale_factor: f32,
-
     pub(super) output: PlatformOutput,
+
+    clip_rects: Vec<Option<Rect>>,
+
+    scale_factor: WindowScaleFactor,
 }
 
 impl SceneContext {
-    pub(super) fn new(scale_factor: f32) -> Self {
+    pub(super) fn new(scale_factor: WindowScaleFactor) -> Self {
         Self {
             shapes: Default::default(),
             clip_rects: Default::default(),

@@ -1,4 +1,4 @@
-use num_traits::Float;
+use num_traits::{Float, Num};
 
 use crate::util::{LogicalUnit, PhysicalUnit};
 
@@ -135,5 +135,16 @@ pub trait WgpuDescriptor<const N: usize>: Sized {
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &Self::ATTRIBS,
         }
+    }
+}
+
+// lerp
+pub trait Lerp<F> {
+    fn lerp(self, to: F, fac: F) -> F;
+}
+
+impl<F: Num + Copy> Lerp<F> for F {
+    fn lerp(self, to: F, fac: F) -> F {
+        to * fac + (F::one() - fac) * self
     }
 }

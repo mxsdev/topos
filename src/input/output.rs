@@ -1,4 +1,4 @@
-use crate::util::Pos2;
+use crate::util::Pos;
 
 /// The non-rendering part of what egui emits each frame.
 ///
@@ -34,7 +34,7 @@ pub struct PlatformOutput {
     pub(super) mutable_text_under_cursor: bool,
 
     /// Screen-space position of text edit cursor (used for IME).
-    pub(super) text_cursor_pos: Option<Pos2>,
+    pub(super) text_cursor_pos: Option<Pos>,
 
     pub(super) accesskit_update: Option<accesskit::TreeUpdate>,
 

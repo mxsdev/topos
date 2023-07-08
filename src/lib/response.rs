@@ -300,7 +300,7 @@ impl<B: Boundary, const NUM_POINTER_BUTTONS: usize> Response<B, NUM_POINTER_BUTT
         }
     }
 
-    pub fn update_rect<F: Float, U>(&mut self, input: &mut InputState, rect: euclid::Box2D<F, U>)
+    pub fn update_rect<F: Float, U>(&mut self, input: &mut InputState, rect: Rect<F, U>)
     where
         B: RectLikeBoundary<F, U>,
     {

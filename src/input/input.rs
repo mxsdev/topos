@@ -1,8 +1,6 @@
 // use crate::emath::*;
 
-use std::fmt::Pointer;
-
-use crate::util::{Pos2, Vec2};
+use crate::util::{Pos, Vector};
 
 /// What the integrations provides to egui at the start of each frame.
 ///
@@ -199,12 +197,12 @@ pub enum Event {
     },
 
     /// The mouse or touch moved to a new place.
-    PointerMoved(Pos2),
+    PointerMoved(Pos),
 
     /// A mouse button was pressed or released (or a touch started or stopped).
     PointerButton {
         /// Where is the pointer?
-        pos: Pos2,
+        pos: Pos,
 
         /// What mouse button? For touches, use [`PointerButton::Primary`].
         button: PointerButton,
@@ -236,7 +234,7 @@ pub enum Event {
     /// as when swiping down on a touch-screen or track-pad with natural scrolling.
     ///
     /// Shift-scroll should result in horizontal scrolling (it is up to the integrations to do this).
-    Scroll(Vec2),
+    Scroll(Vector),
 
     /// Zoom scale factor this frame (e.g. from ctrl-scroll or pinch gesture).
     /// * `zoom = 1`: no change.
@@ -268,7 +266,7 @@ pub enum Event {
         phase: TouchPhase,
 
         /// Position of the touch (or where the touch was last detected)
-        pos: Pos2,
+        pos: Pos,
 
         /// Describes how hard the touch device was pressed. May always be `0` if the platform does
         /// not support pressure sensitivity.
@@ -286,7 +284,7 @@ pub enum Event {
 
         /// The amount scrolled horizontally and vertically. The amount and direction corresponding
         /// to one step of the wheel depends on the platform.
-        delta: Vec2,
+        delta: Vector,
 
         /// The state of the modifier keys at the time of the event.
         modifiers: Modifiers,
