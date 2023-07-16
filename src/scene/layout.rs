@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     ops::DerefMut,
     sync::{Arc, Mutex},
 };
@@ -26,6 +27,7 @@ pub struct ElementTreeNode {
     element: ElementWeakref<dyn Element>,
     rect: Rect,
     children: Vec<ElementTreeNode>,
+    layout_node: LayoutPassResult,
 }
 
 impl ElementTreeNode {
@@ -94,7 +96,7 @@ pub struct LayoutPassGeneric<Resources, Result> {
     result: Result,
 }
 
-impl<'a, 'b> LayoutPass<'a, 'b> {
+impl<'a, 'b: 'a> LayoutPass<'a, 'b> {
     pub(super) fn new(
         root: &mut ElementRef<impl Element + 'static>,
         scene_resources: &'a mut SceneResources<'b>,
@@ -110,7 +112,7 @@ impl<'a, 'b> LayoutPass<'a, 'b> {
     fn finish(self, result: LayoutPassResult) -> (LayoutNode, &'a mut SceneResources<'b>) {
         self.resources
             .layout_engine()
-            .set_children(result, self.children.iter().map(|x| x.result))
+            .set_children(&result, self.children.iter().map(|x| &x.result))
             .unwrap();
 
         (
@@ -155,7 +157,7 @@ impl<'a, 'b> LayoutPass<'a, 'b> {
         let layout_engine = resources.layout_engine();
 
         layout_engine
-            .compute_layout(root_layout_node, screen_size)
+            .compute_layout(&node.result, screen_size)
             .unwrap();
 
         let mut tree = node.finish_rec(layout_engine, Pos::zero());
@@ -183,12 +185,13 @@ impl<'a, 'b> LayoutPass<'a, 'b> {
 
 impl LayoutNode {
     fn finish_rec(self, layout_engine: &mut LayoutEngine, parent_pos: Pos) -> ElementTreeNode {
-        let result_rect: Rect = layout_engine.layout(self.result).unwrap().into();
+        let result_rect: Rect = layout_engine.layout(&self.result).unwrap().into();
 
         let mut scene_layout = ElementTreeNode {
             children: Default::default(),
             element: self.element,
             rect: result_rect.translate(parent_pos.to_vector()),
+            layout_node: self.result,
         };
 
         for child in self.children.into_iter() {

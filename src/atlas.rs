@@ -694,7 +694,7 @@ impl FontAtlasManager {
                             .or_insert_with(|| Vec::new())
                             .push(glyph_to_render);
                     }
-                    None => log::debug!("Glyph {} not cached", g.cache_key.glyph_id),
+                    None => log::trace!("Glyph {} not cached", g.cache_key.glyph_id),
                     Some(GlyphCacheEntry::Noop) => {}
                 }
             }
@@ -950,7 +950,7 @@ impl FontManager {
 
                 match rasterize_glyph(&g, font_system.as_ref()) {
                     Some(image) => {
-                        log::debug!("rasterized glyph {:?}", g.glyph_id);
+                        log::trace!("rasterized glyph {:?}", g.glyph_id);
                         Some((g, image))
                     }
                     None => {
@@ -1007,7 +1007,7 @@ fn rasterize_glyph(
     cache_key: &GlyphCacheKey,
     font_system: &Mutex<FontSystem>,
 ) -> Option<cosmic_text::SwashImage> {
-    log::debug!("Rasterizing glyph {:x}", cache_key.hash_u64());
+    log::trace!("Rasterizing glyph {:x}", cache_key.hash_u64());
 
     use swash::{
         scale::{Render, Source, StrikeWith},

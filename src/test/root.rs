@@ -1,5 +1,8 @@
+use cosmic_text::{Attrs, Family, Metrics};
+
 use crate::{
     accessibility::{AccessNodeBuilder, AccessRole},
+    color::ColorRgba,
     element::{Element, ElementRef, RootConstructor},
     input::input_state::InputState,
     math::{Rect, WindowScaleFactor},
@@ -8,9 +11,10 @@ use crate::{
         layout::{ColumnReverse, FlexBox, LayoutPass, LayoutPassResult, Percent},
         scene::SceneResources,
     },
+    util::layout::Manual,
 };
 
-use super::{MainElement, TitleBar};
+use super::{MainElement, TextBox, TitleBar};
 
 pub struct TestRoot {
     scale_factor: WindowScaleFactor,
@@ -25,7 +29,7 @@ impl RootConstructor for TestRoot {
             scale_factor: resources.scale_factor(),
 
             main: MainElement::new(resources).into(),
-            title_bar: TitleBar::new(27.).into(),
+            title_bar: TitleBar::new(resources, 27.).into(),
         }
     }
 }
@@ -35,7 +39,7 @@ impl Element for TestRoot {
         layout_pass.layout_child(&mut self.main);
         layout_pass.layout_child(&mut self.title_bar);
 
-        layout_pass
+        let result = layout_pass
             .engine()
             .new_leaf(
                 FlexBox::builder()
@@ -43,7 +47,9 @@ impl Element for TestRoot {
                     .width(Percent(1.))
                     .height(Percent(1.)),
             )
-            .unwrap()
+            .unwrap();
+
+        result
     }
 
     fn input(&mut self, input: &mut InputState, rect: Rect) {}

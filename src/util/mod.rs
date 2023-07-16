@@ -8,6 +8,8 @@ pub mod math;
 
 pub mod layout;
 
+pub mod taffy;
+
 pub fn min<T: PartialOrd>(x: T, y: T) -> T {
     if x <= y {
         x

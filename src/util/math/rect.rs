@@ -7,7 +7,7 @@ use num_traits::Float;
 use crate::num::Two;
 
 use super::{pos, vector, Pos, ScaleFactor, Sides, Size, Vector};
-use crate::util::{markers::*, max, min};
+use crate::util::{markers::*, max, min, taffy::*};
 
 #[derive(Debug, Default, PartialEq, Eq, Hash)]
 pub struct Rect<T = f32, U = LogicalUnit> {
@@ -445,14 +445,14 @@ impl<T: Float, U> Rect<T, U> {
 
 pub type PhysicalRect<F = f32> = Rect<F, PhysicalUnit>;
 
-impl From<taffy::layout::Layout> for Rect {
-    fn from(value: taffy::layout::Layout) -> Self {
+impl From<TaffyLayout> for Rect {
+    fn from(value: TaffyLayout) -> Self {
         Self::from_min_size(value.location.into(), value.size.into())
     }
 }
 
-impl From<&taffy::layout::Layout> for Rect {
-    fn from(value: &taffy::layout::Layout) -> Self {
+impl From<&TaffyLayout> for Rect {
+    fn from(value: &TaffyLayout) -> Self {
         Self::from_min_size(value.location.into(), value.size.into())
     }
 }

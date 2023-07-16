@@ -8,15 +8,18 @@ use crate::{
     color::ColorRgba,
     scene::{
         self,
-        layout::{self, FlexBox, LayoutPassResult},
+        layout::{
+            self, measure_func_boxed, AvailableSpace, FlexBox, LayoutPassResult, Measurable,
+            MeasureFunc,
+        },
     },
     surface::RenderingContext,
+    util::layout::LayoutNode,
 };
 
 use cosmic_text::{Attrs, FontSystem, Metrics};
 use ordered_float::OrderedFloat;
 use rustc_hash::FxHashMap;
-use taffy::{layout::Cache, style::AvailableSpace};
 
 use crate::{
     atlas::PlacedTextBox,
@@ -58,6 +61,85 @@ pub struct TextBox {
     attrs: Attrs<'static>,
 }
 
+struct TextBoxMeasureFunc {
+    font_system: Arc<Mutex<FontSystem>>,
+    buffer: Arc<Mutex<CacheBuffer>>,
+    rendering_context: Arc<RenderingContext>,
+}
+
+impl Measurable for TextBoxMeasureFunc {
+    fn measure(
+        &self,
+        known_dimensions: Size<Option<f32>>,
+        available_space: Size<AvailableSpace>,
+    ) -> Size<f32> {
+        let Size {
+            width: available_width,
+            height: available_height,
+            ..
+        } = available_space;
+
+        let Size { width, height, .. } = known_dimensions;
+
+        let tbox_width = width.unwrap_or(match available_width {
+            AvailableSpace::Definite(max_width) => max_width,
+            AvailableSpace::MinContent => 0.,
+            AvailableSpace::MaxContent => f32::INFINITY,
+        });
+
+        let tbox_height = height.unwrap_or(match available_height {
+            AvailableSpace::Definite(max_height) => max_height,
+            AvailableSpace::MinContent => 0.,
+            AvailableSpace::MaxContent => f32::INFINITY,
+        });
+
+        let cache_key = MeasureTextBoxCacheKey::from_measure_fn(tbox_width, tbox_height);
+
+        let mut buffer = self.buffer.lock().unwrap();
+
+        if buffer.invalidate_cache {
+            buffer.cache.clear();
+            buffer.invalidate_cache = false;
+        }
+
+        // TODO: would be nice to use `or_insert_with` here instead...
+        let result = match buffer.cache.get(&cache_key).cloned() {
+            Some(res) => res,
+            None => {
+                let scale_factor = self.rendering_context.texture_info.get_scale_factor().get();
+
+                buffer.set_size(
+                    &mut self.font_system.lock().unwrap(),
+                    tbox_width * scale_factor,
+                    tbox_height * scale_factor,
+                );
+
+                let lh = buffer.metrics().line_height;
+
+                let size = buffer
+                    .layout_runs()
+                    .fold(Size::new(0.0, 0.0), |mut size, run| {
+                        let new_width = run.line_w;
+                        if new_width > size.width {
+                            size.width = new_width;
+                        }
+
+                        size.height += lh;
+
+                        size
+                    });
+
+                buffer.cache.insert(cache_key, size);
+
+                size
+            }
+        }
+        .into();
+
+        result
+    }
+}
+
 impl TextBox {
     pub fn new(
         scene_resources: &mut SceneResources,
@@ -83,82 +165,17 @@ impl TextBox {
 
         let buffer = Arc::new(Mutex::new(CacheBuffer::from(buffer)));
 
-        let font_system_ref = scene_resources.font_system_ref();
-        let buffer_ref = buffer.clone();
-        let rendering_context_ref = scene_resources.rendering_context_ref();
+        let text_box_measure_func = TextBoxMeasureFunc {
+            font_system: scene_resources.font_system_ref(),
+            buffer: buffer.clone(),
+            rendering_context: scene_resources.rendering_context_ref(),
+        };
 
         let layout_node = scene_resources
             .layout_engine()
             .new_leaf_with_measure(
                 FlexBox::builder(),
-                taffy::node::MeasureFunc::Boxed(Box::new(move |desired_size, available_size| {
-                    let taffy::geometry::Size {
-                        width: available_width,
-                        height: available_height,
-                    } = available_size;
-
-                    let taffy::geometry::Size { width, height } = desired_size;
-
-                    let tbox_width = width.unwrap_or(match available_width {
-                        taffy::style::AvailableSpace::Definite(max_width) => max_width,
-                        taffy::style::AvailableSpace::MinContent => 0.,
-                        taffy::style::AvailableSpace::MaxContent => f32::INFINITY,
-                    });
-
-                    let tbox_height = height.unwrap_or(match available_height {
-                        taffy::style::AvailableSpace::Definite(max_height) => max_height,
-                        taffy::style::AvailableSpace::MinContent => 0.,
-                        taffy::style::AvailableSpace::MaxContent => f32::INFINITY,
-                    });
-
-                    let cache_key =
-                        MeasureTextBoxCacheKey::from_measure_fn(tbox_width, tbox_height);
-
-                    let mut buffer = buffer_ref.lock().unwrap();
-
-                    if buffer.invalidate_cache {
-                        buffer.cache.clear();
-                        buffer.invalidate_cache = false;
-                    }
-
-                    // TODO: would be nice to use `or_insert_with` here instead...
-                    let result = match buffer.cache.get(&cache_key).cloned() {
-                        Some(res) => res,
-                        None => {
-                            let scale_factor =
-                                rendering_context_ref.texture_info.get_scale_factor().get();
-
-                            buffer.set_size(
-                                &mut font_system_ref.lock().unwrap(),
-                                tbox_width * scale_factor,
-                                tbox_height * scale_factor,
-                            );
-
-                            let lh = buffer.metrics().line_height;
-
-                            let size =
-                                buffer
-                                    .layout_runs()
-                                    .fold(Size::new(0.0, 0.0), |mut size, run| {
-                                        let new_width = run.line_w;
-                                        if new_width > size.width {
-                                            size.width = new_width;
-                                        }
-
-                                        size.height += lh;
-
-                                        size
-                                    });
-
-                            buffer.cache.insert(cache_key, size);
-
-                            size
-                        }
-                    }
-                    .into();
-
-                    result
-                })),
+                measure_func_boxed(text_box_measure_func),
             )
             .unwrap();
 
@@ -175,7 +192,7 @@ impl TextBox {
 
 impl Element for TextBox {
     fn layout(&mut self, layout_pass: &mut LayoutPass) -> LayoutPassResult {
-        self.layout_node
+        self.layout_node.clone()
     }
 
     fn layout_post(&mut self, resources: &mut SceneResources, rect: Rect) {

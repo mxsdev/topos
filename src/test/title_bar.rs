@@ -22,7 +22,6 @@ use crate::{
 
 use super::{TestRect, TextBox, TitleBarGlyph};
 
-#[derive(Default)]
 pub struct TitleBar {
     input_rect: Rect,
 
@@ -31,6 +30,8 @@ pub struct TitleBar {
     selected_idx: Option<usize>,
 
     glyphs: Vec<(ElementRef<TitleBarGlyph>, Transition)>,
+
+    layout_node: LayoutPassResult,
 
     height: f32,
 }
@@ -43,8 +44,21 @@ const GLYPH_COL: ColorRgb = ColorRgb::new(1., 1., 1.);
 const TRANS_TIME: f32 = 0.125;
 
 impl TitleBar {
-    pub fn new(height: f32) -> Self {
+    pub fn new(resources: &mut SceneResources, height: f32) -> Self {
         let curve = BezierCurve::from(Vector2 { x: 0.62, y: 0. }, Vector2 { x: 0.43, y: 0.98 });
+
+        let layout_node = resources
+            .layout_engine()
+            .new_leaf(
+                FlexBox::builder()
+                    .width(Percent(1.))
+                    .height(height)
+                    .padding_x(5.)
+                    .align_items(Center)
+                    .justify_content(Center)
+                    .gap(8.),
+            )
+            .unwrap();
 
         let glyphs = (0..4)
             .map(|_| TitleBarGlyph::new(INACTIVE_GLYPH_HEIGHT, GLYPH_COL.with_alpha(1.)).into())
@@ -54,7 +68,11 @@ impl TitleBar {
         Self {
             glyphs,
             height,
-            ..Default::default()
+            layout_node,
+
+            clicked: Default::default(),
+            input_rect: Default::default(),
+            selected_idx: Default::default(),
         }
     }
 }
@@ -65,15 +83,7 @@ impl Element for TitleBar {
             layout_pass.layout_child(child)
         }
 
-        let main = FlexBox::builder()
-            .width(Percent(1.))
-            .height(self.height)
-            .padding_x(5.)
-            .align_items(Center)
-            .justify_content(Center)
-            .gap(8.);
-
-        layout_pass.engine().new_leaf(main).unwrap()
+        self.layout_node.clone()
     }
 
     fn ui(&mut self, ctx: &mut SceneContext, rect: Rect) {

@@ -6,7 +6,7 @@ use crate::num::{One, Zero};
 use num_traits::{Float, Signed};
 
 use super::{ScaleFactor, Vector};
-use crate::util::{markers::*, max, min};
+use crate::util::{markers::*, max, min, taffy::*};
 
 #[derive(Debug, Default, PartialEq, Eq, Hash)]
 pub struct Size<T = f32, U = LogicalUnit> {
@@ -367,9 +367,9 @@ impl<T, U> From<(T, T)> for Size<T, U> {
     }
 }
 
-impl Into<taffy::geometry::Size<taffy::style::AvailableSpace>> for Size<f32, LogicalUnit> {
-    fn into(self) -> taffy::geometry::Size<taffy::style::AvailableSpace> {
-        taffy::geometry::Size {
+impl Into<TaffySize<TaffyAvailableSpace>> for Size<f32, LogicalUnit> {
+    fn into(self) -> TaffySize<TaffyAvailableSpace> {
+        TaffySize {
             // TODO: support max-content and min-content
             height: self.height.into(),
             width: self.width.into(),
@@ -377,26 +377,26 @@ impl Into<taffy::geometry::Size<taffy::style::AvailableSpace>> for Size<f32, Log
     }
 }
 
-impl<T> Into<taffy::geometry::Size<T>> for Size<T, LogicalUnit> {
-    fn into(self) -> taffy::geometry::Size<T> {
-        taffy::geometry::Size {
+impl<T> Into<TaffySize<T>> for Size<T, LogicalUnit> {
+    fn into(self) -> TaffySize<T> {
+        TaffySize {
             height: self.height.into(),
             width: self.width.into(),
         }
     }
 }
 
-impl Into<taffy::geometry::Size<taffy::style::Dimension>> for Size<f32, LogicalUnit> {
-    fn into(self) -> taffy::geometry::Size<taffy::style::Dimension> {
-        taffy::geometry::Size {
-            height: taffy::style::Dimension::Points(self.height),
-            width: taffy::style::Dimension::Points(self.width),
+impl Into<TaffySize<TaffyDimension>> for Size<f32, LogicalUnit> {
+    fn into(self) -> TaffySize<TaffyDimension> {
+        TaffySize {
+            height: TaffyDimension::Length(self.height),
+            width: TaffyDimension::Length(self.width),
         }
     }
 }
 
-impl<T> From<taffy::geometry::Size<T>> for Size<T, LogicalUnit> {
-    fn from(value: taffy::geometry::Size<T>) -> Self {
+impl<T> From<TaffySize<T>> for Size<T, LogicalUnit> {
+    fn from(value: TaffySize<T>) -> Self {
         Self::new(value.width, value.height)
     }
 }
