@@ -282,7 +282,7 @@ impl Element for TestRect {
         &mut self,
         layout_pass: &mut crate::scene::layout::LayoutPass,
     ) -> LayoutPassResult {
-        layout_pass.engine().new_leaf(Manual::builder().to_taffy()).unwrap()
+        layout_pass.engine().new_leaf(Manual::builder()).unwrap()
     }
 
     fn node(&self) -> AccessNodeBuilder {

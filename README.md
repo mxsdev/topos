@@ -13,15 +13,15 @@
  - [x] Investigate title bar height growing/shrinking
  - [x] Focus
  - [x] InputBoundary struct (egui `Response` equivalent)
- - [ ] Encapsulate all libraries (namely euclid, cosmic_text)
+ - [ ] Encapsulate all libraries (namely euclid, cosmic_text, taffy engine)
  - [ ] Adopt builder pattern across codebase
  - [ ] Better buffer support (do scale factor as part of render pass, not in component; support spans)
  - [ ] Better glyph support
- - [ ] Sharp box strokes
  - [ ] Move everything into a single shader (draw call optimization)
  - [ ] Affine transformations
- - [ ] Layers
  - [ ] Render engine throughput optimizations (store & diff buffers by widget)
+ - [ ] Sharp box strokes
+ - [ ] Layers
  - [ ] Proper framepacing
  - [ ] Multi-window support
  - [x] Accessibility

@@ -6,9 +6,7 @@ pub use traits::*;
 
 pub mod math;
 
-#[path = "taffy.rs"]
-mod taffy_util;
-pub use self::taffy_util::*;
+pub mod layout;
 
 pub fn min<T: PartialOrd>(x: T, y: T) -> T {
     if x <= y {

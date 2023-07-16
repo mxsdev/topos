@@ -73,7 +73,7 @@ impl Element for TitleBar {
             .justify_content(Center)
             .gap(8.);
 
-        layout_pass.engine().new_leaf(main.to_taffy()).unwrap()
+        layout_pass.engine().new_leaf(main).unwrap()
     }
 
     fn ui(&mut self, ctx: &mut SceneContext, rect: Rect) {

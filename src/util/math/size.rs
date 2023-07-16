@@ -367,7 +367,7 @@ impl<T, U> From<(T, T)> for Size<T, U> {
     }
 }
 
-impl Into<taffy::geometry::Size<taffy::style::AvailableSpace>> for Size {
+impl Into<taffy::geometry::Size<taffy::style::AvailableSpace>> for Size<f32, LogicalUnit> {
     fn into(self) -> taffy::geometry::Size<taffy::style::AvailableSpace> {
         taffy::geometry::Size {
             // TODO: support max-content and min-content
@@ -386,7 +386,7 @@ impl<T> Into<taffy::geometry::Size<T>> for Size<T, LogicalUnit> {
     }
 }
 
-impl Into<taffy::geometry::Size<taffy::style::Dimension>> for Size {
+impl Into<taffy::geometry::Size<taffy::style::Dimension>> for Size<f32, LogicalUnit> {
     fn into(self) -> taffy::geometry::Size<taffy::style::Dimension> {
         taffy::geometry::Size {
             height: taffy::style::Dimension::Points(self.height),

@@ -41,8 +41,7 @@ impl Element for TestRoot {
                 FlexBox::builder()
                     .direction(ColumnReverse)
                     .width(Percent(1.))
-                    .height(Percent(1.))
-                    .to_taffy(),
+                    .height(Percent(1.)),
             )
             .unwrap()
     }

@@ -1,23 +1,16 @@
-use cosmic_text::{Attrs, Family, Metrics};
-use palette::{rgb::FromHexError, Darken, Desaturate, FromColor, Hsva, IntoColor};
-use svg::node::element::Title;
-
 use crate::{
-    accessibility::{AccessNode, AccessNodeBuilder, AccessRole},
-    color::{ColorRgba, ColorSrgba},
-    element::{Element, ElementRef, SizeConstraint},
+    accessibility::{AccessNodeBuilder, AccessRole},
+    color::ColorRgba,
+    element::Element,
     input::input_state::InputState,
     lib::Response,
     math::{Rect, Size},
     scene::{
         ctx::SceneContext,
-        layout::{FlexBox, LayoutPass, LayoutPassResult, Manual},
-        scene::SceneResources,
+        layout::{FlexBox, LayoutPass, LayoutPassResult},
     },
     shape::PaintRectangle,
 };
-
-use super::{TestRect, TextBox};
 
 pub struct TitleBarGlyph {
     glyph_size: f32,
@@ -43,11 +36,7 @@ impl Element for TitleBarGlyph {
     fn layout(&mut self, layout_pass: &mut LayoutPass) -> LayoutPassResult {
         layout_pass
             .engine()
-            .new_leaf(
-                FlexBox::builder()
-                    .size(Size::splat(self.glyph_size))
-                    .to_taffy(),
-            )
+            .new_leaf(FlexBox::builder().size(Size::splat(self.glyph_size)))
             .unwrap()
     }
 
