@@ -14,7 +14,7 @@
  - [x] Focus
  - [x] InputBoundary struct (egui `Response` equivalent)
  - [x] Encapsulate all libraries (namely euclid, cosmic_text, taffy engine)
- - [ ] Adopt builder pattern across codebase
+ - [x] Adopt builder pattern across codebase
  - [x] Better buffer support (do scale factor as part of render pass, not in component; support spans)
  - [ ] Better glyph support
  - [ ] Move everything into a single shader (draw call optimization)
