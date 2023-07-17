@@ -41,12 +41,7 @@ impl Element for TitleBarGlyph {
     }
 
     fn ui(&mut self, ctx: &mut SceneContext, rect: Rect) {
-        ctx.add_shape(PaintRectangle {
-            rect: self.response.boundary.into(),
-            fill: self.color.into(),
-
-            ..Default::default()
-        })
+        ctx.add_shape(PaintRectangle::from_rect(rect).with_fill(self.color));
     }
 
     fn input(&mut self, input: &mut InputState, rect: Rect) {

@@ -184,21 +184,21 @@ impl BoxShaderVertex {
     ) -> (impl Iterator<Item = [Self; 4]>, u64) {
         let fill_rect = paint_rect
             .fill
-            .map(|f| Self::from_rect_stroked(paint_rect.rect, f, None, None));
+            .map(|f| Self::from_rect_stroked(paint_rect.rounded_rect, f, None, None));
 
         let stroke_rect =
             paint_rect
                 .stroke_color
                 .zip(paint_rect.stroke_width)
                 .map(|(color, width)| {
-                    Self::from_rect_stroked(paint_rect.rect, color, Some(width), None)
+                    Self::from_rect_stroked(paint_rect.rounded_rect, color, Some(width), None)
                 });
 
         let blur_rect = paint_rect.blur.map(
             |PaintBlur {
                  blur_radius, color, ..
              }| {
-                Self::from_rect_stroked(paint_rect.rect, color, None, Some(blur_radius))
+                Self::from_rect_stroked(paint_rect.rounded_rect, color, None, Some(blur_radius))
             },
         );
 
@@ -267,7 +267,7 @@ impl BoxShaderVertex {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct PaintBlur<F = f32, U = LogicalUnit> {
     pub blur_radius: F,
     pub color: ColorRgba,
@@ -300,11 +300,121 @@ impl<T: Copy + Mul, U1, U2> Mul<ScaleFactor<T, U1, U2>> for PaintBlur<T, U1> {
 // TODO: adopt builder pattern (with `impl` args)
 #[derive(Clone, Default)]
 pub struct PaintRectangle<F = f32, U = LogicalUnit> {
-    pub rect: RoundedRect<F, U>,
+    pub rounded_rect: RoundedRect<F, U>,
     pub fill: Option<ColorRgba>,
     pub stroke_color: Option<ColorRgba>,
     pub stroke_width: Option<F>,
     pub blur: Option<PaintBlur<F, U>>,
+}
+
+impl<F, U> PaintRectangle<F, U> {
+    pub fn from_rect(rect: impl Into<RoundedRect<F, U>>) -> Self
+    where
+        F: Default,
+        U: Default,
+    {
+        Self {
+            rounded_rect: rect.into(),
+            ..Default::default()
+        }
+    }
+
+    #[inline]
+    pub fn with_rect(mut self, rect: impl Into<Rect<F, U>>) -> Self {
+        self.rounded_rect.inner = rect.into();
+        self
+    }
+
+    #[inline]
+    pub fn with_rounding(mut self, radius: impl Into<F>) -> Self {
+        self.rounded_rect.radius = radius.into().into();
+        self
+    }
+
+    pub fn without_rounding(mut self) -> Self {
+        self.rounded_rect.radius = None;
+        self
+    }
+
+    #[inline]
+    pub fn with_rounded_rect(mut self, rounded_rect: impl Into<RoundedRect<F, U>>) -> Self {
+        self.rounded_rect = rounded_rect.into();
+        self
+    }
+
+    #[inline]
+    pub fn with_fill(mut self, fill_color: impl Into<ColorRgba>) -> Self {
+        self.fill = fill_color.into().into();
+        self
+    }
+
+    #[inline]
+    pub fn without_fill(mut self) -> Self {
+        self.fill = None;
+        self
+    }
+
+    #[inline]
+    pub fn with_stroke_color(mut self, stroke_color: impl Into<ColorRgba>) -> Self {
+        self.stroke_color = stroke_color.into().into();
+        self
+    }
+
+    #[inline]
+    pub fn with_stroke_width(mut self, stroke_width: impl Into<F>) -> Self {
+        self.stroke_width = stroke_width.into().into();
+        self
+    }
+
+    #[inline]
+    pub fn with_stroke(
+        self,
+        stroke_color: impl Into<ColorRgba>,
+        stroke_width: impl Into<F>,
+    ) -> Self {
+        self.with_stroke_width(stroke_width)
+            .with_stroke_color(stroke_color)
+    }
+
+    pub fn without_stroke(mut self) -> Self {
+        self.stroke_color = None;
+        self.stroke_width = None;
+        self
+    }
+
+    #[inline]
+    pub fn with_blur(mut self, radius: impl Into<F>, color: impl Into<ColorRgba>) -> Self
+    where
+        F: Float,
+    {
+        self.blur = Some(PaintBlur::new(radius.into(), color.into()));
+        self
+    }
+
+    #[inline]
+    pub fn with_blur_radius(mut self, blur: impl Into<F>) -> Self
+    where
+        F: Default,
+        U: Default,
+    {
+        self.blur.get_or_insert_with(Default::default).blur_radius = blur.into();
+        self
+    }
+
+    #[inline]
+    pub fn with_blur_color(mut self, color: impl Into<ColorRgba>) -> Self
+    where
+        F: Default,
+        U: Default,
+    {
+        self.blur.get_or_insert_with(Default::default).color = color.into();
+        self
+    }
+
+    pub fn without_blur(mut self) -> Self {
+        self.blur = None;
+        self
+    }
 }
 
 custom_derive! {
@@ -329,7 +439,7 @@ impl<F: Num + Copy + Default + Two + MaxNum, U> PaintRectangle<F, U> {
         .reduce(MaxNum::max_num)
         .unwrap_or_default();
 
-        self.rect.inner.inflate(fac, fac)
+        self.rounded_rect.inner.inflate(fac, fac)
     }
 }
 
@@ -341,7 +451,7 @@ impl<T: Copy + Mul, U1, U2> Mul<ScaleFactor<T, U1, U2>> for PaintRectangle<T, U1
         Self::Output {
             blur: self.blur.map(|x| x * scale),
             fill: self.fill,
-            rect: self.rect * scale,
+            rounded_rect: self.rounded_rect * scale,
             stroke_color: self.stroke_color,
             stroke_width: self.stroke_width.map(|x| x * scale.get()),
         }

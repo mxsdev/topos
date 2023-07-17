@@ -98,11 +98,7 @@ impl Element for TitleBar {
             .darken(0.9)
             .into_color();
 
-        ctx.add_shape(PaintRectangle {
-            rect: self.input_rect.into(),
-            fill: col2.into(),
-            ..Default::default()
-        });
+        ctx.add_shape(PaintRectangle::from_rect(self.input_rect).with_fill(col2));
     }
 
     fn ui_post(&mut self, ctx: &mut SceneContext, rect: Rect) {

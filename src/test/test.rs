@@ -23,8 +23,6 @@ pub struct TestRect {
     pub response: Response,
     drag: Vector,
 
-    focused: bool,
-
     transition: Transition,
 
     glyph_tris: VertexBuffers<Pos>,
@@ -220,8 +218,6 @@ impl TestRect {
             transition: Transition::new(0.15).set_ease_func(curve),
 
             glyph_tris,
-
-            focused: false,
         }
     }
 }
@@ -235,13 +231,12 @@ impl Element for TestRect {
             self.transition.fac(),
         );
 
-        ctx.add_shape(PaintRectangle {
-            rect: self.response.boundary,
-            fill: Some(fill),
-            stroke_color: Some(ColorRgba::new(0., 0., 0., 1.)),
-            stroke_width: Some(1.),
-            blur: Some(PaintBlur::new(30., ColorRgba::new(0., 0., 0., 0.75))),
-        });
+        ctx.add_shape(
+            PaintRectangle::from_rect(self.response.boundary)
+                .with_fill(fill)
+                .with_stroke(ColorRgba::new(0., 0., 0., 0.75), 1.)
+                .with_blur(30., ColorRgba::new(0., 0., 0., 0.75))
+        );
 
         ctx.add_shape(PaintMesh {
             indices: self.glyph_tris.indices.clone(),
@@ -256,13 +251,12 @@ impl Element for TestRect {
                 .collect(),
         });
 
-        if self.focused {
-            ctx.add_shape(PaintRectangle {
-                rect: self.response.boundary.inflate(1., 1.).with_radius(None),
-                stroke_color: ColorRgba::new(1., 1., 0., 1.).into(),
-                stroke_width: (1.).into(),
-                ..Default::default()
-            });
+        if self.response.focused() {
+            ctx.add_shape(
+                PaintRectangle::from_rect(
+                    self.response.boundary.inflate(1., 1.).with_radius(None))
+                    .with_stroke(ColorRgba::new(1., 1., 0., 1.), 1.)
+            );
         }
     }
 

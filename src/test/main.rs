@@ -55,11 +55,9 @@ impl Element for MainElement {
     }
 
     fn ui(&mut self, ctx: &mut crate::scene::ctx::SceneContext, rect: Rect) {
-        ctx.add_shape(PaintRectangle {
-            rect: rect.into(),
-            fill: Some(ColorSrgba::new(255, 254, 209, 255).into()),
-            ..Default::default()
-        });
+        ctx.add_shape(
+            PaintRectangle::from_rect(rect).with_fill(ColorSrgba::new(255, 254, 209, 255)),
+        );
 
         let mut send_to_back = None::<usize>;
 
