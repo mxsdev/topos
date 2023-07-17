@@ -20,7 +20,7 @@ use crate::{
     util::Lerp,
 };
 
-use super::{TestRect, TextBox, TitleBarGlyph};
+use super::{TestRect, TextBoxElement, TitleBarGlyph};
 
 pub struct TitleBar {
     input_rect: Rect,

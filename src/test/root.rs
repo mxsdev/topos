@@ -14,7 +14,7 @@ use crate::{
     util::layout::Manual,
 };
 
-use super::{MainElement, TextBox, TitleBar};
+use super::{MainElement, TextBoxElement, TitleBar};
 
 pub struct TestRoot {
     scale_factor: WindowScaleFactor,

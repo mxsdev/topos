@@ -5,7 +5,6 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
 };
 
-use cosmic_text::{fontdb::Query, Attrs, Family, FontSystem};
 use enum_as_inner::EnumAsInner;
 use rustc_hash::FxHashMap;
 use swash::scale;
@@ -14,7 +13,7 @@ use crate::{
     accessibility::AccessNode,
     atlas::{
         self, BatchedAtlasRender, BatchedAtlasRenderBoxIterator, BatchedAtlasRenderBoxesEntry,
-        FontManagerRenderResources, PlacedTextBox,
+        FontManagerRenderResources,
     },
     element::{Element, ElementEvent, ElementId, ElementRef, RootConstructor, SizeConstraint},
     input::{input_state::InputState, output::PlatformOutput, winit::WinitState},
@@ -23,7 +22,10 @@ use crate::{
     scene::update::UpdatePass,
     shape::{self, BoxShaderVertex, PaintRectangle, PaintShape},
     surface::{RenderAttachment, RenderSurface, RenderingContext, SurfaceDependent},
-    util::PhysicalUnit,
+    util::{
+        text::{FontSystem, PlacedTextBox},
+        PhysicalUnit,
+    },
 };
 
 use super::{
@@ -219,10 +221,8 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
                 shape::PaintShape::Text(text_box) => {
                     batcher.add_text_box();
-                    text_boxes.push(
-                        ((text_box * scale_fac) as PlacedTextBox<f32, PhysicalUnit>)
-                            .with_clip_rect(last_clip_rect),
-                    );
+                    text_boxes
+                        .push((text_box.apply_scale_fac(scale_fac)).with_clip_rect(last_clip_rect));
                 }
                 shape::PaintShape::Mesh(paint_mesh) => {
                     let num_indices = paint_mesh.indices.len();

@@ -4,13 +4,13 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use cosmic_text::FontSystem;
 use itertools::Itertools;
 
 use crate::{
     element::{Element, ElementRef, ElementWeakref},
     input::input_state::InputState,
     math::{Pos, Rect, Size, WindowScaleFactor},
+    util::text::FontSystem,
 };
 
 use super::{ctx::SceneContext, scene::SceneResources};

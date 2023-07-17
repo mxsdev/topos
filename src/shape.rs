@@ -3,6 +3,7 @@ use crate::{
     math::{RoundedRect, ScaleFactor, WindowScaleFactor},
     mesh::PaintMesh,
     surface::SurfaceDependent,
+    util::text::PlacedTextBox,
 };
 
 use std::{
@@ -16,7 +17,6 @@ use bytemuck::Pod;
 use num_traits::{Float, Num};
 
 use crate::{
-    atlas::PlacedTextBox,
     graphics::DynamicGPUQuadBuffer,
     num::{MaxNum, Two},
     surface::{ParamsBuffer, RenderingContext},

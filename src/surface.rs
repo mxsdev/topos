@@ -51,17 +51,13 @@ pub struct RenderSurface {
 
 struct TextureInfoInner {
     num_samples: u32,
-    scale_factor: WindowScaleFactor,
 }
 
 pub struct TextureInfo(RwLock<TextureInfoInner>);
 
 impl TextureInfo {
-    fn new(num_samples: u32, scale_factor: WindowScaleFactor) -> Self {
-        Self(RwLock::new(TextureInfoInner {
-            num_samples,
-            scale_factor,
-        }))
+    fn new(num_samples: u32) -> Self {
+        Self(RwLock::new(TextureInfoInner { num_samples }))
     }
 
     pub fn get_num_samples(&self) -> u32 {
@@ -70,15 +66,6 @@ impl TextureInfo {
 
     pub(crate) fn set_num_samples(&self, num_samples: u32) {
         self.0.write().unwrap().num_samples = num_samples
-    }
-
-    pub(crate) fn set_scale_factor(&self, scale_factor: WindowScaleFactor) {
-        let mut inner = self.0.write().unwrap();
-        inner.scale_factor = scale_factor;
-    }
-
-    pub fn get_scale_factor(&self) -> WindowScaleFactor {
-        self.0.read().unwrap().scale_factor
     }
 
     pub fn default_multisample_state(&self) -> wgpu::MultisampleState {
@@ -206,10 +193,7 @@ impl RenderSurface {
             params_buffer,
             queue,
             texture_format,
-            texture_info: TextureInfo::new(
-                multisample_mode.num_samples(),
-                WindowScaleFactor::new(window.scale_factor() as f32),
-            ),
+            texture_info: TextureInfo::new(multisample_mode.num_samples()),
         }
         .into();
 
@@ -289,10 +273,6 @@ impl RenderSurface {
             self.configure_multisampled_framebuffer();
 
             if let Some(scale_factor) = scale_factor {
-                self.rendering_context
-                    .texture_info
-                    .set_scale_factor(WindowScaleFactor::new(scale_factor as f32));
-
                 self.screen_descriptor.scale_factor = WindowScaleFactor::new(scale_factor as f32);
             }
 

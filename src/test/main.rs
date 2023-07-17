@@ -4,7 +4,7 @@ use crate::{
     accessibility::{AccessNodeBuilder, AccessRole},
     color::{ColorRgba, ColorSrgba},
     element::{Element, ElementRef},
-    math::{Pos, Rect, RoundedRect},
+    math::{Pos, Rect},
     scene::{
         layout::{FlexBox, LayoutPass, LayoutPassResult, Percent},
         scene::SceneResources,
@@ -12,16 +12,16 @@ use crate::{
     shape::PaintRectangle,
 };
 
-use super::{TestRect, TextBox};
+use super::{TestRect, TextBoxElement};
 
 pub struct MainElement {
     rects: Vec<ElementRef<TestRect>>,
-    text_box: ElementRef<TextBox>,
+    text_box: ElementRef<TextBoxElement>,
 }
 
 impl MainElement {
     pub fn new(resources: &mut SceneResources) -> Self {
-        let text_box = TextBox::new(
+        let text_box = TextBoxElement::new(
             resources,
             Metrics::new(20., 20.),
             ColorRgba::new(0., 0., 0., 1.),

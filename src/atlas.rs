@@ -5,6 +5,7 @@ use crate::{
         WindowScaleFactor,
     },
     surface::SurfaceDependent,
+    util::text::{FontSystem, GlyphContentType, PlacedTextBox},
 };
 
 use std::{
@@ -18,7 +19,6 @@ use std::{
 
 use rayon::prelude::*;
 
-use cosmic_text::{FontSystem, LayoutGlyph, SubpixelBin};
 use etagere::{Allocation as AtlasAllocation, BucketedAtlasAllocator};
 use rustc_hash::FxHashMap;
 use swash::scale::ScaleContext;
@@ -29,7 +29,6 @@ use crate::{
     graphics::DynamicGPUQuadBuffer,
     num::NextPowerOfTwo,
     surface::{ParamsBuffer, RenderingContext},
-    text::GlyphContentType,
     util::{LogicalUnit, PhysicalUnit, WgpuDescriptor},
 };
 
@@ -426,103 +425,6 @@ struct FontAtlasManager {
     rendering_context: Arc<RenderingContext>,
 }
 
-pub struct PlacedTextBox<F = f32, U = LogicalUnit> {
-    glyphs: Vec<PlacedGlyph>,
-    clip_rect: Option<Rect<F, U>>,
-    color: ColorRgba,
-    pub pos: Pos<F, U>,
-}
-
-impl<U> PlacedTextBox<f32, U> {
-    pub fn from_buffer(buffer: &cosmic_text::Buffer, pos: Pos<f32, U>, color: ColorRgba) -> Self {
-        Self {
-            glyphs: PlacedGlyph::from_buffer(buffer).collect(),
-            clip_rect: None,
-            pos,
-            color,
-        }
-    }
-}
-
-impl PlacedTextBox<f32, PhysicalUnit> {
-    pub fn recalculate_subpixel_offsets(&mut self) {
-        for glyph in self.glyphs.iter_mut() {
-            let x = self.pos.x + glyph.cache_key.x_bin.as_float();
-            let y = self.pos.y + glyph.cache_key.y_bin.as_float();
-
-            let (x_pos, x_bin) = SubpixelBin::new(x);
-            let (y_pos, y_bin) = SubpixelBin::new(y);
-
-            glyph.cache_key.x_bin = x_bin;
-            glyph.cache_key.y_bin = y_bin;
-
-            self.pos.x = x_pos as f32;
-            self.pos.y = y_pos as f32;
-        }
-    }
-}
-
-impl<F, U> PlacedTextBox<F, U> {
-    pub fn with_clip_rect(mut self, rect: impl Into<Option<Rect<F, U>>>) -> Self {
-        self.clip_rect = rect.into();
-        self
-    }
-}
-
-impl<T: Copy + Mul, U1, U2> Mul<ScaleFactor<T, U1, U2>> for PlacedTextBox<T, U1> {
-    type Output = PlacedTextBox<T::Output, U2>;
-
-    #[inline]
-    fn mul(self, scale: ScaleFactor<T, U1, U2>) -> Self::Output {
-        Self::Output {
-            clip_rect: self.clip_rect.map(|x| x * scale),
-            color: self.color,
-            glyphs: self.glyphs,
-            pos: self.pos * scale,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct PlacedGlyph {
-    // pub glyph: &'a LayoutGlyph,
-    pub x_int: i32,
-    pub y_int: i32,
-    pub line_offset: f32,
-    pub cache_key: GlyphCacheKey,
-    pub depth: f32,
-}
-
-impl PlacedGlyph {
-    pub fn from_layout_glyph(glyph: &LayoutGlyph, line_offset: f32) -> Self {
-        Self {
-            x_int: glyph.x_int,
-            y_int: glyph.y_int,
-            cache_key: glyph.cache_key,
-            line_offset,
-            depth: 0.,
-        }
-    }
-
-    pub fn from_buffer(buffer: &cosmic_text::Buffer) -> impl Iterator<Item = Self> + '_ {
-        buffer.layout_runs().flat_map(|r| {
-            let line_y = r.line_y;
-
-            r.glyphs
-                .iter()
-                .map(move |g| Self::from_layout_glyph(g, line_y.clone()))
-        })
-    }
-}
-
-// impl<'a> Deref for LayoutGlyphWithContext<'a> {
-//     type Target = LayoutGlyph;
-
-//     fn deref(&self) -> &Self::Target {
-//         &self.glyph
-//     }
-// }
-
 macro_rules! get_coll_mut {
     ($self:ident, $($arg:tt)*) => {
         match $($arg)* {
@@ -635,7 +537,7 @@ impl FontAtlasManager {
 
     pub fn prepare<'a>(
         &mut self,
-        boxes: impl Iterator<Item = PlacedTextBox<f32, PhysicalUnit>>,
+        boxes: impl Iterator<Item = PlacedTextBox<PhysicalUnit>>,
     ) -> BatchedAtlasRenderBoxIterator<impl Iterator<Item = BatchedAtlasRenderBoxesEntry>> {
         // convert to renderable glyphs
         let mut partition = FxHashMap::<AtlasId, Vec<GlyphToRender>>::default();
@@ -654,24 +556,10 @@ impl FontAtlasManager {
                         placement,
                         ..
                     })) => {
-                        let PlacedTextBox {
-                            clip_rect,
-                            color,
-                            pos,
-                            ..
-                        } = text_box;
+                        let color = g.color;
 
-                        let mut glyph_pos = pos
-                            + PhysicalVector::new(
-                                (g.x_int + placement.x) as f32,
-                                (g.y_int - placement.y) as f32 + g.line_offset,
-                            );
-
-                        glyph_pos = glyph_pos.map(f32::round);
-
-                        let rect_size = PhysicalSize::new(size.width as f32, size.height as f32);
-
-                        let draw_rect = PhysicalRect::new(glyph_pos, glyph_pos + rect_size);
+                        let PlacedTextBox { clip_rect, pos, .. } = text_box;
+                        let draw_rect = g.to_draw_glyph(pos, *size, *placement);
 
                         if clip_rect
                             .map(|clip_rect| clip_rect.intersection(&draw_rect).is_none())
@@ -885,17 +773,12 @@ impl FontManager {
 
     pub fn prepare<'a>(
         &mut self,
-        mut text_boxes: Vec<PlacedTextBox<f32, PhysicalUnit>>,
+        text_boxes: Vec<PlacedTextBox<PhysicalUnit>>,
     ) -> BatchedAtlasRenderBoxIterator<impl Iterator<Item = BatchedAtlasRenderBoxesEntry>> {
-        for text_box in text_boxes.iter_mut() {
-            text_box.recalculate_subpixel_offsets();
-        }
-
         self.generate_textures(
             text_boxes
                 .iter()
-                .flat_map(|b| b.glyphs.iter())
-                .map(|g| g.cache_key)
+                .flat_map(|b| b.glyph_cache_keys())
                 .collect(),
         );
 
@@ -909,7 +792,7 @@ impl FontManager {
         self.font_system.clone()
     }
 
-    pub fn get_font_system(&mut self) -> MutexGuard<'_, cosmic_text::FontSystem> {
+    pub fn get_font_system(&mut self) -> MutexGuard<'_, FontSystem> {
         return self.font_system.lock().unwrap();
     }
 

@@ -14,22 +14,24 @@ use crate::{
         },
     },
     surface::RenderingContext,
-    util::layout::LayoutNode,
+    util::{
+        layout::LayoutNode,
+        text::{PlacedTextBox, TextBox},
+    },
 };
 
-use cosmic_text::{Attrs, FontSystem, Metrics};
+use crate::util::text::{Attrs, FontSystem, Metrics};
 use ordered_float::OrderedFloat;
 use rustc_hash::FxHashMap;
 
 use crate::{
-    atlas::PlacedTextBox,
     element::Element,
     math::{Rect, Size},
     scene::{ctx::SceneContext, layout::LayoutPass, scene::SceneResources},
 };
 
 struct CacheBuffer {
-    buffer: cosmic_text::Buffer,
+    buffer: TextBox,
 
     invalidate_cache: bool,
 
@@ -37,8 +39,8 @@ struct CacheBuffer {
     cache: FxHashMap<MeasureTextBoxCacheKey, Size>,
 }
 
-impl From<cosmic_text::Buffer> for CacheBuffer {
-    fn from(buffer: cosmic_text::Buffer) -> Self {
+impl From<TextBox> for CacheBuffer {
+    fn from(buffer: TextBox) -> Self {
         Self {
             buffer,
             invalidate_cache: false,
@@ -49,13 +51,12 @@ impl From<cosmic_text::Buffer> for CacheBuffer {
     }
 }
 
-pub struct TextBox {
+pub struct TextBoxElement {
     buffer: Arc<Mutex<CacheBuffer>>,
 
     layout_node: LayoutPassResult,
 
     logical_metrics: Metrics,
-    color: ColorRgba,
 
     text: String,
     attrs: Attrs<'static>,
@@ -64,7 +65,6 @@ pub struct TextBox {
 struct TextBoxMeasureFunc {
     font_system: Arc<Mutex<FontSystem>>,
     buffer: Arc<Mutex<CacheBuffer>>,
-    rendering_context: Arc<RenderingContext>,
 }
 
 impl Measurable for TextBoxMeasureFunc {
@@ -106,28 +106,13 @@ impl Measurable for TextBoxMeasureFunc {
         let result = match buffer.cache.get(&cache_key).cloned() {
             Some(res) => res,
             None => {
-                let scale_factor = self.rendering_context.texture_info.get_scale_factor().get();
-
                 buffer.set_size(
                     &mut self.font_system.lock().unwrap(),
-                    tbox_width * scale_factor,
-                    tbox_height * scale_factor,
+                    tbox_width,
+                    tbox_height,
                 );
 
-                let lh = buffer.metrics().line_height;
-
-                let size = buffer
-                    .layout_runs()
-                    .fold(Size::new(0.0, 0.0), |mut size, run| {
-                        let new_width = run.line_w;
-                        if new_width > size.width {
-                            size.width = new_width;
-                        }
-
-                        size.height += lh;
-
-                        size
-                    });
+                let size = buffer.buffer.computed_size();
 
                 buffer.cache.insert(cache_key, size);
 
@@ -140,7 +125,7 @@ impl Measurable for TextBoxMeasureFunc {
     }
 }
 
-impl TextBox {
+impl TextBoxElement {
     pub fn new(
         scene_resources: &mut SceneResources,
         metrics: Metrics,
@@ -151,9 +136,11 @@ impl TextBox {
         let buffer = {
             let mut font_system = scene_resources.font_system();
 
-            let mut buffer = cosmic_text::Buffer::new(
+            let mut buffer = TextBox::new(
                 &mut font_system,
-                metrics.scale(scene_resources.scale_factor().get()),
+                metrics.font_size,
+                metrics.line_height,
+                color,
             );
 
             buffer.set_text(&mut font_system, &text, attrs);
@@ -168,7 +155,6 @@ impl TextBox {
         let text_box_measure_func = TextBoxMeasureFunc {
             font_system: scene_resources.font_system_ref(),
             buffer: buffer.clone(),
-            rendering_context: scene_resources.rendering_context_ref(),
         };
 
         let layout_node = scene_resources
@@ -183,14 +169,13 @@ impl TextBox {
             attrs,
             text,
             buffer,
-            color,
             logical_metrics: metrics,
             layout_node,
         }
     }
 }
 
-impl Element for TextBox {
+impl Element for TextBoxElement {
     fn layout(&mut self, layout_pass: &mut LayoutPass) -> LayoutPassResult {
         self.layout_node.clone()
     }
@@ -198,17 +183,19 @@ impl Element for TextBox {
     fn layout_post(&mut self, resources: &mut SceneResources, rect: Rect) {
         self.buffer.lock().unwrap().set_size(
             &mut resources.font_system(),
-            rect.width() * resources.scale_factor().get(),
-            rect.height() * resources.scale_factor().get(),
+            rect.width(),
+            rect.height(),
         );
     }
 
     fn ui(&mut self, ctx: &mut SceneContext, rect: Rect) {
-        ctx.add_shape(PlacedTextBox::from_buffer(
-            &self.buffer.lock().unwrap(),
-            rect.min,
-            self.color,
-        ))
+        ctx.add_shape(
+            self.buffer
+                .lock()
+                .unwrap()
+                .buffer
+                .calculate_placed_text_box(rect.min, None),
+        )
     }
 
     fn node(&self) -> AccessNodeBuilder {
