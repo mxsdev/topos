@@ -7,7 +7,7 @@ use crate::{
     graphics::DynamicGPUMeshTriBuffer,
     math::{Pos, WindowScaleFactor},
     surface::{ParamsBuffer, RenderingContext, SurfaceDependent},
-    util::WgpuDescriptor,
+    util::{svg::PosVertexBuffers, WgpuDescriptor},
 };
 
 #[repr(C)]
@@ -60,6 +60,24 @@ impl PaintMesh {
                 .map(|v| MeshVertex::from_paint_vertex(v, scale_fac))
                 .collect(),
             indices: self.indices,
+        }
+    }
+
+    pub fn from_pos_vertex_buffers(
+        buffers: PosVertexBuffers,
+        color: impl Into<ColorRgba> + Copy,
+        pos: Pos,
+    ) -> Self {
+        Self {
+            indices: buffers.indices.clone(),
+            vertices: buffers
+                .vertices
+                .iter()
+                .map(|p| PaintMeshVertex {
+                    pos: *p + pos.to_vector(),
+                    color: color.into().into(),
+                })
+                .collect(),
         }
     }
 }

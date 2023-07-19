@@ -293,8 +293,6 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
             });
 
             for x in batches {
-                // log::trace!("{:?}", x);
-
                 match x {
                     BatchedRender::Rectangles(num_boxes) => {
                         self.shape_renderer
