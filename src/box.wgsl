@@ -2,7 +2,6 @@ const FEATHERING = 1.;
 
 /// Rounded rectangle
 const shapeRect = 0;
-
 /// Triangle mesh
 const shapeMesh = 1;
 
@@ -107,27 +106,52 @@ struct Params {
 @group(0) @binding(0)
 var<uniform> params: Params;
 
+@group(0) @binding(1)
+var atlas_texture: texture_2d<f32>;
+
+@group(0) @binding(2)
+var atlas_sampler: sampler;
+
 @vertex
 fn vs_main(
     vertex_in: VertexInput
 ) -> VertexOutput {
     var vertex_out: VertexOutput;
 
-    var padding = FEATHERING + vertex_in.stroke_width + vertex_in.blur_radius;
+    vertex_out.shapeType = vertex_in.shapeType;
+    vertex_out.fillMode = vertex_in.fillMode;
 
+    vertex_out.depth = vertex_in.depth;
+
+    vertex_out.dims = vertex_in.dims;
+    vertex_out.origin = vertex_in.origin;
+
+    vertex_out.uv = vertex_in.uv;
     vertex_out.color = vertex_in.color;
+
     vertex_out.rounding = vertex_in.rounding;
     vertex_out.stroke_width = vertex_in.stroke_width;
     vertex_out.blur_radius = vertex_in.blur_radius / 3.;
 
     var out_pos = vertex_in.pos;
 
-    vertex_out.dims = vertex_in.dims;
+    switch (vertex_in.shapeType) {
+        case 0u: { // shapeRect
+            var padding = FEATHERING + vertex_in.stroke_width + vertex_in.blur_radius;
+            var rel_pos = vertex_in.pos - vertex_in.origin;
+            var padding_quantity = sign(rel_pos) * padding;
 
-    // var v = vertex_in.vertex_idx % 4u;
+            out_pos += padding_quantity;
+        }
 
-    var px = vertex_in.dims.x + padding;
-    var py = vertex_in.dims.y + padding;
+        case 1u: { // shapeMesh
+
+        }
+
+        default: { }
+    }
+
+    vertex_out.pos = out_pos;
 
     vertex_out.position = vec4<f32>(
         2.0 * out_pos / vec2<f32>(params.screen_resolution) - 1.0,
@@ -152,26 +176,59 @@ fn sdRoundBox(p: vec2<f32>, b: vec2<f32>, r: f32) -> f32 {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    // draw blur
-    if in.blur_radius > 0. {
-        var alpha = roundedBoxShadow(in.dims, in.rel_pos, in.blur_radius, in.rounding);
-        return vec4<f32>(in.color.rgb, alpha * in.color.a);
+    var col = in.color;
+
+    switch (in.fillMode) {
+        case 0u: { // fillModeColor
+
+        }
+
+        case 1u: { // fillModeTexture
+            col = textureSampleLevel(atlas_texture, atlas_sampler, in.uv, 0.0);
+        }
+
+        case 2u: { // fillModeTextureMaskColor
+            var alpha = textureSampleLevel(atlas_texture, atlas_sampler, in.uv, 0.0).x;
+            col = vec4<f32>(col.rgb, in.color.a * alpha);
+        }
+
+        default: { }
     }
+    
+    switch (in.shapeType) {
+        case 0u: { // shapeRect
+            var rel_pos = in.pos - in.origin;
+        
+            // draw blur
+            if in.blur_radius > 0. {
+                var alpha = roundedBoxShadow(in.dims, rel_pos, in.blur_radius, in.rounding);
+                return vec4<f32>(in.color.rgb, alpha * in.color.a);
+            }
 
-    if in.rounding <= 0. && in.stroke_width <= 0. {
-        // TODO: strokes for non-rounded rects
-        return in.color;
+            if in.rounding <= 0. && in.stroke_width <= 0. {
+                // TODO: strokes for non-rounded rects
+                return in.color;
+            }
+
+            var dist = sdRoundBox(rel_pos, in.dims, in.rounding);
+
+            // draw fill
+            if in.stroke_width <= 0. {
+                var alpha = smoothstep(0., 1., -dist+0.5);
+                return vec4<f32>(in.color.rgb, alpha * in.color.a);
+            } 
+
+            // draw stroke
+            var alpha = 1. - (smoothstep(0., 0.5, abs(dist) - in.stroke_width / 2.) * 2.);
+            return vec4<f32>(in.color.rgb, alpha * in.color.a);
+        }
+
+        case 1u: { // shapeMesh
+            return col;
+        }
+
+        default: {
+            return col;
+        }
     }
-
-    var dist = sdRoundBox(in.rel_pos, in.dims, in.rounding);
-
-    // draw fill
-    if in.stroke_width <= 0. {
-        var alpha = smoothstep(0., 1., -dist+0.5);
-        return vec4<f32>(in.color.rgb, alpha * in.color.a);
-    } 
-
-    // draw stroke
-    var alpha = 1. - (smoothstep(0., 0.5, abs(dist) - in.stroke_width / 2.) * 2.);
-    return vec4<f32>(in.color.rgb, alpha * in.color.a);
 }

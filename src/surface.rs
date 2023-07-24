@@ -1,3 +1,4 @@
+use std::num::NonZeroU64;
 use std::sync::{Arc, RwLock};
 
 use wgpu::util::DeviceExt;
@@ -5,6 +6,8 @@ use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
 use crate::math::WindowScaleFactor;
+use crate::shape::BoxShaderVertex;
+use crate::util::WgpuDescriptor;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -83,6 +86,9 @@ pub struct RenderingContext {
     pub texture_format: wgpu::TextureFormat,
 
     pub texture_info: TextureInfo,
+
+    shape_bind_group_layout: wgpu::BindGroupLayout,
+    shape_render_pipeline: wgpu::RenderPipeline,
 }
 
 pub trait SurfaceDependent {
@@ -188,12 +194,94 @@ impl RenderSurface {
 
         let multisample_mode = MultisampleMode::default();
 
+        let shape_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("box bind group"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        count: None,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: NonZeroU64::new(
+                                std::mem::size_of::<ParamsBuffer>() as u64
+                            ),
+                        },
+                        visibility: wgpu::ShaderStages::VERTEX,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        count: None,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::default(),
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        count: None,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                    },
+                ],
+            });
+
+        let shape_shader_module = device.create_shader_module(wgpu::include_wgsl!("box.wgsl"));
+
+        let shape_render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("box pipeline layout"),
+                bind_group_layouts: &[&shape_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+        let shape_render_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("box render pipeline"),
+                layout: Some(&shape_render_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shape_shader_module,
+                    entry_point: "vs_main",
+                    buffers: &[BoxShaderVertex::desc()],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shape_shader_module,
+                    entry_point: "fs_main",
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: texture_format,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                    cull_mode: None,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState {
+                    count: multisample_mode.num_samples(),
+                    ..Default::default()
+                },
+                multiview: None,
+            });
+
         let rendering_context = RenderingContext {
             device,
             params_buffer,
             queue,
             texture_format,
             texture_info: TextureInfo::new(multisample_mode.num_samples()),
+
+            shape_bind_group_layout,
+            shape_render_pipeline,
         }
         .into();
 
