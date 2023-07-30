@@ -87,8 +87,39 @@ pub struct RenderingContext {
 
     pub texture_info: TextureInfo,
 
-    shape_bind_group_layout: wgpu::BindGroupLayout,
-    shape_render_pipeline: wgpu::RenderPipeline,
+    pub(crate) shape_bind_group_layout: wgpu::BindGroupLayout,
+    pub(crate) shape_render_pipeline: wgpu::RenderPipeline,
+
+    pub dummy_texture: wgpu::Texture,
+}
+
+impl RenderingContext {
+    pub fn create_shape_bind_group(
+        &self,
+        texture_view: &wgpu::TextureView,
+        texture_sampler: &wgpu::Sampler,
+    ) -> wgpu::BindGroup {
+        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &self.shape_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(
+                        self.params_buffer.as_entire_buffer_binding(),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(texture_sampler),
+                },
+            ],
+            label: None,
+        })
+    }
 }
 
 pub trait SurfaceDependent {
@@ -273,12 +304,28 @@ impl RenderSurface {
                 multiview: None,
             });
 
+        let dummy_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("global dummy texture"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                ..Default::default()
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+
         let rendering_context = RenderingContext {
             device,
             params_buffer,
             queue,
             texture_format,
             texture_info: TextureInfo::new(multisample_mode.num_samples()),
+            dummy_texture,
 
             shape_bind_group_layout,
             shape_render_pipeline,

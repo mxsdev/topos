@@ -25,11 +25,9 @@ use crate::{
 };
 
 pub struct RenderResources {
-    pub dummy_texture: wgpu::Texture,
     dummy_texture_view: wgpu::TextureView,
     dummy_texture_sampler: wgpu::Sampler,
 
-    pub render_pipeline: wgpu::RenderPipeline,
     pub bind_group: wgpu::BindGroup,
 }
 
@@ -62,23 +60,23 @@ impl ShapeRenderer {
 
     pub fn render_boxes<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, num_boxes: u64) {
         self.gpu_buffer.render_quads(
-            &self.box_resources.render_pipeline,
-            &self.box_resources.bind_group,
+            None,
+            (&self.box_resources.bind_group).into(),
             render_pass,
             num_boxes,
             0..1,
         );
     }
 
-    fn create_box_resources(
-        RenderingContext {
+    fn create_box_resources(render_ctx: &RenderingContext) -> RenderResources {
+        let RenderingContext {
             device,
             texture_format,
             params_buffer,
             texture_info,
             ..
-        }: &RenderingContext,
-    ) -> RenderResources {
+        } = render_ctx;
+
         let shader = device.create_shader_module(wgpu::include_wgsl!("box.wgsl"));
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -121,80 +119,16 @@ impl ShapeRenderer {
             push_constant_ranges: &[],
         });
 
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("box render pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: "vs_main",
-                buffers: &[BoxShaderVertex::desc()],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: *texture_format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-                cull_mode: None,
-            },
-            depth_stencil: None,
-            multisample: texture_info.default_multisample_state(),
-            multiview: None,
-        });
-
-        let dummy_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("box render dummy texture"),
-            size: wgpu::Extent3d {
-                width: 1,
-                height: 1,
-                ..Default::default()
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
-
-        let dummy_texture_view = dummy_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let dummy_texture_view = render_ctx
+            .dummy_texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
         let dummy_texture_sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
 
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("box render bind group"),
-            layout: &bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Buffer(
-                        params_buffer.as_entire_buffer_binding(),
-                    ),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&dummy_texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&dummy_texture_sampler),
-                },
-            ],
-        });
+        let bind_group =
+            render_ctx.create_shape_bind_group(&dummy_texture_view, &dummy_texture_sampler);
 
         RenderResources {
-            render_pipeline,
             bind_group,
-            dummy_texture,
             dummy_texture_view,
             dummy_texture_sampler,
         }
@@ -248,7 +182,7 @@ pub struct BoxShaderVertex {
     dims: [f32; 2],
     origin: [f32; 2],
 
-    uv: [f32; 2],
+    uv: [u32; 2],
 
     color: [f32; 4],
 
@@ -259,22 +193,33 @@ pub struct BoxShaderVertex {
 
 impl WgpuDescriptor<11> for BoxShaderVertex {
     const ATTRIBS: [wgpu::VertexAttribute; 11] = wgpu::vertex_attr_array![
+        // shape_type
         0 => Uint32,
+        // fill_mode
         1 => Uint32,
 
+        // depth
         2 => Float32,
 
+        // pos
         3 => Float32x2,
 
+        // dims
         4 => Float32x2,
+        // origin
         5 => Float32x2,
 
-        6 => Float32x2,
+        // uv
+        6 => Uint32x2,
 
+        // color
         7 => Float32x4,
 
+        // rounding
         8 => Float32,
+        // stroke_width
         9 => Float32,
+        // blur_radius
         10 => Float32,
     ];
 }
@@ -322,7 +267,7 @@ impl BoxShaderVertex {
 
     pub(crate) fn glyph_rect(
         rect: Rect<f32, PhysicalUnit>,
-        uv: Rect<f32, PhysicalUnit>,
+        uv: Rect<u32, PhysicalUnit>,
         glyph_type: GlyphContentType, // TODO: texture id
         color: ColorRgba,
     ) -> ([Self; 4], [u16; 6]) {
@@ -338,32 +283,32 @@ impl BoxShaderVertex {
                 Self {
                     shape_type: ShapeType::Mesh,
                     fill_mode,
-                    pos: [rect.min.x, rect.min.x],
-                    uv: [uv.min.x, uv.min.x],
+                    pos: [rect.min.x, rect.min.y],
+                    uv: [uv.min.x, uv.min.y],
                     color,
                     ..Default::default()
                 },
                 Self {
                     shape_type: ShapeType::Mesh,
                     fill_mode,
-                    pos: [rect.max.x, rect.min.x],
-                    uv: [uv.max.x, uv.min.x],
+                    pos: [rect.max.x, rect.min.y],
+                    uv: [uv.max.x, uv.min.y],
                     color,
                     ..Default::default()
                 },
                 Self {
                     shape_type: ShapeType::Mesh,
                     fill_mode,
-                    pos: [rect.min.x, rect.max.x],
-                    uv: [uv.min.x, uv.max.x],
+                    pos: [rect.min.x, rect.max.y],
+                    uv: [uv.min.x, uv.max.y],
                     color,
                     ..Default::default()
                 },
                 Self {
                     shape_type: ShapeType::Mesh,
                     fill_mode,
-                    pos: [rect.max.x, rect.max.x],
-                    uv: [uv.max.x, uv.max.x],
+                    pos: [rect.max.x, rect.max.y],
+                    uv: [uv.max.x, uv.max.y],
                     color,
                     ..Default::default()
                 },

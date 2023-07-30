@@ -145,7 +145,9 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let RenderingContext { device, queue, .. } = render_surface.rendering_context();
+        let render_ctx = render_surface.rendering_context();
+
+        let RenderingContext { device, queue, .. } = render_ctx;
 
         let scale_fac = render_surface.scale_factor();
 
@@ -263,7 +265,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
         {
             let load_op = wgpu::LoadOp::Clear(wgpu::Color {
-                r: 1.0,
+                r: 0.0,
                 g: 0.0,
                 b: 0.0,
                 a: 1.0,
@@ -291,6 +293,8 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
                 })],
                 depth_stencil_attachment: None,
             });
+
+            render_pass.set_pipeline(&render_ctx.shape_render_pipeline);
 
             for x in batches {
                 match x {

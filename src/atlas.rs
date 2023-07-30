@@ -4,6 +4,7 @@ use crate::{
         PhysicalPos, PhysicalRect, PhysicalSize, PhysicalVector, Pos, Rect, ScaleFactor,
         WindowScaleFactor,
     },
+    shape::BoxShaderVertex,
     surface::SurfaceDependent,
     util::text::{FontSystem, GlyphContentType, PlacedTextBox},
 };
@@ -19,7 +20,7 @@ use std::{
 
 use rayon::prelude::*;
 
-use etagere::{Allocation as AtlasAllocation, BucketedAtlasAllocator};
+use etagere::{euclid::approxeq::ApproxEq, Allocation as AtlasAllocation, BucketedAtlasAllocator};
 use rustc_hash::FxHashMap;
 use swash::scale::ScaleContext;
 
@@ -42,26 +43,6 @@ pub struct GlyphToRender {
     // clip_rect: Option<PhysicalRect>,
 }
 
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct FontVertex {
-    pos: [f32; 2],
-    uv: [u32; 2],
-    color: [f32; 4],
-    content_type: u32,
-    depth: f32,
-}
-
-impl WgpuDescriptor<5> for FontVertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
-        0 => Float32x2,
-        1 => Uint32x2,
-        2 => Float32x4,
-        3 => Uint32,
-        4 => Float32
-    ];
-}
-
 pub(crate) struct FontAtlas {
     allocator: BucketedAtlasAllocator,
     texture: wgpu::Texture,
@@ -71,11 +52,9 @@ pub(crate) struct FontAtlas {
     width: i32,
     height: i32,
 
-    shader: wgpu::ShaderModule,
-    render_pipeline: wgpu::RenderPipeline,
     bind_group: wgpu::BindGroup,
 
-    gpu_buffer: DynamicGPUQuadBuffer<FontVertex>,
+    gpu_buffer: DynamicGPUQuadBuffer<BoxShaderVertex>,
 
     vertex_buffer_glyphs: u64,
 
@@ -130,10 +109,7 @@ impl FontAtlas {
 
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let shader = device.create_shader_module(wgpu::include_wgsl!("text.wgsl"));
-
-        let (render_pipeline, bind_group) =
-            Self::render_pipeline(&shader, &sampler, &texture_view, context);
+        let bind_group = Self::create_bind_group(&sampler, &texture_view, context);
 
         let vertex_buffer_glyphs = Self::MIN_NUM_VERTS;
 
@@ -145,8 +121,6 @@ impl FontAtlas {
             atlas_type,
             width: width as i32,
             height: width as i32,
-            shader,
-            render_pipeline,
             bind_group,
             vertex_buffer_glyphs,
             num_glyphs: 0,
@@ -175,49 +149,15 @@ impl FontAtlas {
                     let uv = PhysicalRect::new(alloc_pos, alloc_pos + *size);
                     let color = (*color).into();
 
-                    [
-                        FontVertex {
-                            pos: [draw_rect.min.x, draw_rect.min.y],
-                            uv: [uv.min.x as u32, uv.min.y as u32],
-                            color,
-                            content_type: self.atlas_type as u32,
-                            depth: 0.,
-                        },
-                        FontVertex {
-                            pos: [draw_rect.max.x, draw_rect.min.y],
-                            uv: [uv.max.x as u32, uv.min.y as u32],
-                            color,
-                            content_type: self.atlas_type as u32,
-                            depth: 0.,
-                        },
-                        FontVertex {
-                            pos: [draw_rect.min.x, draw_rect.max.y],
-                            uv: [uv.min.x as u32, uv.max.y as u32],
-                            color,
-                            content_type: self.atlas_type as u32,
-                            depth: 0.,
-                        },
-                        FontVertex {
-                            pos: [draw_rect.max.x, draw_rect.max.y],
-                            uv: [uv.max.x as u32, uv.max.y as u32],
-                            color,
-                            content_type: self.atlas_type as u32,
-                            depth: 0.,
-                        },
-                    ]
+                    return BoxShaderVertex::glyph_rect(*draw_rect, uv, self.atlas_type, color).0;
                 },
             ),
         );
     }
 
     pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, quads: u64) {
-        self.gpu_buffer.render_quads(
-            &self.render_pipeline,
-            &self.bind_group,
-            render_pass,
-            quads,
-            0..1,
-        );
+        self.gpu_buffer
+            .render_quads(None, (&self.bind_group).into(), render_pass, quads, 0..1);
     }
 
     fn try_allocate_space(&mut self, space: &PhysicalSize<u32>) -> Option<AtlasAllocation> {
@@ -271,112 +211,12 @@ impl FontAtlas {
         return space.width <= self.width && space.height <= self.height;
     }
 
-    pub fn render_pipeline(
-        shader: &wgpu::ShaderModule,
+    pub fn create_bind_group(
         sampler: &wgpu::Sampler,
         texture_view: &wgpu::TextureView,
-        RenderingContext {
-            device,
-            params_buffer,
-            texture_format,
-            texture_info,
-            ..
-        }: &RenderingContext,
-    ) -> (wgpu::RenderPipeline, wgpu::BindGroup) {
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("font atlas bind group"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    count: None,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: NonZeroU64::new(
-                            std::mem::size_of::<ParamsBuffer>() as u64
-                        ),
-                    },
-                    visibility: wgpu::ShaderStages::VERTEX,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    count: None,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::default(),
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    count: None,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                },
-            ],
-        });
-
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("font atlas pipeline"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
-        });
-
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("font atlas"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: "vs_main",
-                buffers: &[FontVertex::desc()],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: *texture_format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-                // cull_mode: Some(wgpu::Face::Front),
-                cull_mode: None,
-            },
-            depth_stencil: None,
-            multisample: texture_info.default_multisample_state(),
-            multiview: None,
-        });
-
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("font atlas"),
-            layout: &bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Buffer(
-                        params_buffer.as_entire_buffer_binding(),
-                    ),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(sampler),
-                },
-            ],
-        });
-
-        (render_pipeline, bind_group)
+        render_ctx: &RenderingContext,
+    ) -> wgpu::BindGroup {
+        render_ctx.create_shape_bind_group(texture_view, sampler)
     }
 }
 
@@ -387,10 +227,7 @@ impl SurfaceDependent for FontAtlas {
         size: winit::dpi::PhysicalSize<u32>,
         scale_factor: WindowScaleFactor,
     ) {
-        let (render_pipeline, bind_group) =
-            Self::render_pipeline(&self.shader, &self.sampler, &self.texture_view, context);
-
-        self.render_pipeline = render_pipeline;
+        let bind_group = Self::create_bind_group(&self.sampler, &self.texture_view, context);
         self.bind_group = bind_group;
     }
 }

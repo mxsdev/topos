@@ -45,8 +45,8 @@ impl<T: Sized + Pod + Debug> DynamicGPUQuadBuffer<T> {
 
     pub fn render_quads<'a>(
         &'a self,
-        render_pipeline: &'a wgpu::RenderPipeline,
-        bind_group: &'a wgpu::BindGroup,
+        render_pipeline: Option<&'a wgpu::RenderPipeline>,
+        bind_group: Option<&'a wgpu::BindGroup>,
         render_pass: &mut wgpu::RenderPass<'a>,
         quads: u64,
         instances: Range<u32>,
@@ -67,8 +67,8 @@ impl<T: Sized + Pod + Debug> DynamicGPUQuadBuffer<T> {
 
     fn render_quad_range<'a>(
         &'a self,
-        render_pipeline: &'a wgpu::RenderPipeline,
-        bind_group: &'a wgpu::BindGroup,
+        render_pipeline: Option<&'a wgpu::RenderPipeline>,
+        bind_group: Option<&'a wgpu::BindGroup>,
         render_pass: &mut wgpu::RenderPass<'a>,
         quads: Range<u64>,
         instances: Range<u32>,
@@ -77,8 +77,13 @@ impl<T: Sized + Pod + Debug> DynamicGPUQuadBuffer<T> {
             return;
         }
 
-        render_pass.set_pipeline(&render_pipeline);
-        render_pass.set_bind_group(0, &bind_group, &[]);
+        if let Some(render_pipeline) = render_pipeline {
+            render_pass.set_pipeline(&render_pipeline);
+        }
+
+        if let Some(bind_group) = bind_group {
+            render_pass.set_bind_group(0, &bind_group, &[]);
+        }
 
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
 
@@ -214,7 +219,7 @@ impl<T: Sized + Pod + Debug> DynamicGPUMeshTriBuffer<T> {
 
     pub fn render_indices<'a>(
         &'a self,
-        render_pipeline: &'a wgpu::RenderPipeline,
+        render_pipeline: Option<&'a wgpu::RenderPipeline>,
         bind_group: &'a wgpu::BindGroup,
         render_pass: &mut wgpu::RenderPass<'a>,
         indices: u64,
@@ -231,7 +236,10 @@ impl<T: Sized + Pod + Debug> DynamicGPUMeshTriBuffer<T> {
             return;
         }
 
-        render_pass.set_pipeline(&render_pipeline);
+        if let Some(render_pipeline) = render_pipeline {
+            render_pass.set_pipeline(&render_pipeline);
+        }
+
         render_pass.set_bind_group(0, &bind_group, &[]);
 
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));

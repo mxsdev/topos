@@ -15,7 +15,7 @@ use crate::{
     input::{input_state::InputState, output::CursorIcon, PointerButton},
     lib::Response,
     math::{Pos, Rect, RoundedRect, Size, Vector},
-    mesh::{MeshVertex, PaintMesh, PaintMeshVertex},
+    mesh::{PaintMesh, PaintMeshVertex},
     scene::{
         ctx::SceneContext,
         layout::{FlexBox, LayoutPassResult, Manual},

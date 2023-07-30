@@ -114,14 +114,14 @@ impl<U> PlacedGlyph<U> {
     }
 
     pub fn to_draw_glyph(
-        mut self,
+        self,
         pos: Pos<f32, U>,
         size: Size<u32, U>,
         placement: Pos<i32, U>,
     ) -> Rect<f32, U> {
         let glyph_pos = pos
             + Vector::new(
-                (self.x_int + placement.x as f32),
+                self.x_int + placement.x as f32,
                 (self.y_int - placement.y as f32) + self.line_offset,
             );
 

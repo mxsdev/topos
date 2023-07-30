@@ -22,7 +22,7 @@ struct VertexInput {
     @location(4) dims: vec2<f32>,
     @location(5) origin: vec2<f32>,
 
-    @location(6) uv: vec2<f32>,
+    @location(6) uv: vec2<u32>,
 
     @location(7) color: vec4<f32>,
 
@@ -126,7 +126,6 @@ fn vs_main(
     vertex_out.dims = vertex_in.dims;
     vertex_out.origin = vertex_in.origin;
 
-    vertex_out.uv = vertex_in.uv;
     vertex_out.color = vertex_in.color;
 
     vertex_out.rounding = vertex_in.rounding;
@@ -134,6 +133,9 @@ fn vs_main(
     vertex_out.blur_radius = vertex_in.blur_radius / 3.;
 
     var out_pos = vertex_in.pos;
+
+    let texDims = textureDimensions(atlas_texture);
+    vertex_out.uv = vec2<f32>(vertex_in.uv) / vec2<f32>(texDims);
 
     switch (vertex_in.shapeType) {
         case 0u: { // shapeRect
