@@ -6,21 +6,19 @@ use std::{
 };
 
 use enum_as_inner::EnumAsInner;
+use itertools::Itertools;
 use rustc_hash::FxHashMap;
 use swash::scale;
 
 use crate::{
     accessibility::AccessNode,
-    atlas::{
-        self, BatchedAtlasRender, BatchedAtlasRenderBoxIterator, BatchedAtlasRenderBoxesEntry,
-        FontManagerRenderResources,
-    },
+    atlas::{self},
     element::{Element, ElementEvent, ElementId, ElementRef, RootConstructor, SizeConstraint},
+    graphics::{DynamicGPUMeshTriBuffer, PushVertices, VertexBuffers},
     input::{input_state::InputState, output::PlatformOutput, winit::WinitState},
     math::{PhysicalRect, PhysicalSize, Rect, WindowScaleFactor},
-    mesh::{self, PaintMesh},
     scene::update::UpdatePass,
-    shape::{self, BoxShaderVertex, PaintRectangle, PaintShape},
+    shape::{self, BoxShaderVertex, PaintMeshVertex, PaintRectangle, PaintShape},
     surface::{RenderAttachment, RenderSurface, RenderingContext, SurfaceDependent},
     util::{
         text::{FontSystem, PlacedTextBox},
@@ -40,8 +38,6 @@ pub struct SceneResources<'a> {
     rendering_context: Arc<RenderingContext>,
     layout_engine: &'a mut LayoutEngine,
     scale_factor: WindowScaleFactor,
-    // scale_factor: f64,
-    // scale_factor_f32: f32,
 }
 
 impl<'a> SceneResources<'a> {
@@ -87,17 +83,17 @@ impl<'a> SceneResources<'a> {
 pub struct Scene<Root: RootConstructor + 'static> {
     font_manager: atlas::FontManager,
     shape_renderer: shape::ShapeRenderer,
-    mesh_renderer: mesh::MeshRenderer,
 
     root: ElementRef<Root>,
 
     layout_engine: LayoutEngine,
+
+    shape_buffer: DynamicGPUMeshTriBuffer<BoxShaderVertex>,
 }
 
 impl<Root: RootConstructor + 'static> Scene<Root> {
     pub fn new(rendering_context: Arc<RenderingContext>, scale_fac: f64) -> Self {
         let shape_renderer = shape::ShapeRenderer::new(&rendering_context);
-        let mesh_renderer = mesh::MeshRenderer::new(&rendering_context);
         let mut font_manager = atlas::FontManager::new(rendering_context.clone());
 
         {
@@ -122,12 +118,14 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
         let root = Root::new(&mut scene_resources).into();
 
+        let shape_buffer = DynamicGPUMeshTriBuffer::new(&scene_resources.rendering_context.device);
+
         Self {
             font_manager,
             shape_renderer,
-            mesh_renderer,
             root,
             layout_engine,
+            shape_buffer,
         }
     }
 
@@ -155,7 +153,6 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
             label: Some("Render Encoder"),
         });
 
-        // PhysicalSize::<u32>::into();
         let physical_screen_size: PhysicalSize<u32> = render_surface.get_size().into();
 
         let screen_size = physical_screen_size.map(|x| x as f32) * scale_fac.inverse();
@@ -187,81 +184,35 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
             ..
         } = scene_context;
 
-        let mut batcher = BatchedRenderCollector::new();
+        let mut shape_buffer_local = VertexBuffers::default();
 
-        let mut rects = Vec::new();
-        let mut text_boxes = Vec::new();
-
-        let mut meshes = Vec::new();
-        let mut num_mesh_vertices = 0;
-        let mut num_mesh_indices = 0;
-
-        let mut last_clip_rect: Option<PhysicalRect> = None;
-
-        for shape in shapes.into_iter() {
+        for shape in shapes {
             match shape {
-                shape::PaintShape::Rectangle(paint_rect) => {
-                    let physical_paint_rect = paint_rect * scale_fac;
-
-                    if let Some(clip_rect) = last_clip_rect {
-                        if physical_paint_rect
-                            .get_bounding_box()
-                            .intersection(&clip_rect)
-                            .is_none()
-                        {
-                            continue;
-                        }
-                    }
-
-                    let (draw_rects, num_rects) =
-                        BoxShaderVertex::from_paint_rect(physical_paint_rect);
-
-                    batcher.add_rects(num_rects);
-
-                    rects.extend(draw_rects);
+                PaintShape::Rectangle(paint_rect) => {
+                    shape_buffer_local
+                        .push_quads(BoxShaderVertex::from_paint_rect(paint_rect * scale_fac).0);
                 }
 
-                shape::PaintShape::Text(text_box) => {
-                    batcher.add_text_box();
-                    text_boxes
-                        .push((text_box.apply_scale_fac(scale_fac)).with_clip_rect(last_clip_rect));
+                PaintShape::Text(text_box) => {
+                    self.font_manager
+                        .prepare(text_box.apply_scale_fac(scale_fac), &mut shape_buffer_local);
                 }
-                shape::PaintShape::Mesh(paint_mesh) => {
-                    let num_indices = paint_mesh.indices.len();
-                    let num_vertices = paint_mesh.vertices.len();
 
-                    batcher.add_mesh_indices(num_indices as u64);
+                PaintShape::Mesh(mesh) => shape_buffer_local.push_vertices(
+                    mesh.vertices
+                        .into_iter()
+                        .map(|PaintMeshVertex { color, pos }| {
+                            BoxShaderVertex::mesh_tri(pos * scale_fac, color)
+                        }),
+                    mesh.indices,
+                ),
 
-                    num_mesh_indices += num_indices;
-                    num_mesh_vertices += num_vertices;
-
-                    meshes.push(paint_mesh);
-                }
-                shape::PaintShape::ClipRect(rect) => {
-                    let physical_rect = rect.map(|r| r * scale_fac);
-                    last_clip_rect = physical_rect;
-
-                    batcher.set_clip_rect(physical_rect.map(|r| r.map(|x| x.round() as u32)))
-                }
+                PaintShape::ClipRect(_) => {}
             }
         }
 
-        self.shape_renderer
-            .prepare_boxes(device, queue, rects.into_iter());
-
-        self.mesh_renderer.prepare_meshes(
-            device,
-            queue,
-            meshes.into_iter().map(|m| m.as_gpu_mesh(scale_fac)),
-            num_mesh_vertices as u64,
-            num_mesh_indices as u64,
-        );
-
-        let mut text_box_iterator = self.font_manager.prepare(text_boxes);
-
-        let batches = batcher.finalize();
-
-        let font_resources = self.font_manager.render_resources();
+        self.shape_buffer
+            .write_all(queue, device, &shape_buffer_local);
 
         {
             let load_op = wgpu::LoadOp::Clear(wgpu::Color {
@@ -296,42 +247,9 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
             render_pass.set_pipeline(&render_ctx.shape_render_pipeline);
 
-            for x in batches {
-                match x {
-                    BatchedRender::Rectangles(num_boxes) => {
-                        self.shape_renderer
-                            .render_boxes(&mut render_pass, num_boxes);
-                    }
+            render_pass.set_bind_group(0, &render_ctx.shape_bind_group, &[]);
 
-                    BatchedRender::TextBox => {
-                        for text_box_batch in &mut text_box_iterator {
-                            self.font_manager.render(
-                                &mut render_pass,
-                                &font_resources,
-                                &text_box_batch,
-                            )
-                        }
-                    }
-
-                    BatchedRender::MeshIndices(num_indices) => self
-                        .mesh_renderer
-                        .render_indices(&mut render_pass, num_indices),
-
-                    BatchedRender::ClipRect(Some(rect)) => render_pass.set_scissor_rect(
-                        rect.min.x,
-                        rect.min.y,
-                        rect.width(),
-                        rect.height(),
-                    ),
-
-                    BatchedRender::ClipRect(None) => render_pass.set_scissor_rect(
-                        0,
-                        0,
-                        physical_screen_size.width,
-                        physical_screen_size.height,
-                    ),
-                }
-            }
+            self.shape_buffer.render(&mut render_pass, 0..1);
         }
 
         // TODO: for multiple render passes, submit multiple encoders as
@@ -346,7 +264,6 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         [
             &mut self.font_manager as &mut dyn SurfaceDependent,
             &mut self.shape_renderer,
-            &mut self.mesh_renderer,
         ]
         .into_iter()
     }
@@ -358,83 +275,4 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
     pub fn root_access_node(&mut self) -> AccessNode {
         self.root.get().node().build()
     }
-}
-
-#[derive(EnumAsInner, Debug)]
-enum BatchedRender {
-    Rectangles(u64),
-    TextBox,
-    ClipRect(Option<PhysicalRect<u32>>),
-    MeshIndices(u64),
-}
-
-#[derive(Default)]
-struct BatchedRenderCollector {
-    batches: Vec<BatchedRender>,
-    current: Option<BatchedRender>,
-}
-
-impl BatchedRenderCollector {
-    fn new() -> Self {
-        Default::default()
-    }
-
-    fn add_mesh_indices(&mut self, indices: u64) {
-        let el = self
-            .current
-            .get_or_insert(BatchedRender::MeshIndices(Default::default()));
-
-        if let Some(num_indices) = el.as_mesh_indices_mut() {
-            *num_indices += indices;
-        } else {
-            self.write_current();
-            self.current = Some(BatchedRender::MeshIndices(indices));
-        };
-    }
-
-    fn add_rects(&mut self, quantity: u64) {
-        let el = self
-            .current
-            .get_or_insert(BatchedRender::Rectangles(Default::default()));
-
-        if let Some(num_rects) = el.as_rectangles_mut() {
-            *num_rects += quantity;
-        } else {
-            self.write_current();
-            self.current = Some(BatchedRender::Rectangles(quantity));
-        };
-    }
-
-    fn add_text_box(&mut self) {
-        self.write_current();
-        self.batches.push(BatchedRender::TextBox);
-    }
-
-    fn set_clip_rect(&mut self, rect: Option<PhysicalRect<u32>>) {
-        if let Some(BatchedRender::ClipRect(current_rect)) = self.current {
-            if current_rect == rect {
-                return;
-            }
-        }
-
-        self.write_current();
-        self.current = Some(BatchedRender::ClipRect(rect));
-    }
-
-    fn write_current(&mut self) {
-        self.batches.extend(self.current.take().into_iter());
-    }
-
-    fn finalize(mut self) -> Vec<BatchedRender> {
-        self.write_current();
-        self.batches
-    }
-}
-
-struct BatchRenderer<
-    T: Iterator<Item = BatchedRender>,
-    K: Iterator<Item = BatchedAtlasRenderBoxesEntry>,
-> {
-    inner: T,
-    text_box_iterator: BatchedAtlasRenderBoxIterator<K>,
 }

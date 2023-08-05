@@ -1,26 +1,18 @@
 use crate::{
     color::ColorRgba,
-    math::{PhysicalPos, RoundedRect, ScaleFactor, WindowScaleFactor},
-    mesh::PaintMesh,
+    graphics::Mesh,
+    math::{PhysicalPos, Pos, RoundedRect, ScaleFactor, WindowScaleFactor},
     surface::SurfaceDependent,
     util::text::{GlyphContentType, PlacedTextBox},
 };
 
-use std::{
-    fmt::Debug,
-    marker::PhantomData,
-    num::NonZeroU64,
-    ops::{Add, Mul, Range},
-};
+use std::{fmt::Debug, marker::PhantomData, ops::Mul};
 
-use bytemuck::Pod;
 use num_traits::{Float, Num};
-use wgpu::VertexFormat;
 
 use crate::{
-    graphics::DynamicGPUQuadBuffer,
     num::{MaxNum, Two},
-    surface::{ParamsBuffer, RenderingContext},
+    surface::RenderingContext,
     util::{math::Rect, LogicalUnit, PhysicalUnit, WgpuDescriptor},
 };
 
@@ -31,107 +23,11 @@ pub struct RenderResources {
     pub bind_group: wgpu::BindGroup,
 }
 
-pub struct ShapeRenderer {
-    box_resources: RenderResources,
-    gpu_buffer: DynamicGPUQuadBuffer<BoxShaderVertex>,
-}
+pub struct ShapeRenderer {}
 
 impl ShapeRenderer {
     pub fn new(rendering_context: &RenderingContext) -> Self {
-        Self {
-            gpu_buffer: DynamicGPUQuadBuffer::new(&rendering_context.device),
-            box_resources: Self::create_box_resources(rendering_context),
-        }
-    }
-
-    // TODO: introduce a "Shape" enum that includes color info
-    pub fn prepare_boxes(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        boxes: impl ExactSizeIterator<Item = [BoxShaderVertex; 4]>,
-    ) {
-        let buf = &mut self.gpu_buffer;
-
-        buf.set_num_quads(device, boxes.len() as u64);
-
-        buf.write_all_quads(queue, boxes);
-    }
-
-    pub fn render_boxes<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, num_boxes: u64) {
-        self.gpu_buffer.render_quads(
-            None,
-            (&self.box_resources.bind_group).into(),
-            render_pass,
-            num_boxes,
-            0..1,
-        );
-    }
-
-    fn create_box_resources(render_ctx: &RenderingContext) -> RenderResources {
-        let RenderingContext {
-            device,
-            texture_format,
-            params_buffer,
-            texture_info,
-            ..
-        } = render_ctx;
-
-        let shader = device.create_shader_module(wgpu::include_wgsl!("box.wgsl"));
-
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("box bind group"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    count: None,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: NonZeroU64::new(
-                            std::mem::size_of::<ParamsBuffer>() as u64
-                        ),
-                    },
-                    visibility: wgpu::ShaderStages::VERTEX,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    count: None,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::default(),
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    count: None,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                },
-            ],
-        });
-
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("box bind pipeline"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
-        });
-
-        let dummy_texture_view = render_ctx
-            .dummy_texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-        let dummy_texture_sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
-
-        let bind_group =
-            render_ctx.create_shape_bind_group(&dummy_texture_view, &dummy_texture_sampler);
-
-        RenderResources {
-            bind_group,
-            dummy_texture_view,
-            dummy_texture_sampler,
-        }
+        Self {}
     }
 }
 
@@ -142,7 +38,6 @@ impl SurfaceDependent for ShapeRenderer {
         _size: winit::dpi::PhysicalSize<u32>,
         _scale_factor: WindowScaleFactor,
     ) {
-        self.box_resources = Self::create_box_resources(context)
     }
 }
 
@@ -395,7 +290,7 @@ impl BoxShaderVertex {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct PaintBlur<F = f32, U = LogicalUnit> {
     pub blur_radius: F,
     pub color: ColorRgba,
@@ -426,7 +321,7 @@ impl<T: Copy + Mul, U1, U2> Mul<ScaleFactor<T, U1, U2>> for PaintBlur<T, U1> {
 }
 
 // TODO: adopt builder pattern (with `impl` args)
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct PaintRectangle<F = f32, U = LogicalUnit> {
     pub rounded_rect: RoundedRect<F, U>,
     pub fill: Option<ColorRgba>,
@@ -545,8 +440,16 @@ impl<F, U> PaintRectangle<F, U> {
     }
 }
 
+#[derive(Debug)]
+pub struct PaintMeshVertex {
+    pub pos: Pos,
+    pub color: ColorRgba,
+}
+
+pub type PaintMesh = Mesh<PaintMeshVertex>;
+
 custom_derive! {
-    #[derive(EnumFromInner)]
+    #[derive(EnumFromInner, Debug)]
     pub enum PaintShape {
         Rectangle(PaintRectangle),
         Text(PlacedTextBox),
@@ -585,29 +488,3 @@ impl<T: Copy + Mul, U1, U2> Mul<ScaleFactor<T, U1, U2>> for PaintRectangle<T, U1
         }
     }
 }
-
-// FIXME
-// impl<F: Float, U> Translate2DMut<F, U> for PaintRectangle<F, U> {
-//     fn translate_mut(&mut self, x: F, y: F) {
-//         self.rect.translate_mut(x, y);
-//     }
-// }
-
-// impl Translate2DMut<f32, LogicalUnit> for PaintShape {
-//     fn translate_mut(&mut self, x: f32, y: f32) {
-//         match self {
-//             PaintShape::Rectangle(rect) => rect.translate_mut(x, y),
-//             PaintShape::Text(text_box) => text_box.pos.translate_mut(x, y),
-//             PaintShape::ClipRect(rect) => {
-//                 if let Some(rect) = rect.as_mut() {
-//                     rect.translate_mut(x, y)
-//                 }
-//             }
-//             PaintShape::Mesh(PaintMesh { vertices, .. }) => {
-//                 vertices.iter_mut().for_each(|v| {
-//                     v.pos.translate_mut(x, y);
-//                 });
-//             }
-//         }
-//     }
-// }

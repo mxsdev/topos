@@ -1,26 +1,22 @@
-use cosmic_text::{Attrs, Family, Metrics};
 use keyframe::{functions::BezierCurve, mint::Vector2};
-use palette::{rgb::FromHexError, Darken, Desaturate, FromColor, Hsva, IntoColor, WithAlpha};
+use palette::{Darken, Desaturate, FromColor, Hsva, IntoColor, WithAlpha};
 
 use crate::{
-    accessibility::{AccessNode, AccessNodeBuilder, AccessRole},
+    accessibility::{AccessNodeBuilder, AccessRole},
     color::{ColorRgb, ColorRgba, ColorSrgba},
-    element::{transition::Transition, Element, ElementRef, SizeConstraint},
+    element::{transition::Transition, Element, ElementRef},
     input::input_state::InputState,
     math::Rect,
     scene::{
         ctx::SceneContext,
-        layout::{
-            AlignItems, Center, FlexBox, JustifyContent, LayoutPass, LayoutPassResult, LayoutRect,
-            Percent,
-        },
+        layout::{Center, FlexBox, LayoutPass, LayoutPassResult, Percent},
         scene::SceneResources,
     },
     shape::PaintRectangle,
     util::Lerp,
 };
 
-use super::{TestRect, TextBoxElement, TitleBarGlyph};
+use super::TitleBarGlyph;
 
 pub struct TitleBar {
     input_rect: Rect,
@@ -86,7 +82,7 @@ impl Element for TitleBar {
         self.layout_node.clone()
     }
 
-    fn ui(&mut self, ctx: &mut SceneContext, rect: Rect) {
+    fn ui(&mut self, ctx: &mut SceneContext, _rect: Rect) {
         if self.clicked {
             ctx.start_window_drag()
         }

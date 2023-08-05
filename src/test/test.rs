@@ -15,14 +15,13 @@ use crate::{
     input::{input_state::InputState, output::CursorIcon, PointerButton},
     lib::Response,
     math::{Pos, Rect, RoundedRect, Size, Vector},
-    mesh::{PaintMesh, PaintMeshVertex},
     scene::{
         ctx::SceneContext,
         layout::{FlexBox, LayoutPassResult, Manual},
         update::UpdatePass,
         PaintPass,
     },
-    shape::{PaintBlur, PaintRectangle, PaintShape},
+    shape::{PaintBlur, PaintMesh, PaintRectangle, PaintShape},
     util::svg::{
         svg_path_attributes_to_lyon, svg_path_to_lyon, PosVertexBuffers, PosVertexCtor,
         PosVertexInfo, SVGParser,
@@ -97,11 +96,11 @@ impl Element for TestRect {
                 .with_blur(30., ColorRgba::new(0., 0., 0., 0.75)),
         );
 
-        ctx.add_shape(PaintMesh::from_pos_vertex_buffers(
-            self.glyph_tris.clone(),
-            ColorRgba::new(0., 0., 0., 1.),
-            self.response.boundary.min() + Vector::splat(10.),
-        ));
+        // ctx.add_shape(PaintMesh::from_pos_vertex_buffers(
+        //     self.glyph_tris.clone(),
+        //     ColorRgba::new(0., 0., 0., 1.),
+        //     self.response.boundary.min() + Vector::splat(10.),
+        // ));
 
         if self.response.focused() {
             ctx.add_shape(

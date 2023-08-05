@@ -186,12 +186,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         }
 
         case 1u: { // fillModeTexture
-            col = textureSampleLevel(atlas_texture, atlas_sampler, in.uv, 0.0);
+            // col = textureSampleLevel(atlas_texture, atlas_sampler, in.uv, 0.0);
         }
 
         case 2u: { // fillModeTextureMaskColor
-            var alpha = textureSampleLevel(atlas_texture, atlas_sampler, in.uv, 0.0).x;
-            col = vec4<f32>(col.rgb, in.color.a * alpha);
+            // var alpha = textureSampleLevel(atlas_texture, atlas_sampler, in.uv, 0.0).x;
+            // col = vec4<f32>(col.rgb, in.color.a * alpha);
         }
 
         default: { }
@@ -209,7 +209,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
             if in.rounding <= 0. && in.stroke_width <= 0. {
                 // TODO: strokes for non-rounded rects
-                return in.color;
+                return col;
             }
 
             var dist = sdRoundBox(rel_pos, in.dims, in.rounding);

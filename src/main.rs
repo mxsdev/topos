@@ -21,7 +21,6 @@ mod history;
 mod input;
 mod lib;
 mod math;
-mod mesh;
 mod num;
 mod scene;
 mod shape;

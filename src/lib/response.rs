@@ -13,6 +13,7 @@ pub struct Response<B: Boundary = RoundedRect, const NUM_POINTER_BUTTONS: usize 
     focusable: bool,
     focus_locked: bool,
     focus_on_click: bool,
+    blur_on_click_outside: bool,
     hoverable: bool,
     clickable: bool,
     consume_hover: bool,
@@ -83,6 +84,7 @@ impl<B: Boundary, const NUM_POINTER_BUTTONS: usize> Response<B, NUM_POINTER_BUTT
             focusable: false,
             focus_locked: false,
             focus_on_click: true,
+            blur_on_click_outside: true,
             hoverable: true,
             consume_hover: true,
             clickable: true,
@@ -297,6 +299,10 @@ impl<B: Boundary, const NUM_POINTER_BUTTONS: usize> Response<B, NUM_POINTER_BUTT
 
         if self.focus_on_click && self.primary_clicked() {
             input.request_focus();
+        }
+
+        if self.blur_on_click_outside && input.pointer.primary_clicked() && !self.hovered {
+            input.surrender_focus();
         }
     }
 

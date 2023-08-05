@@ -2,6 +2,7 @@ use std::num::NonZeroU64;
 use std::sync::{Arc, RwLock};
 
 use wgpu::util::DeviceExt;
+use wgpu::TextureViewDescriptor;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
@@ -89,8 +90,12 @@ pub struct RenderingContext {
 
     pub(crate) shape_bind_group_layout: wgpu::BindGroupLayout,
     pub(crate) shape_render_pipeline: wgpu::RenderPipeline,
+    pub(crate) shape_bind_group: wgpu::BindGroup,
 
     pub dummy_texture: wgpu::Texture,
+
+    dummy_texture_view: wgpu::TextureView,
+    dummy_texture_sampler: wgpu::Sampler,
 }
 
 impl RenderingContext {
@@ -99,13 +104,29 @@ impl RenderingContext {
         texture_view: &wgpu::TextureView,
         texture_sampler: &wgpu::Sampler,
     ) -> wgpu::BindGroup {
-        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &self.shape_bind_group_layout,
+        Self::internal_create_shape_bind_group(
+            &self.device,
+            &self.shape_bind_group_layout,
+            &self.params_buffer,
+            texture_view,
+            texture_sampler,
+        )
+    }
+
+    fn internal_create_shape_bind_group(
+        device: &wgpu::Device,
+        bind_group_layout: &wgpu::BindGroupLayout,
+        params_buffer: &wgpu::Buffer,
+        texture_view: &wgpu::TextureView,
+        texture_sampler: &wgpu::Sampler,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: wgpu::BindingResource::Buffer(
-                        self.params_buffer.as_entire_buffer_binding(),
+                        params_buffer.as_entire_buffer_binding(),
                     ),
                 },
                 wgpu::BindGroupEntry {
@@ -181,6 +202,11 @@ impl RenderSurface {
             )
             .await
             .unwrap();
+
+        log::debug!(
+            "max sampled textures: {:?}",
+            adapter.limits().max_sampled_textures_per_shader_stage
+        );
 
         let surface_caps = surface.get_capabilities(&adapter);
 
@@ -319,16 +345,31 @@ impl RenderSurface {
             view_formats: &[],
         });
 
+        let dummy_texture_view = dummy_texture.create_view(&TextureViewDescriptor::default());
+        let dummy_texture_sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
+
+        let shape_bind_group = RenderingContext::internal_create_shape_bind_group(
+            &device,
+            &shape_bind_group_layout,
+            &params_buffer,
+            &dummy_texture_view,
+            &dummy_texture_sampler,
+        );
+
         let rendering_context = RenderingContext {
             device,
             params_buffer,
             queue,
             texture_format,
             texture_info: TextureInfo::new(multisample_mode.num_samples()),
+
             dummy_texture,
+            dummy_texture_view,
+            dummy_texture_sampler,
 
             shape_bind_group_layout,
             shape_render_pipeline,
+            shape_bind_group,
         }
         .into();
 

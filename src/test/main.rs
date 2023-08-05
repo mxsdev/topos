@@ -4,7 +4,7 @@ use crate::{
     accessibility::{AccessNodeBuilder, AccessRole},
     color::{ColorRgba, ColorSrgba},
     element::{Element, ElementRef},
-    math::{Pos, Rect},
+    math::{Pos, Rect, Size},
     scene::{
         layout::{FlexBox, LayoutPass, LayoutPassResult, Percent},
         scene::SceneResources,
