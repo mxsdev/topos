@@ -97,7 +97,7 @@ impl Element for TitleBar {
         ctx.add_shape(PaintRectangle::from_rect(self.input_rect).with_fill(col2));
     }
 
-    fn ui_post(&mut self, ctx: &mut SceneContext, rect: Rect) {
+    fn ui_post(&mut self, _ctx: &mut SceneContext, _rect: Rect) {
         for child in self.glyphs.iter_mut() {
             let trans = &mut child.1;
             let mut child = child.0.get();

@@ -4,8 +4,6 @@ use std::ops::*;
 use crate::num::{One, Zero};
 use num_traits::Float;
 
-use crate::num::Two;
-
 use super::{pos, vector, Pos, ScaleFactor, Sides, Size, Vector};
 use crate::util::{markers::*, max, min, taffy::*};
 

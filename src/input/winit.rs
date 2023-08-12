@@ -18,8 +18,6 @@ pub use winit;
 
 // pub use window_settings::WindowSettings;
 
-use raw_window_handle::HasRawDisplayHandle;
-
 pub fn native_pixels_per_point(window: &winit::window::Window) -> f32 {
     window.scale_factor() as f32
 }
@@ -253,10 +251,10 @@ impl WinitState {
                     // consumed,
                 }
             }
-            WindowEvent::ReceivedCharacter(ch) => {
+            WindowEvent::ReceivedCharacter(_ch) => {
                 // On Mac we get here when the user presses Cmd-C (copy), ctrl-W, etc.
                 // We need to ignore these characters that are side-effects of commands.
-                let is_mac_cmd = cfg!(target_os = "macos")
+                let _is_mac_cmd = cfg!(target_os = "macos")
                     && (self.egui_input.modifiers.ctrl || self.egui_input.modifiers.mac_cmd);
 
                 // let consumed = if is_printable_char(*ch) && !is_mac_cmd {
@@ -925,7 +923,6 @@ macro_rules! profile_scope {
 
 #[allow(unused_imports)]
 pub(crate) use profile_scope;
-use winit::window::CursorIcon;
 
 use crate::{
     debug::HashU64,

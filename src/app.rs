@@ -1,14 +1,5 @@
-use crate::{
-    text,
-    texture::TextureManagerRef,
-    time::Duration,
-    util::{max, min},
-};
+use crate::{texture::TextureManagerRef, util::min};
 use core::panic;
-use std::{
-    borrow::BorrowMut,
-    sync::{Arc, RwLock},
-};
 
 use raw_window_handle::HasRawWindowHandle;
 use winit::{
@@ -58,8 +49,6 @@ pub type ToposEventLoop = EventLoop<ToposEvent>;
 
 impl<Root: RootConstructor + 'static> App<Root> {
     pub fn run(mut self, event_loop: ToposEventLoop) {
-        use crate::time::*;
-
         let main_proxy = event_loop.create_proxy();
 
         event_loop.run(move |event, _, control_flow| {
@@ -175,7 +164,7 @@ impl<Root: RootConstructor + 'static> App<Root> {
             self.resize(new_size, scale_fac);
         }
 
-        let output_start_time = crate::time::Instant::now();
+        let _output_start_time = crate::time::Instant::now();
 
         match self.render_surface.get_output() {
             Ok(output) => {

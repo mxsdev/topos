@@ -12,7 +12,7 @@ use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
     hash::Hash,
-    sync::{Arc, Mutex, MutexGuard, RwLock},
+    sync::{Arc, Mutex, RwLock},
 };
 
 use rayon::prelude::*;
@@ -475,7 +475,7 @@ impl FontManager {
         }
     }
 
-    pub fn generate_textures<'a>(&mut self, mut glyphs: HashSet<GlyphCacheKey>) {
+    pub fn generate_textures<'a>(&mut self, glyphs: HashSet<GlyphCacheKey>) {
         let atlas_manager = self.atlas_manager.clone();
         let font_system = self.font_system.clone();
         let texture_manager = self.texture_manager.clone();

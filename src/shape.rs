@@ -1,12 +1,14 @@
+use itertools::Itertools;
 use serde::Serialize;
 
 use crate::{
     color::ColorRgba,
-    graphics::Mesh,
+    graphics::{Mesh, VertexBuffers},
     math::{PhysicalPos, Pos, RoundedRect, ScaleFactor},
     surface::ParamsBuffer,
     texture::{TextureManagerRef, TextureRef},
     util::{
+        svg::{PosVertexBuffers, PosVertexInfo},
         template::{HandlebarsTemplater, Templater},
         text::{GlyphContentType, PlacedTextBox},
     },
@@ -557,6 +559,28 @@ pub struct PaintMeshVertex {
 }
 
 pub type PaintMesh = Mesh<PaintMeshVertex>;
+
+impl PaintMesh {
+    pub fn from_pos_vertex_buffers(
+        vertex_buffers: &PosVertexBuffers,
+        color: impl Into<ColorRgba>,
+        offset: Pos,
+    ) -> Self {
+        let color = color.into();
+
+        Self {
+            vertices: vertex_buffers
+                .vertices
+                .iter()
+                .map(|pos| PaintMeshVertex {
+                    pos: *pos + offset.to_vector(),
+                    color,
+                })
+                .collect(),
+            indices: vertex_buffers.indices.clone(),
+        }
+    }
+}
 
 custom_derive! {
     #[derive(EnumFromInner, Debug)]

@@ -1,6 +1,6 @@
 use std::{
     marker::PhantomData,
-    ops::{Deref, DerefMut, Mul},
+    ops::Mul,
     sync::{Arc, Mutex},
 };
 

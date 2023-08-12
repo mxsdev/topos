@@ -1,6 +1,4 @@
-use num_traits::{Float, Num};
-
-use crate::util::{LogicalUnit, PhysicalUnit};
+use num_traits::Num;
 
 // pub trait ScaleFactor: Float {
 //     fn from_scale_fac(scale_factor: impl ScaleFactor) -> Self;

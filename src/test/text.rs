@@ -6,21 +6,11 @@ use std::{
 use crate::{
     accessibility::{AccessNodeBuilder, AccessRole},
     color::ColorRgba,
-    scene::{
-        self,
-        layout::{
-            self, measure_func_boxed, AvailableSpace, FlexBox, LayoutPassResult, Measurable,
-            MeasureFunc,
-        },
-    },
-    surface::RenderingContext,
-    util::{
-        layout::LayoutNode,
-        text::{FontSystemRef, PlacedTextBox, TextBox},
-    },
+    scene::layout::{measure_func_boxed, AvailableSpace, FlexBox, LayoutPassResult, Measurable},
+    util::text::{FontSystemRef, TextBox},
 };
 
-use crate::util::text::{Attrs, FontSystem, Metrics};
+use crate::util::text::{Attrs, Metrics};
 use ordered_float::OrderedFloat;
 use rustc_hash::FxHashMap;
 
@@ -176,7 +166,7 @@ impl TextBoxElement {
 }
 
 impl Element for TextBoxElement {
-    fn layout(&mut self, layout_pass: &mut LayoutPass) -> LayoutPassResult {
+    fn layout(&mut self, _layout_pass: &mut LayoutPass) -> LayoutPassResult {
         self.layout_node.clone()
     }
 

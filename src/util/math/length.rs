@@ -1,7 +1,4 @@
-use std::{
-    marker::PhantomData,
-    ops::{Div, Mul},
-};
+use std::{marker::PhantomData, ops::Div};
 
 use super::super::{LogicalUnit, PhysicalUnit};
 

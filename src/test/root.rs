@@ -1,22 +1,16 @@
-use cosmic_text::{Attrs, Family, Metrics};
-use palette::{Darken, Desaturate, FromColor, Hsva, IntoColor};
-
 use crate::{
     accessibility::{AccessNodeBuilder, AccessRole},
-    color::{ColorRgba, ColorSrgba},
     element::{Element, ElementRef, RootConstructor},
     input::input_state::InputState,
-    math::{Pos, Rect, Size, WindowScaleFactor},
+    math::{Rect, WindowScaleFactor},
     scene::{
         ctx::SceneContext,
         layout::{ColumnReverse, FlexBox, LayoutPass, LayoutPassResult, Percent},
         scene::SceneResources,
     },
-    shape::PaintRectangle,
-    util::layout::Manual,
 };
 
-use super::{MainElement, TextBoxElement, TitleBar};
+use super::{MainElement, TitleBar};
 
 pub struct TestRoot {
     scale_factor: WindowScaleFactor,
@@ -56,7 +50,7 @@ impl Element for TestRoot {
 
     fn input(&mut self, _: &mut InputState, _: Rect) {}
 
-    fn ui(&mut self, ctx: &mut SceneContext, _: Rect) {}
+    fn ui(&mut self, _ctx: &mut SceneContext, _: Rect) {}
 
     fn node(&self) -> AccessNodeBuilder {
         let mut builder = AccessNodeBuilder::new(AccessRole::Window);

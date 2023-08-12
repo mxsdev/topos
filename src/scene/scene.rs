@@ -1,39 +1,21 @@
-use std::{
-    borrow::BorrowMut,
-    cell::{RefCell, RefMut},
-    ops::DerefMut,
-    rc::Rc,
-    sync::{Arc, Mutex, MutexGuard},
-};
-
-use enum_as_inner::EnumAsInner;
-use itertools::Itertools;
-use rustc_hash::FxHashMap;
-use swash::scale;
+use std::{ops::DerefMut, sync::Arc};
 
 use crate::{
     accessibility::AccessNode,
     atlas::{self},
-    element::{Element, ElementEvent, ElementId, ElementRef, RootConstructor, SizeConstraint},
+    element::{Element, ElementId, ElementRef, RootConstructor},
     graphics::{DynamicGPUMeshTriBuffer, PushVertices, VertexBuffers},
-    input::{input_state::InputState, output::PlatformOutput, winit::WinitState},
-    math::{PhysicalRect, PhysicalSize, Rect, WindowScaleFactor},
-    scene::update::UpdatePass,
-    shape::{self, BoxShaderVertex, PaintMeshVertex, PaintRectangle, PaintShape},
+    input::{input_state::InputState, output::PlatformOutput},
+    math::{PhysicalSize, WindowScaleFactor},
+    shape::{self, BoxShaderVertex, PaintMeshVertex, PaintShape},
     surface::{RenderAttachment, RenderSurface, RenderingContext},
-    text,
-    texture::{self, TextureManagerRef},
-    util::{
-        text::{FontSystem, FontSystemRef, PlacedTextBox},
-        PhysicalUnit,
-    },
+    texture::TextureManagerRef,
+    util::text::{FontSystem, FontSystemRef},
 };
 
 use super::{
     ctx::SceneContext,
-    framepacer::Framepacer,
     layout::{LayoutEngine, LayoutPass},
-    PaintPass,
 };
 
 pub struct SceneResources<'a> {

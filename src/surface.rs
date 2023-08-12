@@ -1,15 +1,11 @@
-use std::num::NonZeroU64;
 use std::sync::{Arc, RwLock};
 
 use wgpu::util::DeviceExt;
-use wgpu::TextureViewDescriptor;
+
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
 use crate::math::WindowScaleFactor;
-use crate::shape::BoxShaderVertex;
-use crate::texture::TextureManagerRef;
-use crate::util::WgpuDescriptor;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]

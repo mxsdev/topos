@@ -1,14 +1,12 @@
 use std::num::NonZeroU128;
-use std::sync::Arc;
 
-use refbox::coerce;
 use uuid::Uuid;
 
-use crate::accessibility::{AccessNode, AccessNodeBuilder, AccessNodeId};
+use crate::accessibility::{AccessNodeBuilder, AccessNodeId};
 use crate::input::input_state::InputState;
 use crate::refbox::{self, coerce_ref, RefBox};
 
-use crate::scene::layout::{LayoutEngine, LayoutPassResult};
+use crate::scene::layout::LayoutPassResult;
 use crate::scene::scene::SceneResources;
 use crate::util::LogicalUnit;
 use crate::{
@@ -63,11 +61,11 @@ pub trait RootConstructor: Element {
 
 pub trait Element {
     fn layout(&mut self, layout_pass: &mut LayoutPass) -> LayoutPassResult;
-    fn layout_post(&mut self, resources: &mut SceneResources, rect: Rect) {}
+    fn layout_post(&mut self, _resources: &mut SceneResources, _rect: Rect) {}
 
-    fn input(&mut self, input: &mut InputState, rect: Rect) {}
+    fn input(&mut self, _input: &mut InputState, _rect: Rect) {}
     fn ui(&mut self, ctx: &mut SceneContext, rect: Rect);
-    fn ui_post(&mut self, ctx: &mut SceneContext, rect: Rect) {}
+    fn ui_post(&mut self, _ctx: &mut SceneContext, _rect: Rect) {}
     fn node(&self) -> AccessNodeBuilder;
 }
 

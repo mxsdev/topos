@@ -1,10 +1,4 @@
-use std::{
-    borrow::Cow,
-    ops::DerefMut,
-    sync::{Arc, Mutex},
-};
-
-use itertools::Itertools;
+use std::ops::DerefMut;
 
 use crate::{
     element::{Element, ElementRef, ElementWeakref},
@@ -131,8 +125,8 @@ impl<'a, 'b: 'a> LayoutPass<'a, 'b> {
     }
 
     pub fn layout_child(&mut self, child: &mut ElementRef<impl Element + 'static>) {
-        let idx = self.children.len();
-        let id = child.id();
+        let _idx = self.children.len();
+        let _id = child.id();
 
         let (child_node, _) = {
             let mut child_node = LayoutPass::new(child, self.resources);

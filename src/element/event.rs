@@ -1,5 +1,4 @@
 use crate::math::{Pos, Vector};
-use winit::event::*;
 
 #[derive(Debug)]
 pub enum ElementEvent {

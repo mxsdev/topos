@@ -34,8 +34,8 @@ mod util;
 use app::ToposEvent;
 pub use refbox;
 
-use test::{TestRect, TestRoot};
-use winit::event_loop::{EventLoop, EventLoopBuilder};
+use test::TestRoot;
+use winit::event_loop::EventLoopBuilder;
 
 pub async fn run() {
     let event_loop = EventLoopBuilder::<ToposEvent>::with_user_event().build();

@@ -1,6 +1,6 @@
 use keyframe::EasingFunction;
 
-use crate::scene::{ctx::SceneContext, input::HasInput};
+use crate::scene::input::HasInput;
 
 pub struct Transition {
     easing_func: Option<Box<dyn EasingFunction>>,

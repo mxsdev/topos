@@ -1,34 +1,27 @@
 use itertools::Itertools;
 use keyframe::{functions::BezierCurve, mint::Vector2};
 use lyon::{
-    lyon_tessellation::{FillOptions, StrokeOptions},
-    path::{traits::SvgPathBuilder, LineCap, LineJoin},
+    lyon_tessellation::StrokeOptions,
+    path::{LineCap, LineJoin},
 };
-use num_traits::Signed;
-use svg::node::element::{path::Data, tag};
 
 use crate::{
     accessibility::{AccessNodeBuilder, AccessRole, AsAccessRect},
     color::ColorRgba,
     element::transition::Transition,
     graphics::VertexBuffers,
-    input::{input_state::InputState, output::CursorIcon, PointerButton},
+    input::input_state::InputState,
     lib::Response,
     math::{Pos, Rect, RoundedRect, Size, Vector},
     scene::{
         ctx::SceneContext,
-        layout::{FlexBox, LayoutPassResult, Manual},
-        update::UpdatePass,
-        PaintPass,
+        layout::{LayoutPassResult, Manual},
     },
-    shape::{PaintBlur, PaintMesh, PaintRectangle, PaintShape},
-    util::svg::{
-        svg_path_attributes_to_lyon, svg_path_to_lyon, PosVertexBuffers, PosVertexCtor,
-        PosVertexInfo, SVGParser,
-    },
+    shape::{PaintMesh, PaintRectangle},
+    util::svg::{svg_path_to_lyon, PosVertexBuffers, PosVertexCtor},
 };
 
-use crate::element::{boundary::Boundary, Element, ElementEvent, MouseButton, SizeConstraint};
+use crate::element::Element;
 
 pub struct TestRect {
     size: Size,
@@ -81,7 +74,7 @@ impl TestRect {
 }
 
 impl Element for TestRect {
-    fn ui(&mut self, ctx: &mut SceneContext, rect: Rect) {
+    fn ui(&mut self, ctx: &mut SceneContext, _rect: Rect) {
         use palette::Mix;
         let fill = ColorRgba::mix(
             ColorRgba::new(1., 0., 0., 1.),
@@ -96,11 +89,11 @@ impl Element for TestRect {
                 .with_blur(30., ColorRgba::new(0., 0., 0., 0.75)),
         );
 
-        // ctx.add_shape(PaintMesh::from_pos_vertex_buffers(
-        //     self.glyph_tris.clone(),
-        //     ColorRgba::new(0., 0., 0., 1.),
-        //     self.response.boundary.min() + Vector::splat(10.),
-        // ));
+        ctx.add_shape(PaintMesh::from_pos_vertex_buffers(
+            &self.glyph_tris,
+            ColorRgba::new(0., 0., 0., 1.),
+            self.response.boundary.min() + Vector::splat(10.),
+        ));
 
         if self.response.focused() {
             ctx.add_shape(
