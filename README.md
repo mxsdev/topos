@@ -27,7 +27,7 @@
  - [ ] Proper framepacing
  - [ ] Multi-window support
  - [ ] Abstract out renderer, layout engine, platform integration, application state
- - [ ] Replace Arc<...> with "Ref" types
+ - [ ] Replace Arc<...> with nominal "Ref" types
  - [ ] Replace Mutex, RwLock with auto-unwrapping alternatives (and bring to a crate, too)
  - [x] Accessibility
  - [x] Native Context Menus
