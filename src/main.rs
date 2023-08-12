@@ -27,6 +27,7 @@ mod shape;
 mod surface;
 mod test;
 mod text;
+mod texture;
 mod time;
 mod util;
 

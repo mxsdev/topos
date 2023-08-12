@@ -1,5 +1,14 @@
-use crate::time::Duration;
+use crate::{
+    text,
+    texture::TextureManagerRef,
+    time::Duration,
+    util::{max, min},
+};
 use core::panic;
+use std::{
+    borrow::BorrowMut,
+    sync::{Arc, RwLock},
+};
 
 use raw_window_handle::HasRawWindowHandle;
 use winit::{
@@ -9,7 +18,7 @@ use winit::{
 };
 
 use crate::{
-    element::{ElementRef, RootConstructor},
+    element::RootConstructor,
     input::{input_state::InputState, winit::WinitState},
     scene::{framepacer::Framepacer, scene::Scene},
     surface::{RenderAttachment, RenderSurface},
@@ -27,6 +36,8 @@ pub struct App<Root: RootConstructor + 'static> {
     queued_resize: Option<(winit::dpi::PhysicalSize<u32>, Option<f64>)>,
 
     window: winit::window::Window,
+
+    texture_manager: TextureManagerRef,
 
     framepacer: Framepacer,
 }
@@ -105,8 +116,12 @@ impl<Root: RootConstructor + 'static> App<Root> {
                     let input_state =
                         std::mem::take(&mut self.input_state).begin_frame(raw_input, true);
 
-                    let (mut result_input, result_output) =
-                        self.scene.render(&self.render_surface, output, input_state);
+                    let (mut result_input, result_output) = self.scene.render(
+                        &self.render_surface,
+                        &self.texture_manager,
+                        output,
+                        input_state,
+                    );
 
                     let render_finish_time = crate::time::Instant::now();
                     let render_time = render_finish_time.duration_since(render_start_time);
@@ -172,9 +187,7 @@ impl<Root: RootConstructor + 'static> App<Root> {
                 self.swap_chain = output.into();
             }
             // Reconfigure the surface if lost
-            Err(wgpu::SurfaceError::Lost) => self
-                .render_surface
-                .reconfigure(self.scene.get_dependents_mut()),
+            Err(wgpu::SurfaceError::Lost) => self.render_surface.reconfigure(),
             // The system is out of memory, we should probably quit
             Err(wgpu::SurfaceError::OutOfMemory) => panic!("out of memory"),
             // All other errors (Outdated, Timeout) should be resolved by the next frame
@@ -252,7 +265,20 @@ impl<Root: RootConstructor + 'static> App<Root> {
         let render_surface = RenderSurface::new(&window).await;
         let rendering_context = render_surface.clone_rendering_context();
 
-        let mut scene = Scene::new(rendering_context, window.scale_factor());
+        let wgpu::Limits {
+            max_sampled_textures_per_shader_stage,
+            max_bindings_per_bind_group,
+            ..
+        } = rendering_context.device.limits();
+
+        let max_textures = min(
+            max_sampled_textures_per_shader_stage,
+            max_bindings_per_bind_group,
+        );
+
+        let texture_manager = TextureManagerRef::new(max_textures, &rendering_context);
+
+        let mut scene = Scene::new(rendering_context, &texture_manager, window.scale_factor());
 
         let winit_state_proxy = event_loop.create_proxy();
 
@@ -286,6 +312,8 @@ impl<Root: RootConstructor + 'static> App<Root> {
             queued_resize: None,
 
             framepacer: Default::default(),
+
+            texture_manager,
         }
     }
 
@@ -298,8 +326,7 @@ impl<Root: RootConstructor + 'static> App<Root> {
             return;
         }
 
-        self.render_surface
-            .resize(new_size, scale_factor, self.scene.get_dependents_mut());
+        self.render_surface.resize(new_size, scale_factor);
     }
 }
 

@@ -17,8 +17,8 @@
  - [x] Adopt builder pattern across codebase
  - [x] Better buffer support (do scale factor as part of render pass, not in component; support spans)
  - [x] Better glyph support
- - [ ] Move everything into a single shader (draw call optimization)
- - [ ] Optimize atlas as "TextureAtlas" (finite maximum of textures on shader)
+ - [x] Move everything into a single shader (draw call optimization)
+ - [x] Optimize atlas as "TextureAtlas" (finite maximum of textures on shader)
  - [ ] Include clip rectangle in shader vertex data
  - [ ] Affine transformations
  - [ ] Render engine throughput optimizations (store & diff buffers by widget)
@@ -27,6 +27,8 @@
  - [ ] Proper framepacing
  - [ ] Multi-window support
  - [ ] Abstract out renderer, layout engine, platform integration, application state
+ - [ ] Replace Arc<...> with "Ref" types
+ - [ ] Replace Mutex, RwLock with auto-unwrapping alternatives (and bring to a crate, too)
  - [x] Accessibility
  - [x] Native Context Menus
  - [x] Native System Menus

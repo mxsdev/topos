@@ -8,6 +8,7 @@ use winit::window::Window;
 
 use crate::math::WindowScaleFactor;
 use crate::shape::BoxShaderVertex;
+use crate::texture::TextureManagerRef;
 use crate::util::WgpuDescriptor;
 
 #[repr(C)]
@@ -87,69 +88,6 @@ pub struct RenderingContext {
     pub texture_format: wgpu::TextureFormat,
 
     pub texture_info: TextureInfo,
-
-    pub(crate) shape_bind_group_layout: wgpu::BindGroupLayout,
-    pub(crate) shape_render_pipeline: wgpu::RenderPipeline,
-    pub(crate) shape_bind_group: wgpu::BindGroup,
-
-    pub dummy_texture: wgpu::Texture,
-
-    dummy_texture_view: wgpu::TextureView,
-    dummy_texture_sampler: wgpu::Sampler,
-}
-
-impl RenderingContext {
-    pub fn create_shape_bind_group(
-        &self,
-        texture_view: &wgpu::TextureView,
-        texture_sampler: &wgpu::Sampler,
-    ) -> wgpu::BindGroup {
-        Self::internal_create_shape_bind_group(
-            &self.device,
-            &self.shape_bind_group_layout,
-            &self.params_buffer,
-            texture_view,
-            texture_sampler,
-        )
-    }
-
-    fn internal_create_shape_bind_group(
-        device: &wgpu::Device,
-        bind_group_layout: &wgpu::BindGroupLayout,
-        params_buffer: &wgpu::Buffer,
-        texture_view: &wgpu::TextureView,
-        texture_sampler: &wgpu::Sampler,
-    ) -> wgpu::BindGroup {
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Buffer(
-                        params_buffer.as_entire_buffer_binding(),
-                    ),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(texture_sampler),
-                },
-            ],
-            label: None,
-        })
-    }
-}
-
-pub trait SurfaceDependent {
-    fn reconfigure(
-        &mut self,
-        context: &RenderingContext,
-        size: winit::dpi::PhysicalSize<u32>,
-        scale_factor: WindowScaleFactor,
-    );
 }
 
 pub struct RenderAttachment {
@@ -251,125 +189,12 @@ impl RenderSurface {
 
         let multisample_mode = MultisampleMode::default();
 
-        let shape_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("box bind group"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        count: None,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: NonZeroU64::new(
-                                std::mem::size_of::<ParamsBuffer>() as u64
-                            ),
-                        },
-                        visibility: wgpu::ShaderStages::VERTEX,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        count: None,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::default(),
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        count: None,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                    },
-                ],
-            });
-
-        let shape_shader_module = device.create_shader_module(wgpu::include_wgsl!("box.wgsl"));
-
-        let shape_render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("box pipeline layout"),
-                bind_group_layouts: &[&shape_bind_group_layout],
-                push_constant_ranges: &[],
-            });
-
-        let shape_render_pipeline =
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("box render pipeline"),
-                layout: Some(&shape_render_pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &shape_shader_module,
-                    entry_point: "vs_main",
-                    buffers: &[BoxShaderVertex::desc()],
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shape_shader_module,
-                    entry_point: "fs_main",
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: texture_format,
-                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    strip_index_format: None,
-                    front_face: wgpu::FrontFace::Ccw,
-                    polygon_mode: wgpu::PolygonMode::Fill,
-                    unclipped_depth: false,
-                    conservative: false,
-                    cull_mode: None,
-                },
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState {
-                    count: multisample_mode.num_samples(),
-                    ..Default::default()
-                },
-                multiview: None,
-            });
-
-        let dummy_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("global dummy texture"),
-            size: wgpu::Extent3d {
-                width: 1,
-                height: 1,
-                ..Default::default()
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
-
-        let dummy_texture_view = dummy_texture.create_view(&TextureViewDescriptor::default());
-        let dummy_texture_sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
-
-        let shape_bind_group = RenderingContext::internal_create_shape_bind_group(
-            &device,
-            &shape_bind_group_layout,
-            &params_buffer,
-            &dummy_texture_view,
-            &dummy_texture_sampler,
-        );
-
         let rendering_context = RenderingContext {
             device,
             params_buffer,
             queue,
             texture_format,
             texture_info: TextureInfo::new(multisample_mode.num_samples()),
-
-            dummy_texture,
-            dummy_texture_view,
-            dummy_texture_sampler,
-
-            shape_bind_group_layout,
-            shape_render_pipeline,
-            shape_bind_group,
         }
         .into();
 
@@ -413,32 +238,11 @@ impl RenderSurface {
         });
     }
 
-    fn reconfigure_dependents<'a>(
-        &self,
-        dependents: impl Iterator<Item = &'a mut dyn SurfaceDependent>,
-    ) {
-        for child in dependents {
-            child.reconfigure(
-                &self.rendering_context,
-                self.screen_descriptor.size,
-                self.scale_factor(),
-            );
-        }
+    pub fn reconfigure(&mut self) {
+        self.resize(self.get_size(), None)
     }
 
-    pub fn reconfigure<'a>(
-        &mut self,
-        dependents: impl Iterator<Item = &'a mut dyn SurfaceDependent>,
-    ) {
-        self.resize(self.get_size(), None, dependents)
-    }
-
-    pub fn resize<'a>(
-        &mut self,
-        new_size: PhysicalSize<u32>,
-        scale_factor: Option<f64>,
-        dependents: impl Iterator<Item = &'a mut dyn SurfaceDependent>,
-    ) {
+    pub fn resize<'a>(&mut self, new_size: PhysicalSize<u32>, scale_factor: Option<f64>) {
         if new_size.width > 0 && new_size.height > 0 {
             self.screen_descriptor.size = new_size;
             self.config.width = new_size.width;
@@ -457,8 +261,6 @@ impl RenderSurface {
                 0,
                 bytemuck::bytes_of(&Into::<[u32; 2]>::into(new_size)),
             );
-
-            self.reconfigure_dependents(dependents)
         }
     }
 

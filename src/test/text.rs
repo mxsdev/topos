@@ -16,7 +16,7 @@ use crate::{
     surface::RenderingContext,
     util::{
         layout::LayoutNode,
-        text::{PlacedTextBox, TextBox},
+        text::{FontSystemRef, PlacedTextBox, TextBox},
     },
 };
 
@@ -63,7 +63,7 @@ pub struct TextBoxElement {
 }
 
 struct TextBoxMeasureFunc {
-    font_system: Arc<Mutex<FontSystem>>,
+    font_system: FontSystemRef,
     buffer: Arc<Mutex<CacheBuffer>>,
 }
 

@@ -1,25 +1,23 @@
 use crate::{
     color::ColorRgba,
     graphics::PushVertices,
-    math::{
-        PhysicalPos, PhysicalRect, PhysicalSize, PhysicalVector, Pos, Rect, ScaleFactor,
-        WindowScaleFactor,
-    },
+    math::{PhysicalPos, PhysicalRect, PhysicalSize},
     shape::BoxShaderVertex,
-    surface::SurfaceDependent,
-    util::text::{FontSystem, GlyphContentType, PlacedTextBox},
+    texture::{TextureManagerError, TextureManagerRef, TextureRef},
+    util::text::{FontSystem, FontSystemRef, GlyphContentType, PlacedTextBox},
 };
 
 use std::{
+    borrow::BorrowMut,
     cell::RefCell,
     collections::{HashMap, HashSet},
     hash::Hash,
-    sync::{Arc, Mutex, MutexGuard, RwLock, RwLockWriteGuard},
+    sync::{Arc, Mutex, MutexGuard, RwLock},
 };
 
 use rayon::prelude::*;
 
-use etagere::{euclid::approxeq::ApproxEq, Allocation as AtlasAllocation, BucketedAtlasAllocator};
+use etagere::{Allocation as AtlasAllocation, BucketedAtlasAllocator};
 use rustc_hash::FxHashMap;
 use swash::scale::ScaleContext;
 
@@ -33,6 +31,8 @@ use crate::{
 
 type GlyphCacheKey = cosmic_text::CacheKey;
 
+const MAX_ATLAS_SIZE: u32 = 4096;
+
 pub struct GlyphToRender {
     size: PhysicalSize<u32>,
     draw_rect: PhysicalRect,
@@ -43,29 +43,22 @@ pub struct GlyphToRender {
 
 pub(crate) struct FontAtlas {
     allocator: BucketedAtlasAllocator,
-    texture: wgpu::Texture,
-    sampler: wgpu::Sampler,
-    texture_view: wgpu::TextureView,
+
+    texture_ref: TextureRef,
+
     atlas_type: GlyphContentType,
     width: i32,
     height: i32,
-
-    bind_group: wgpu::BindGroup,
-
-    vertex_buffer_glyphs: u64,
-
-    num_glyphs: u64,
 }
 
 impl FontAtlas {
-    const MIN_NUM_VERTS: u64 = 32;
-
     pub fn new(
         context: &RenderingContext,
+        texture_manager: &TextureManagerRef,
         atlas_type: GlyphContentType,
         width: u32,
         height: u32,
-    ) -> Self {
+    ) -> Result<Self, TextureManagerError> {
         let RenderingContext { device, .. } = context;
 
         let allocator = BucketedAtlasAllocator::new(etagere::size2(width as i32, height as i32));
@@ -93,39 +86,15 @@ impl FontAtlas {
             view_formats: &[],
         });
 
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        });
+        let texture_ref = texture_manager.write().unwrap().register_texture(texture)?;
 
-        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        let bind_group = Self::create_bind_group(&sampler, &texture_view, context);
-
-        let vertex_buffer_glyphs = Self::MIN_NUM_VERTS;
-
-        Self {
+        Ok(Self {
             allocator,
-            texture,
-            sampler,
-            texture_view,
             atlas_type,
             width: width as i32,
             height: width as i32,
-            bind_group,
-            vertex_buffer_glyphs,
-            num_glyphs: 0,
-        }
-    }
-
-    pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, quads: u64) {
-        // self.gpu_buffer
-        //     .render_quads(None, (&self.bind_group).into(), render_pass, quads, 0..1);
+            texture_ref,
+        })
     }
 
     fn try_allocate_space(&mut self, space: &PhysicalSize<u32>) -> Option<AtlasAllocation> {
@@ -150,7 +119,7 @@ impl FontAtlas {
 
         queue.write_texture(
             wgpu::ImageCopyTexture {
-                texture: &self.texture,
+                texture: &self.texture_ref.texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d {
                     x: alloc.rectangle.min.x as u32,
@@ -177,26 +146,6 @@ impl FontAtlas {
 
     fn can_fit(&self, space: PhysicalSize<i32>) -> bool {
         return space.width <= self.width && space.height <= self.height;
-    }
-
-    pub fn create_bind_group(
-        sampler: &wgpu::Sampler,
-        texture_view: &wgpu::TextureView,
-        render_ctx: &RenderingContext,
-    ) -> wgpu::BindGroup {
-        render_ctx.create_shape_bind_group(texture_view, sampler)
-    }
-}
-
-impl SurfaceDependent for FontAtlas {
-    fn reconfigure(
-        &mut self,
-        context: &RenderingContext,
-        size: winit::dpi::PhysicalSize<u32>,
-        scale_factor: WindowScaleFactor,
-    ) {
-        let bind_group = Self::create_bind_group(&self.sampler, &self.texture_view, context);
-        self.bind_group = bind_group;
     }
 }
 
@@ -270,45 +219,41 @@ impl FontAtlasManager {
                         placement,
                         ..
                     })) => {
-                        let color = g.color;
+                        if let Some(atlas) = self.get_atlas(atlas_id) {
+                            let color = g.color;
 
-                        let PlacedTextBox { clip_rect, pos, .. } = text_box;
-                        let draw_rect = g.to_draw_glyph(pos, *size, *placement);
+                            let PlacedTextBox { clip_rect, pos, .. } = text_box;
+                            let draw_rect = g.to_draw_glyph(pos, *size, *placement);
 
-                        if clip_rect
-                            .map(|clip_rect| clip_rect.intersection(&draw_rect).is_none())
-                            .unwrap_or_default()
-                        {
-                            continue;
+                            if clip_rect
+                                .map(|clip_rect| clip_rect.intersection(&draw_rect).is_none())
+                                .unwrap_or_default()
+                            {
+                                continue;
+                            }
+
+                            let uv = allocation.rectangle;
+
+                            let alloc_pos = PhysicalPos::new(uv.min.x as u32, uv.min.y as u32);
+                            let uv = PhysicalRect::new(alloc_pos, alloc_pos + *size);
+                            let color = (*color).into();
+
+                            let (vertices, indices) = BoxShaderVertex::glyph_rect(
+                                draw_rect,
+                                uv,
+                                atlas_id.0,
+                                color,
+                                &atlas.texture_ref,
+                            );
+
+                            output.push_vertices(vertices, indices);
                         }
-
-                        let uv = allocation.rectangle;
-
-                        let alloc_pos = PhysicalPos::new(uv.min.x as u32, uv.min.y as u32);
-                        let uv = PhysicalRect::new(alloc_pos, alloc_pos + *size);
-                        let color = (*color).into();
-
-                        let (vertices, indices) =
-                            BoxShaderVertex::glyph_rect(draw_rect, uv, atlas_id.0, color);
-
-                        output.push_vertices(vertices, indices);
                     }
                     None => log::trace!("Glyph {} not cached", g.cache_key.glyph_id),
                     Some(GlyphCacheEntry::Noop) => {}
                 }
             }
         }
-    }
-
-    pub fn render<'a, 'b>(
-        &'a self,
-        render_pass: &'b mut wgpu::RenderPass<'a>,
-        atlas_id: AtlasId,
-        glyphs: u64,
-    ) {
-        // TODO: make this a Result
-        let atlas = self.get_atlas(atlas_id).unwrap();
-        atlas.render(render_pass, glyphs);
     }
 
     fn get_coll(&self, kind: GlyphContentType) -> &FontAtlasCollection {
@@ -326,11 +271,16 @@ impl FontAtlasManager {
         self.get_coll_mut(id.0).get_mut(&id)
     }
 
-    fn get_atlas(&self, id: AtlasId) -> Option<&FontAtlas> {
-        self.get_coll(id.0).get(&id)
+    fn get_atlas(&self, id: &AtlasId) -> Option<&FontAtlas> {
+        self.get_coll(id.0).get(id)
     }
 
-    fn create_atlas(&mut self, kind: GlyphContentType, size: u32) -> AtlasId {
+    fn create_atlas(
+        &mut self,
+        texture_manager: &TextureManagerRef,
+        kind: GlyphContentType,
+        size: u32,
+    ) -> Result<AtlasId, TextureManagerError> {
         let size = u32::max(size, 512);
 
         log::trace!("Creating new atlas of size {size}");
@@ -338,11 +288,11 @@ impl FontAtlasManager {
         let atlas_id = AtlasId(kind, self.id);
         self.id += 1;
 
-        let atlas = FontAtlas::new(&self.rendering_context, kind, size, size);
+        let atlas = FontAtlas::new(&self.rendering_context, texture_manager, kind, size, size)?;
 
         self.get_coll_mut(kind).insert(atlas_id, atlas);
 
-        atlas_id
+        Ok(atlas_id)
     }
 
     pub fn has_glyph(&self, key: &GlyphCacheKey) -> bool {
@@ -351,8 +301,8 @@ impl FontAtlasManager {
 
     pub fn allocate_glyph(
         &mut self,
+        texture_manager: &TextureManagerRef,
         kind: GlyphContentType,
-        // glyph_size: PhysicalSize<u32>,
         image: cosmic_text::SwashImage,
         cache_key: GlyphCacheKey,
     ) -> Option<GlyphAllocation> {
@@ -380,7 +330,7 @@ impl FontAtlasManager {
             .next()
             .or_else(|| {
                 let size = u32::max(glyph_size.width, glyph_size.height).next_power_of_2();
-                let atlas_id = self.create_atlas(kind, size);
+                let atlas_id = self.create_atlas(texture_manager, kind, size).unwrap();
 
                 match self.get_atlas_mut(atlas_id) {
                     Some(atlas) => match atlas.allocate_glyph(&image, &rendering_context) {
@@ -419,39 +369,25 @@ impl FontAtlasManager {
     pub fn get_glyph_uv() {}
 }
 
-impl SurfaceDependent for FontAtlasManager {
-    fn reconfigure(
-        &mut self,
-        context: &RenderingContext,
-        size: winit::dpi::PhysicalSize<u32>,
-        scale_factor: WindowScaleFactor,
-    ) {
-        for atlas in [
-            self.color_atlases.values_mut(),
-            self.mask_atlases.values_mut(),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            atlas.reconfigure(context, size, scale_factor);
-        }
-    }
-}
-
 pub struct FontManager {
-    font_system: Arc<Mutex<FontSystem>>,
+    font_system: FontSystemRef,
     atlas_manager: Arc<RwLock<FontAtlasManager>>,
+    texture_manager: TextureManagerRef,
 }
 
 impl FontManager {
-    pub fn new(rendering_context: Arc<RenderingContext>) -> Self {
-        let font_system = FontSystem::new();
+    pub fn new(
+        rendering_context: Arc<RenderingContext>,
+        texture_manager: TextureManagerRef,
+    ) -> Self {
+        let font_system = FontSystem::new().into();
 
         let atlas_manager = FontAtlasManager::new(rendering_context);
 
         return Self {
-            font_system: Arc::new(Mutex::new(font_system)),
+            font_system,
             atlas_manager: Arc::new(RwLock::new(atlas_manager)),
+            texture_manager,
         };
     }
 
@@ -468,12 +404,12 @@ impl FontManager {
             .prepare([text_box], output);
     }
 
-    pub fn get_font_system_ref(&self) -> Arc<Mutex<FontSystem>> {
+    pub fn get_font_system_ref(&self) -> FontSystemRef {
         self.font_system.clone()
     }
 
-    pub fn get_font_system(&mut self) -> MutexGuard<'_, FontSystem> {
-        return self.font_system.lock().unwrap();
+    pub fn get_font_system(&mut self) -> &FontSystemRef {
+        return &self.font_system;
     }
 
     // pub fn render<'a, 'b, 'c>(
@@ -489,7 +425,8 @@ impl FontManager {
     fn generate_textures_worker(
         mut glyphs: HashSet<GlyphCacheKey>,
         atlas_manager: Arc<RwLock<FontAtlasManager>>,
-        font_system: Arc<Mutex<FontSystem>>,
+        font_system: FontSystemRef,
+        texture_manager: TextureManagerRef,
     ) {
         #[cfg(not(target_arch = "wasm32"))]
         let drain_iter = glyphs.par_drain();
@@ -528,10 +465,12 @@ impl FontManager {
                     None
                 }
             } {
-                atlas_manager
-                    .write()
-                    .unwrap()
-                    .allocate_glyph(kind, image, cache_key);
+                atlas_manager.write().unwrap().allocate_glyph(
+                    &texture_manager,
+                    kind,
+                    image,
+                    cache_key,
+                );
             }
         }
     }
@@ -539,6 +478,7 @@ impl FontManager {
     pub fn generate_textures<'a>(&mut self, mut glyphs: HashSet<GlyphCacheKey>) {
         let atlas_manager = self.atlas_manager.clone();
         let font_system = self.font_system.clone();
+        let texture_manager = self.texture_manager.clone();
 
         // TODO: support threading on wasm
         #[cfg(target_arch = "wasm32")]
@@ -549,7 +489,7 @@ impl FontManager {
         #[cfg(not(target_arch = "wasm32"))]
         {
             std::thread::spawn(move || {
-                Self::generate_textures_worker(glyphs, atlas_manager, font_system);
+                Self::generate_textures_worker(glyphs, atlas_manager, font_system, texture_manager);
             });
         }
     }
@@ -613,18 +553,4 @@ fn rasterize_glyph(
 
         render.render(&mut scaler, cache_key.glyph_id)
     })
-}
-
-impl SurfaceDependent for FontManager {
-    fn reconfigure(
-        &mut self,
-        context: &RenderingContext,
-        size: winit::dpi::PhysicalSize<u32>,
-        scale_factor: WindowScaleFactor,
-    ) {
-        self.atlas_manager
-            .write()
-            .unwrap()
-            .reconfigure(context, size, scale_factor)
-    }
 }

@@ -8,6 +8,7 @@ pub mod layout;
 pub mod math;
 pub mod svg;
 pub mod taffy;
+pub mod template;
 pub mod text;
 
 pub fn min<T: PartialOrd>(x: T, y: T) -> T {

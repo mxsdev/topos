@@ -10,7 +10,7 @@ use crate::{
     element::{Element, ElementRef, ElementWeakref},
     input::input_state::InputState,
     math::{Pos, Rect, Size, WindowScaleFactor},
-    util::text::FontSystem,
+    util::text::{FontSystem, FontSystemRef},
 };
 
 use super::{ctx::SceneContext, scene::SceneResources};
@@ -174,7 +174,7 @@ impl<'a, 'b: 'a> LayoutPass<'a, 'b> {
         self.resources.font_system()
     }
 
-    pub fn font_system_ref(&mut self) -> Arc<Mutex<FontSystem>> {
+    pub fn font_system_ref(&mut self) -> FontSystemRef {
         self.resources.font_system_ref()
     }
 

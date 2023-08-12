@@ -23,12 +23,13 @@ struct VertexInput {
     @location(5) origin: vec2<f32>,
 
     @location(6) uv: vec2<u32>,
+    @location(7) atlas_idx: u32,
 
-    @location(7) color: vec4<f32>,
+    @location(8) color: vec4<f32>,
 
-    @location(8) rounding: f32,
-    @location(9) stroke_width: f32,
-    @location(10) blur_radius: f32,
+    @location(9) rounding: f32,
+    @location(10) stroke_width: f32,
+    @location(11) blur_radius: f32,
 }
 
 struct VertexOutput {
@@ -45,12 +46,13 @@ struct VertexOutput {
     @location(5) origin: vec2<f32>,
 
     @location(6) uv: vec2<f32>,
+    @location(7) atlas_idx: u32,
 
-    @location(7) color: vec4<f32>,
+    @location(8) color: vec4<f32>,
 
-    @location(8) rounding: f32,
-    @location(9) stroke_width: f32,
-    @location(10) blur_radius: f32,
+    @location(9) rounding: f32,
+    @location(10) stroke_width: f32,
+    @location(11) blur_radius: f32,
 };
 
 var<private> pi: f32 = 3.141592653589793;
@@ -106,10 +108,12 @@ struct Params {
 @group(0) @binding(0)
 var<uniform> params: Params;
 
-@group(0) @binding(1)
-var atlas_texture: texture_2d<f32>;
+{{#times num_atlas_textures}}
+@group(1) @binding({{index}})
+var atlas_texture_{{index}}: texture_2d<f32>;
+{{/times}}
 
-@group(0) @binding(2)
+@group(2) @binding(0)
 var atlas_sampler: sampler;
 
 @vertex
@@ -134,8 +138,20 @@ fn vs_main(
 
     var out_pos = vertex_in.pos;
 
-    let texDims = textureDimensions(atlas_texture);
-    vertex_out.uv = vec2<f32>(vertex_in.uv) / vec2<f32>(texDims);
+    vertex_out.atlas_idx = vertex_in.atlas_idx;
+
+    var tex_dims: vec2<u32>;
+    switch (vertex_in.atlas_idx) {
+        {{#times num_atlas_textures}}
+        case {{index}}u: {
+            tex_dims = textureDimensions(atlas_texture_{{index}});
+        }
+        {{/times}}
+
+        default: { }
+    }
+
+    vertex_out.uv = vec2<f32>(vertex_in.uv) / vec2<f32>(tex_dims);
 
     switch (vertex_in.shapeType) {
         case 0u: { // shapeRect
@@ -186,12 +202,28 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         }
 
         case 1u: { // fillModeTexture
-            // col = textureSampleLevel(atlas_texture, atlas_sampler, in.uv, 0.0);
+            switch (in.atlas_idx) {
+                {{#times num_atlas_textures}}
+                case {{index}}u: {
+                    col = textureSampleLevel(atlas_texture_{{index}}, atlas_sampler, in.uv, 0.0);
+                }
+                {{/times}}
+
+                default: { }
+            }
         }
 
         case 2u: { // fillModeTextureMaskColor
-            // var alpha = textureSampleLevel(atlas_texture, atlas_sampler, in.uv, 0.0).x;
-            // col = vec4<f32>(col.rgb, in.color.a * alpha);
+            switch (in.atlas_idx) {
+                {{#times num_atlas_textures}}
+                case {{index}}u: {
+                    var alpha = textureSampleLevel(atlas_texture_{{index}}, atlas_sampler, in.uv, 0.0).x;
+                    col = vec4<f32>(col.rgb, in.color.a * alpha);
+                }
+                {{/times}}
+
+                default: { }
+            }
         }
 
         default: { }

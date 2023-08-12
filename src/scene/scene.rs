@@ -1,4 +1,5 @@
 use std::{
+    borrow::BorrowMut,
     cell::{RefCell, RefMut},
     ops::DerefMut,
     rc::Rc,
@@ -19,9 +20,11 @@ use crate::{
     math::{PhysicalRect, PhysicalSize, Rect, WindowScaleFactor},
     scene::update::UpdatePass,
     shape::{self, BoxShaderVertex, PaintMeshVertex, PaintRectangle, PaintShape},
-    surface::{RenderAttachment, RenderSurface, RenderingContext, SurfaceDependent},
+    surface::{RenderAttachment, RenderSurface, RenderingContext},
+    text,
+    texture::{self, TextureManagerRef},
     util::{
-        text::{FontSystem, PlacedTextBox},
+        text::{FontSystem, FontSystemRef, PlacedTextBox},
         PhysicalUnit,
     },
 };
@@ -34,7 +37,7 @@ use super::{
 };
 
 pub struct SceneResources<'a> {
-    font_system: Arc<Mutex<FontSystem>>,
+    font_system: FontSystemRef,
     rendering_context: Arc<RenderingContext>,
     layout_engine: &'a mut LayoutEngine,
     scale_factor: WindowScaleFactor,
@@ -42,7 +45,7 @@ pub struct SceneResources<'a> {
 
 impl<'a> SceneResources<'a> {
     pub fn new(
-        font_system: Arc<Mutex<FontSystem>>,
+        font_system: FontSystemRef,
         rendering_context: Arc<RenderingContext>,
         scale_factor: WindowScaleFactor,
         layout_engine: &'a mut LayoutEngine,
@@ -63,7 +66,7 @@ impl<'a> SceneResources<'a> {
         self.font_system.lock().unwrap()
     }
 
-    pub fn font_system_ref(&self) -> Arc<Mutex<FontSystem>> {
+    pub fn font_system_ref(&self) -> FontSystemRef {
         self.font_system.clone()
     }
 
@@ -92,12 +95,17 @@ pub struct Scene<Root: RootConstructor + 'static> {
 }
 
 impl<Root: RootConstructor + 'static> Scene<Root> {
-    pub fn new(rendering_context: Arc<RenderingContext>, scale_fac: f64) -> Self {
-        let shape_renderer = shape::ShapeRenderer::new(&rendering_context);
-        let mut font_manager = atlas::FontManager::new(rendering_context.clone());
+    pub fn new(
+        rendering_context: Arc<RenderingContext>,
+        texture_manager: &TextureManagerRef,
+        scale_fac: f64,
+    ) -> Self {
+        let shape_renderer = shape::ShapeRenderer::new(&rendering_context, texture_manager);
+        let mut font_manager =
+            atlas::FontManager::new(rendering_context.clone(), texture_manager.clone());
 
         {
-            let mut font_system = font_manager.get_font_system();
+            let mut font_system = font_manager.get_font_system().lock().unwrap();
 
             font_system.db_mut().load_system_fonts();
 
@@ -132,6 +140,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
     pub fn render(
         &mut self,
         render_surface: &RenderSurface,
+        texture_manager: &TextureManagerRef,
         RenderAttachment {
             window_texture,
             msaa_view,
@@ -186,6 +195,8 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
         let mut shape_buffer_local = VertexBuffers::default();
 
+        let mut texture_manager_lock = texture_manager.write().unwrap();
+
         for shape in shapes {
             match shape {
                 PaintShape::Rectangle(paint_rect) => {
@@ -213,6 +224,14 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
         self.shape_buffer
             .write_all(queue, device, &shape_buffer_local);
+
+        let (texture_bind_group, sampler_bind_group) = {
+            (
+                // TODO: store these things
+                texture_manager_lock.generate_texture_bind_group(device),
+                texture_manager_lock.generate_sampler_bind_group(device),
+            )
+        };
 
         {
             let load_op = wgpu::LoadOp::Clear(wgpu::Color {
@@ -245,12 +264,16 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
                 depth_stencil_attachment: None,
             });
 
-            render_pass.set_pipeline(&render_ctx.shape_render_pipeline);
+            render_pass.set_pipeline(&self.shape_renderer.shape_render_pipeline);
 
-            render_pass.set_bind_group(0, &render_ctx.shape_bind_group, &[]);
+            render_pass.set_bind_group(0, &self.shape_renderer.shape_bind_group, &[]);
+            render_pass.set_bind_group(1, &texture_bind_group, &[]);
+            render_pass.set_bind_group(2, &sampler_bind_group, &[]);
 
             self.shape_buffer.render(&mut render_pass, 0..1);
         }
+
+        drop(texture_manager_lock);
 
         // TODO: for multiple render passes, submit multiple encoders as
         // iterator (??? might work, test performance)
@@ -258,14 +281,6 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         window_texture.present();
 
         (input, platform_output)
-    }
-
-    pub fn get_dependents_mut<'a>(&mut self) -> impl Iterator<Item = &mut dyn SurfaceDependent> {
-        [
-            &mut self.font_manager as &mut dyn SurfaceDependent,
-            &mut self.shape_renderer,
-        ]
-        .into_iter()
     }
 
     pub fn root_id(&self) -> ElementId {

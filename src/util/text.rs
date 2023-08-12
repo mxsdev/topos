@@ -1,6 +1,7 @@
 use std::{
     marker::PhantomData,
     ops::{Deref, DerefMut, Mul},
+    sync::{Arc, Mutex},
 };
 
 use itertools::Itertools;
@@ -12,11 +13,11 @@ pub use cosmic_text::{
 };
 
 use crate::{
-    color::{ColorRgba, FromCosmicTextColor, IntoCosmicTextColor},
+    color::{ColorRgba, FromCosmicTextColor},
     math::{Pos, Rect, ScaleFactor, Size, Vector},
 };
 
-use super::{LogicalUnit, PhysicalUnit};
+use super::LogicalUnit;
 
 #[repr(u32)]
 #[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
@@ -31,6 +32,22 @@ impl GlyphContentType {
             GlyphContentType::Color => 4,
             GlyphContentType::Mask => 1,
         }
+    }
+}
+
+#[derive(Shrinkwrap, Clone)]
+pub struct FontSystemRef(Arc<Mutex<FontSystem>>);
+
+impl FontSystemRef {
+    pub fn new() -> Self {
+        Self::from(FontSystem::new())
+    }
+}
+
+impl From<FontSystem> for FontSystemRef {
+    #[inline(always)]
+    fn from(value: FontSystem) -> Self {
+        Self(Arc::new(Mutex::new(value)))
     }
 }
 

@@ -1,14 +1,21 @@
+use serde::Serialize;
+
 use crate::{
     color::ColorRgba,
     graphics::Mesh,
-    math::{PhysicalPos, Pos, RoundedRect, ScaleFactor, WindowScaleFactor},
-    surface::SurfaceDependent,
-    util::text::{GlyphContentType, PlacedTextBox},
+    math::{PhysicalPos, Pos, RoundedRect, ScaleFactor},
+    surface::ParamsBuffer,
+    texture::{TextureManagerRef, TextureRef},
+    util::{
+        template::{HandlebarsTemplater, Templater},
+        text::{GlyphContentType, PlacedTextBox},
+    },
 };
 
-use std::{fmt::Debug, marker::PhantomData, ops::Mul};
+use std::{fmt::Debug, marker::PhantomData, num::NonZeroU64, ops::Mul, sync::atomic::Ordering};
 
 use num_traits::{Float, Num};
+use wgpu::ShaderModuleDescriptor;
 
 use crate::{
     num::{MaxNum, Two},
@@ -16,28 +23,121 @@ use crate::{
     util::{math::Rect, LogicalUnit, PhysicalUnit, WgpuDescriptor},
 };
 
-pub struct RenderResources {
-    dummy_texture_view: wgpu::TextureView,
-    dummy_texture_sampler: wgpu::Sampler,
-
-    pub bind_group: wgpu::BindGroup,
+pub struct ShapeRenderer {
+    pub shape_bind_group_layout: wgpu::BindGroupLayout,
+    pub shape_render_pipeline: wgpu::RenderPipeline,
+    pub shape_bind_group: wgpu::BindGroup,
 }
-
-pub struct ShapeRenderer {}
 
 impl ShapeRenderer {
-    pub fn new(rendering_context: &RenderingContext) -> Self {
-        Self {}
-    }
-}
+    pub fn new(rendering_context: &RenderingContext, texture_manager: &TextureManagerRef) -> Self {
+        let RenderingContext {
+            params_buffer,
+            device,
+            texture_format,
+            texture_info,
+            ..
+        } = rendering_context;
 
-impl SurfaceDependent for ShapeRenderer {
-    fn reconfigure(
-        &mut self,
-        context: &RenderingContext,
-        _size: winit::dpi::PhysicalSize<u32>,
-        _scale_factor: WindowScaleFactor,
-    ) {
+        let shape_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("box bind group"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    count: None,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: NonZeroU64::new(
+                            std::mem::size_of::<ParamsBuffer>() as u64
+                        ),
+                    },
+                    visibility: wgpu::ShaderStages::VERTEX,
+                }],
+            });
+
+        let num_atlas_textures = texture_manager.read().unwrap().get_max_textures();
+
+        let shape_shader_module = {
+            #[derive(Serialize)]
+            struct TemplateData {
+                num_atlas_textures: u32,
+            }
+
+            let shader_template_src = include_str!("box.wgsl");
+            let templater = HandlebarsTemplater::new(TemplateData { num_atlas_textures });
+
+            let shader_src = templater.render_template(shader_template_src).unwrap();
+
+            device.create_shader_module(ShaderModuleDescriptor {
+                label: Some("box shader"),
+                source: wgpu::ShaderSource::Wgsl(shader_src.into()),
+            })
+        };
+
+        let shape_render_pipeline_layout = {
+            let texture_manager = texture_manager.read().unwrap();
+
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("box pipeline layout"),
+                bind_group_layouts: &[
+                    &shape_bind_group_layout,
+                    texture_manager.get_texture_bind_group_layout(),
+                    texture_manager.get_sampler_bind_group_layout(),
+                ],
+                push_constant_ranges: &[],
+            })
+        };
+
+        let shape_render_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("box render pipeline"),
+                layout: Some(&shape_render_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shape_shader_module,
+                    entry_point: "vs_main",
+                    buffers: &[BoxShaderVertex::desc()],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shape_shader_module,
+                    entry_point: "fs_main",
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: *texture_format,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                    cull_mode: None,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState {
+                    count: texture_info.get_num_samples(),
+                    ..Default::default()
+                },
+                multiview: None,
+            });
+
+        let shape_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("box bind group"),
+            layout: &shape_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: params_buffer.as_entire_binding(),
+            }],
+        });
+
+        Self {
+            shape_bind_group,
+            shape_bind_group_layout,
+            shape_render_pipeline,
+        }
     }
 }
 
@@ -78,6 +178,7 @@ pub struct BoxShaderVertex {
     origin: [f32; 2],
 
     uv: [u32; 2],
+    atlas_idx: u32,
 
     color: [f32; 4],
 
@@ -86,8 +187,8 @@ pub struct BoxShaderVertex {
     blur_radius: f32,
 }
 
-impl WgpuDescriptor<11> for BoxShaderVertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 11] = wgpu::vertex_attr_array![
+impl WgpuDescriptor<12> for BoxShaderVertex {
+    const ATTRIBS: [wgpu::VertexAttribute; 12] = wgpu::vertex_attr_array![
         // shape_type
         0 => Uint32,
         // fill_mode
@@ -106,16 +207,18 @@ impl WgpuDescriptor<11> for BoxShaderVertex {
 
         // uv
         6 => Uint32x2,
+        // atlas_idx
+        7 => Uint32,
 
         // color
-        7 => Float32x4,
+        8 => Float32x4,
 
         // rounding
-        8 => Float32,
-        // stroke_width
         9 => Float32,
-        // blur_radius
+        // stroke_width
         10 => Float32,
+        // blur_radius
+        11 => Float32,
     ];
 }
 
@@ -165,8 +268,11 @@ impl BoxShaderVertex {
         uv: Rect<u32, PhysicalUnit>,
         glyph_type: GlyphContentType, // TODO: texture id
         color: ColorRgba,
+        texture_ref: &TextureRef,
     ) -> ([Self; 4], [u16; 6]) {
         let color: [f32; 4] = color.into();
+
+        let binding_idx = texture_ref.binding_idx.load(Ordering::Relaxed);
 
         let fill_mode = match glyph_type {
             GlyphContentType::Color => FillMode::Texture,
@@ -181,6 +287,7 @@ impl BoxShaderVertex {
                     pos: [rect.min.x, rect.min.y],
                     uv: [uv.min.x, uv.min.y],
                     color,
+                    atlas_idx: binding_idx,
                     ..Default::default()
                 },
                 Self {
@@ -189,6 +296,7 @@ impl BoxShaderVertex {
                     pos: [rect.max.x, rect.min.y],
                     uv: [uv.max.x, uv.min.y],
                     color,
+                    atlas_idx: binding_idx,
                     ..Default::default()
                 },
                 Self {
@@ -197,6 +305,7 @@ impl BoxShaderVertex {
                     pos: [rect.min.x, rect.max.y],
                     uv: [uv.min.x, uv.max.y],
                     color,
+                    atlas_idx: binding_idx,
                     ..Default::default()
                 },
                 Self {
@@ -205,6 +314,7 @@ impl BoxShaderVertex {
                     pos: [rect.max.x, rect.max.y],
                     uv: [uv.max.x, uv.max.y],
                     color,
+                    atlas_idx: binding_idx,
                     ..Default::default()
                 },
             ],
