@@ -1,4 +1,3 @@
-use itertools::Itertools;
 use keyframe::{functions::BezierCurve, mint::Vector2};
 use lyon::{
     lyon_tessellation::StrokeOptions,

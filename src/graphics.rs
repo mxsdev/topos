@@ -46,15 +46,58 @@ impl<V> Mesh<V, u16> {
     }
 }
 
+pub struct DynamicGPUBuffer<T: Sized + Pod> {
+    pub buffer: wgpu::Buffer,
+    pub size: u64,
+    pub usage: wgpu::BufferUsages,
+    _data: PhantomData<T>,
+}
+
+impl<T: Sized + Pod> DynamicGPUBuffer<T> {
+    pub fn new(device: &wgpu::Device, initial_size: u64, usage: wgpu::BufferUsages) -> Self {
+        let buffer = Self::create_buffer(device, initial_size, usage);
+        Self {
+            buffer,
+            usage,
+            size: initial_size,
+            _data: PhantomData,
+        }
+    }
+
+    fn create_buffer(
+        device: &wgpu::Device,
+        desired_size: u64,
+        usage: wgpu::BufferUsages,
+    ) -> wgpu::Buffer {
+        let next_cap = desired_size.next_power_of_two();
+
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: "dynamic gpu buffer".into(),
+            size: next_cap,
+            usage,
+            mapped_at_creation: false,
+        })
+    }
+
+    fn reallocate_self(&mut self, device: &wgpu::Device, size: u64) {
+        if size > self.buffer.size() {
+            self.buffer = Self::create_buffer(device, size, self.usage);
+        }
+    }
+
+    pub fn write(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, items: &[T]) {
+        let new_size = (items.len() * std::mem::size_of::<T>()) as u64;
+
+        self.reallocate_self(device, new_size);
+
+        self.size = new_size;
+        queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(items));
+    }
+}
+
 pub struct DynamicGPUMeshTriBuffer<T: Sized + Pod + Debug> {
-    vertex_buffer: wgpu::Buffer,
-    index_buffer: wgpu::Buffer,
-
-    cap_indices: u64,
-    num_indices: u64,
-
-    vb_cap: u64,
-    vb_count: u64,
+    vertex_buffer: DynamicGPUBuffer<T>,
+    index_buffer: DynamicGPUBuffer<u16>,
 
     _data: PhantomData<Vec<T>>,
 }
@@ -67,28 +110,38 @@ impl<T: Sized + Pod + Debug> DynamicGPUMeshTriBuffer<T> {
     const INDEX_BYTES: u64 = std::mem::size_of::<u16>() as u64;
 
     pub fn new(device: &wgpu::Device) -> Self {
-        let vertex_buffer = Self::create_vertex_buffer(Self::MIN_CAP_VERTICES, device);
-        let index_buffer = Self::create_index_buffer(Self::MIN_CAP_TRIS, device);
+        let vertex_buffer = DynamicGPUBuffer::new(
+            device,
+            Self::MIN_CAP_TRIS * Self::VERTEX_BYTES,
+            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        );
+
+        let index_buffer = DynamicGPUBuffer::new(
+            device,
+            Self::MIN_CAP_VERTICES * Self::INDEX_BYTES,
+            wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+        );
 
         Self {
             vertex_buffer,
             index_buffer,
-
-            cap_indices: Self::MIN_CAP_TRIS,
-            num_indices: 0,
-
-            vb_cap: Self::MIN_CAP_VERTICES,
-            vb_count: 0,
 
             _data: PhantomData,
         }
     }
 
     pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, instances: Range<u32>) {
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.buffer.slice(..));
+        render_pass.set_index_buffer(
+            self.index_buffer.buffer.slice(..),
+            wgpu::IndexFormat::Uint16,
+        );
 
-        render_pass.draw_indexed(0..self.num_indices as u32, 0, instances);
+        render_pass.draw_indexed(
+            0..(self.index_buffer.size / Self::INDEX_BYTES) as u32,
+            0,
+            instances,
+        );
     }
 
     pub fn write_all(
@@ -97,70 +150,8 @@ impl<T: Sized + Pod + Debug> DynamicGPUMeshTriBuffer<T> {
         device: &wgpu::Device,
         buffers: &VertexBuffers<T>,
     ) {
-        self.resize_buffers(
-            device,
-            Self::index_buffer_size(buffers.indices.len() as u64),
-            Self::vertex_buffer_size(buffers.vertices.len() as u64),
-        );
-
-        queue.write_buffer(
-            &self.vertex_buffer,
-            0,
-            bytemuck::cast_slice(&buffers.vertices),
-        );
-
-        queue.write_buffer(
-            &self.index_buffer,
-            0,
-            bytemuck::cast_slice(&buffers.indices),
-        );
-    }
-
-    fn resize_buffers(&mut self, device: &wgpu::Device, num_indices: u64, num_vertices: u64) {
-        self.vb_count = num_vertices;
-        self.num_indices = num_indices;
-
-        self.reallocate_buffers(device);
-    }
-
-    fn vertex_buffer_size(count: u64) -> u64 {
-        count * Self::VERTEX_BYTES
-    }
-
-    fn index_buffer_size(count: u64) -> u64 {
-        count * Self::INDEX_BYTES
-    }
-
-    fn reallocate_buffers(&mut self, device: &wgpu::Device) {
-        if self.vb_count > self.vb_cap {
-            let next_cap = self.vb_count.next_power_of_two();
-            self.vertex_buffer = Self::create_vertex_buffer(next_cap, device);
-            self.vb_cap = next_cap;
-        }
-
-        if self.num_indices > self.cap_indices {
-            let next_cap = self.num_indices.next_power_of_two();
-            self.index_buffer = Self::create_index_buffer(next_cap, device);
-            self.cap_indices = next_cap;
-        }
-    }
-
-    fn create_vertex_buffer(count: u64, device: &wgpu::Device) -> wgpu::Buffer {
-        device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("tri buffer allocator vertex buffer"),
-            size: Self::vertex_buffer_size(count),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        })
-    }
-
-    fn create_index_buffer(count: u64, device: &wgpu::Device) -> wgpu::Buffer {
-        device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("tri buffer allocator index buffer"),
-            size: Self::index_buffer_size(count),
-            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        })
+        self.vertex_buffer.write(device, queue, &buffers.vertices);
+        self.index_buffer.write(device, queue, &buffers.indices);
     }
 }
 
