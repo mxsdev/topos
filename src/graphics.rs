@@ -48,18 +48,20 @@ impl<V> Mesh<V, u16> {
 
 pub struct DynamicGPUBuffer<T: Sized + Pod> {
     pub buffer: wgpu::Buffer,
-    pub size: u64,
+    size: u64,
     pub usage: wgpu::BufferUsages,
     _data: PhantomData<T>,
 }
 
 impl<T: Sized + Pod> DynamicGPUBuffer<T> {
-    pub fn new(device: &wgpu::Device, initial_size: u64, usage: wgpu::BufferUsages) -> Self {
+    pub fn new(device: &wgpu::Device, initial_cap_count: u64, usage: wgpu::BufferUsages) -> Self {
+        let initial_size = initial_cap_count * (std::mem::size_of::<T>() as u64);
         let buffer = Self::create_buffer(device, initial_size, usage);
+
         Self {
             buffer,
             usage,
-            size: initial_size,
+            size: 0,
             _data: PhantomData,
         }
     }
@@ -79,19 +81,32 @@ impl<T: Sized + Pod> DynamicGPUBuffer<T> {
         })
     }
 
-    fn reallocate_self(&mut self, device: &wgpu::Device, size: u64) {
+    fn reallocate_self(&mut self, device: &wgpu::Device, size: u64) -> bool {
         if size > self.buffer.size() {
             self.buffer = Self::create_buffer(device, size, self.usage);
+            true
+        } else {
+            false
         }
     }
 
-    pub fn write(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, items: &[T]) {
+    pub fn write(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, items: &[T]) -> bool {
         let new_size = (items.len() * std::mem::size_of::<T>()) as u64;
 
-        self.reallocate_self(device, new_size);
+        let reallocated = self.reallocate_self(device, new_size);
 
         self.size = new_size;
         queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(items));
+
+        reallocated
+    }
+
+    pub const fn count(&self) -> u64 {
+        self.size / (std::mem::size_of::<T>() as u64)
+    }
+
+    pub const fn size(&self) -> u64 {
+        self.size
     }
 }
 
@@ -106,19 +121,16 @@ impl<T: Sized + Pod + Debug> DynamicGPUMeshTriBuffer<T> {
     const MIN_CAP_TRIS: u64 = 16;
     const MIN_CAP_VERTICES: u64 = 64;
 
-    const VERTEX_BYTES: u64 = std::mem::size_of::<T>() as u64;
-    const INDEX_BYTES: u64 = std::mem::size_of::<u16>() as u64;
-
     pub fn new(device: &wgpu::Device) -> Self {
         let vertex_buffer = DynamicGPUBuffer::new(
             device,
-            Self::MIN_CAP_TRIS * Self::VERTEX_BYTES,
+            Self::MIN_CAP_TRIS,
             wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         );
 
         let index_buffer = DynamicGPUBuffer::new(
             device,
-            Self::MIN_CAP_VERTICES * Self::INDEX_BYTES,
+            Self::MIN_CAP_VERTICES,
             wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
         );
 
@@ -137,11 +149,7 @@ impl<T: Sized + Pod + Debug> DynamicGPUMeshTriBuffer<T> {
             wgpu::IndexFormat::Uint16,
         );
 
-        render_pass.draw_indexed(
-            0..(self.index_buffer.size / Self::INDEX_BYTES) as u32,
-            0,
-            instances,
-        );
+        render_pass.draw_indexed(0..self.index_buffer.count() as u32, 0, instances);
     }
 
     pub fn write_all(

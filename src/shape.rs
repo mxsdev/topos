@@ -1,23 +1,28 @@
-use itertools::Itertools;
 use serde::Serialize;
 
 use crate::{
     color::ColorRgba,
-    graphics::{Mesh, VertexBuffers},
-    math::{PhysicalPos, Pos, RoundedRect, ScaleFactor},
+    graphics::{DynamicGPUBuffer, DynamicGPUMeshTriBuffer, Mesh, PushVertices, VertexBuffers},
+    math::{PhysicalPos, PhysicalRect, Pos, RoundedRect, ScaleFactor},
     surface::ParamsBuffer,
     texture::{TextureManagerRef, TextureRef},
     util::{
-        svg::{PosVertexBuffers, PosVertexInfo},
+        svg::PosVertexBuffers,
         template::{HandlebarsTemplater, Templater},
         text::{GlyphContentType, PlacedTextBox},
     },
 };
 
-use std::{fmt::Debug, marker::PhantomData, num::NonZeroU64, ops::Mul, sync::atomic::Ordering};
+use std::{
+    fmt::Debug,
+    marker::PhantomData,
+    num::NonZeroU64,
+    ops::{Mul, Range},
+    sync::atomic::Ordering,
+};
 
 use num_traits::{Float, Num};
-use wgpu::ShaderModuleDescriptor;
+use wgpu::{BufferUsages, ShaderModuleDescriptor};
 
 use crate::{
     num::{MaxNum, Two},
@@ -29,6 +34,10 @@ pub struct ShapeRenderer {
     pub shape_bind_group_layout: wgpu::BindGroupLayout,
     pub shape_render_pipeline: wgpu::RenderPipeline,
     pub shape_bind_group: wgpu::BindGroup,
+
+    clip_rects: DynamicGPUBuffer<ShaderClipRect>,
+
+    shape_buffer: DynamicGPUMeshTriBuffer<BoxShaderVertex>,
 }
 
 impl ShapeRenderer {
@@ -44,18 +53,30 @@ impl ShapeRenderer {
         let shape_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("box bind group"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    count: None,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: NonZeroU64::new(
-                            std::mem::size_of::<ParamsBuffer>() as u64
-                        ),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        count: None,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: NonZeroU64::new(
+                                std::mem::size_of::<ParamsBuffer>() as u64
+                            ),
+                        },
+                        visibility: wgpu::ShaderStages::VERTEX,
                     },
-                    visibility: wgpu::ShaderStages::VERTEX,
-                }],
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        count: None,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                    },
+                ],
             });
 
         let num_atlas_textures = texture_manager.read().unwrap().get_max_textures();
@@ -126,19 +147,85 @@ impl ShapeRenderer {
                 multiview: None,
             });
 
-        let shape_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("box bind group"),
-            layout: &shape_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: params_buffer.as_entire_binding(),
-            }],
-        });
+        let clip_rects = DynamicGPUBuffer::new(
+            device,
+            // FIXME: increase this
+            0,
+            BufferUsages::VERTEX | BufferUsages::STORAGE | BufferUsages::COPY_DST,
+        );
+
+        let shape_bind_group = Self::create_bind_group(
+            device,
+            &shape_bind_group_layout,
+            params_buffer,
+            &clip_rects.buffer,
+        );
+
+        let shape_buffer = DynamicGPUMeshTriBuffer::new(device);
 
         Self {
             shape_bind_group,
             shape_bind_group_layout,
             shape_render_pipeline,
+
+            clip_rects,
+
+            shape_buffer,
+        }
+    }
+
+    fn create_bind_group(
+        device: &wgpu::Device,
+        shape_bind_group_layout: &wgpu::BindGroupLayout,
+        params_buffer: &wgpu::Buffer,
+        clip_rects_buffer: &wgpu::Buffer,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("box bind group"),
+            layout: shape_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: params_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: clip_rects_buffer.as_entire_binding(),
+                },
+            ],
+        })
+    }
+
+    pub fn write_all_shapes(
+        &mut self,
+        queue: &wgpu::Queue,
+        device: &wgpu::Device,
+        buffers: &VertexBuffers<BoxShaderVertex>,
+    ) {
+        self.shape_buffer.write_all(queue, device, buffers)
+    }
+
+    pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, instances: Range<u32>) {
+        self.shape_buffer.render(render_pass, instances)
+    }
+
+    pub fn write_all_clip_rects(
+        &mut self,
+        RenderingContext {
+            device,
+            queue,
+            params_buffer,
+            ..
+        }: &RenderingContext,
+        clip_rects: &[ShaderClipRect],
+    ) {
+        if self.clip_rects.write(device, queue, clip_rects) {
+            self.shape_bind_group = Self::create_bind_group(
+                device,
+                &self.shape_bind_group_layout,
+                params_buffer,
+                &self.clip_rects.buffer,
+            );
         }
     }
 }
@@ -187,10 +274,12 @@ pub struct BoxShaderVertex {
     rounding: f32,
     stroke_width: f32,
     blur_radius: f32,
+
+    clip_rect_idx: u32,
 }
 
-impl WgpuDescriptor<12> for BoxShaderVertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 12] = wgpu::vertex_attr_array![
+impl WgpuDescriptor<13> for BoxShaderVertex {
+    const ATTRIBS: [wgpu::VertexAttribute; 13] = wgpu::vertex_attr_array![
         // shape_type
         0 => Uint32,
         // fill_mode
@@ -221,6 +310,9 @@ impl WgpuDescriptor<12> for BoxShaderVertex {
         10 => Float32,
         // blur_radius
         11 => Float32,
+
+        // clip_rect_idx
+        12 => Uint32,
     ];
 }
 
@@ -399,6 +491,37 @@ impl BoxShaderVertex {
                 ..Default::default()
             },
         ];
+    }
+}
+
+pub type ClipRect<F = f32, U = LogicalUnit> = RoundedRect<F, U>;
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ShaderClipRect {
+    origin: [f32; 2],
+    half_size: [f32; 2],
+    rounding: f32,
+    padding_bytes: f32,
+}
+
+impl ShaderClipRect {
+    pub fn new(rect: PhysicalRect, rounding: f32) -> Self {
+        let origin = rect.center().to_vector();
+        let half_size = rect.max - origin;
+
+        Self {
+            origin: origin.into(),
+            half_size: half_size.into(),
+            rounding,
+            padding_bytes: Default::default(),
+        }
+    }
+}
+
+impl From<ClipRect<f32, PhysicalUnit>> for ShaderClipRect {
+    fn from(value: ClipRect<f32, PhysicalUnit>) -> Self {
+        Self::new(value.inner, value.radius.unwrap_or(0.))
     }
 }
 
@@ -587,7 +710,6 @@ custom_derive! {
     pub enum PaintShape {
         Rectangle(PaintRectangle),
         Text(PlacedTextBox),
-        ClipRect(Option<Rect>),
         Mesh(PaintMesh),
     }
 }
@@ -620,5 +742,35 @@ impl<T: Copy + Mul, U1, U2> Mul<ScaleFactor<T, U1, U2>> for PaintRectangle<T, U1
             stroke_color: self.stroke_color,
             stroke_width: self.stroke_width.map(|x| x * scale.get()),
         }
+    }
+}
+
+#[derive(Debug, Default)]
+pub(super) struct ShapeBufferWithContext {
+    pub(super) vertex_buffers: VertexBuffers<BoxShaderVertex>,
+    pub(super) clip_rect_idx: u32,
+}
+
+impl ShapeBufferWithContext {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl PushVertices<BoxShaderVertex> for ShapeBufferWithContext {
+    fn push_vertices(
+        &mut self,
+        vertices: impl IntoIterator<Item = BoxShaderVertex>,
+        indices: impl IntoIterator<Item = u16>,
+    ) {
+        let clip_rect_idx = self.clip_rect_idx;
+
+        self.vertex_buffers.push_vertices(
+            vertices.into_iter().map(|mut x| {
+                x.clip_rect_idx = clip_rect_idx;
+                x
+            }),
+            indices,
+        )
     }
 }

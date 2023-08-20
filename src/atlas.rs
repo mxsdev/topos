@@ -226,7 +226,7 @@ impl FontAtlasManager {
                             let draw_rect = g.to_draw_glyph(pos, *size, *placement);
 
                             if clip_rect
-                                .map(|clip_rect| clip_rect.intersection(&draw_rect).is_none())
+                                .map(|clip_rect| clip_rect.inner.intersection(&draw_rect).is_none())
                                 .unwrap_or_default()
                             {
                                 continue;

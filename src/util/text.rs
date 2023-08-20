@@ -14,7 +14,7 @@ pub use cosmic_text::{
 
 use crate::{
     color::{ColorRgba, FromCosmicTextColor},
-    math::{Pos, Rect, ScaleFactor, Size, Vector},
+    math::{Pos, Rect, RoundedRect, ScaleFactor, Size, Vector},
 };
 
 use super::LogicalUnit;
@@ -157,7 +157,7 @@ impl<U> PlacedGlyph<U> {
 #[derive(Debug)]
 pub struct PlacedTextBox<U = LogicalUnit> {
     pub glyphs: Vec<PlacedGlyph<U>>,
-    pub clip_rect: Option<Rect<f32, U>>,
+    pub clip_rect: Option<RoundedRect<f32, U>>,
     pub pos: Pos<f32, U>,
     pub color: ColorRgba,
 }
@@ -167,7 +167,7 @@ impl<U> PlacedTextBox<U> {
         glyphs: Vec<PlacedGlyph<U>>,
         pos: Pos<f32, U>,
         color: ColorRgba,
-        clip_rect: Option<Rect<f32, U>>,
+        clip_rect: Option<RoundedRect<f32, U>>,
     ) -> Self {
         Self {
             glyphs,
@@ -209,8 +209,11 @@ impl<U> PlacedTextBox<U> {
     }
 
     #[inline]
-    pub fn with_clip_rect(self, clip_rect: Option<Rect<f32, U>>) -> Self {
-        Self { clip_rect, ..self }
+    pub fn with_clip_rect(self, clip_rect: impl Into<Option<RoundedRect<f32, U>>>) -> Self {
+        Self {
+            clip_rect: clip_rect.into(),
+            ..self
+        }
     }
 }
 
@@ -350,7 +353,7 @@ impl<U> TextBox<U> {
     pub fn calculate_placed_text_box(
         &self,
         pos: Pos<f32, U>,
-        clip_rect: Option<Rect<f32, U>>,
+        clip_rect: impl Into<Option<RoundedRect<f32, U>>>,
     ) -> PlacedTextBox<U> {
         let glyphs = self
             .buffer
@@ -366,8 +369,7 @@ impl<U> TextBox<U> {
 
         PlacedTextBox {
             glyphs: glyphs,
-            // TODO: introduce clip rect
-            clip_rect,
+            clip_rect: clip_rect.into(),
             pos,
             color: self.color,
         }

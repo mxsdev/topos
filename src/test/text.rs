@@ -6,6 +6,7 @@ use std::{
 use crate::{
     accessibility::{AccessNodeBuilder, AccessRole},
     color::ColorRgba,
+    math::Pos,
     scene::layout::{measure_func_boxed, AvailableSpace, FlexBox, LayoutPassResult, Measurable},
     util::text::{FontSystemRef, TextBox},
 };
@@ -35,7 +36,6 @@ impl From<TextBox> for CacheBuffer {
             buffer,
             invalidate_cache: false,
 
-            // invalid_key: Default::default(),
             cache: Default::default(),
         }
     }
@@ -179,6 +179,8 @@ impl Element for TextBoxElement {
     }
 
     fn ui(&mut self, ctx: &mut SceneContext, rect: Rect) {
+        ctx.push_clip_rect(Rect::new(Pos::zero(), Pos::new(30., 1000.)));
+
         ctx.add_shape(
             self.buffer
                 .lock()
@@ -186,6 +188,10 @@ impl Element for TextBoxElement {
                 .buffer
                 .calculate_placed_text_box(rect.min, None),
         )
+    }
+
+    fn ui_post(&mut self, ctx: &mut SceneContext, _rect: Rect) {
+        ctx.pop_clip_rect();
     }
 
     fn node(&self) -> AccessNodeBuilder {

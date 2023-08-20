@@ -1,14 +1,22 @@
+use std::borrow::Cow;
+
 use crate::{
     input::output::{CursorIcon, PlatformOutput},
-    math::{Rect, WindowScaleFactor},
-    shape::PaintShape,
+    math::{Pos, Rect, Size, WindowScaleFactor},
+    shape::{ClipRect, PaintShape, ShaderClipRect},
 };
 
+pub(super) struct PaintShapeWithContext {
+    pub shape: PaintShape,
+    pub clip_rect_idx: Option<u32>,
+}
+
 pub struct SceneContext {
-    pub(super) shapes: Vec<PaintShape>,
+    pub(super) shapes: Vec<PaintShapeWithContext>,
     pub(super) output: PlatformOutput,
 
-    clip_rects: Vec<Option<Rect>>,
+    pub(super) clip_rects: Vec<ClipRect>,
+    clip_rect_stack: Vec<usize>,
 
     scale_factor: WindowScaleFactor,
 }
@@ -17,35 +25,46 @@ impl SceneContext {
     pub(super) fn new(scale_factor: WindowScaleFactor) -> Self {
         Self {
             shapes: Default::default(),
-            clip_rects: Default::default(),
+            // clip_rects: Vec::from([ClipRect::from(Rect::from_min_size(
+            //     Pos::zero(),
+            //     Size::new(50., 50.),
+            // ))]),
+            clip_rects: Vec::from([ClipRect::default()]),
+            clip_rect_stack: Default::default(),
             scale_factor,
             output: Default::default(),
         }
     }
 
     pub fn add_shape(&mut self, shape: impl Into<PaintShape>) {
-        self.shapes.push(shape.into())
+        let mut shape = shape.into();
+
+        match &mut shape {
+            PaintShape::Text(text) => text.clip_rect = self.current_clip_rect(),
+            _ => {}
+        }
+
+        self.shapes.push(PaintShapeWithContext {
+            shape,
+            clip_rect_idx: self.current_clip_rect_idx().map(|x| x as u32),
+        })
     }
 
-    pub fn push_clip_rect(&mut self, rect: impl Into<Option<Rect>>) {
-        let rect: Option<Rect> = rect.into();
-
-        let rect = rect
-            .and_then(|x| Some(x.intersection_unchecked(&self.current_clip_rect()?)))
-            .or(rect);
-
-        self.add_shape(PaintShape::ClipRect(rect));
-        self.clip_rects.push(rect);
+    pub fn push_clip_rect(&mut self, rect: impl Into<ClipRect>) {
+        self.clip_rect_stack.push(self.clip_rects.len());
+        self.clip_rects.push(rect.into());
     }
 
     pub fn pop_clip_rect(&mut self) {
-        self.clip_rects.pop();
-
-        self.add_shape(PaintShape::ClipRect(self.current_clip_rect()))
+        self.clip_rect_stack.pop();
     }
 
-    fn current_clip_rect(&self) -> Option<Rect> {
-        self.clip_rects.last().copied().flatten()
+    pub fn current_clip_rect(&self) -> Option<ClipRect> {
+        self.current_clip_rect_idx().map(|i| self.clip_rects[i])
+    }
+
+    pub(crate) fn current_clip_rect_idx(&self) -> Option<usize> {
+        self.clip_rect_stack.last().copied()
     }
 
     pub fn output(&mut self) -> &mut PlatformOutput {
@@ -65,22 +84,4 @@ impl SceneContext {
     pub fn open_url(&mut self, url: impl ToString) {
         self.output.open_url(url)
     }
-
-    // pub fn add_buffer(&mut self, buffer: &cosmic_text::Buffer) {}
-
-    // pub fn input(&mut self) -> RefMut<InputState> {
-    //     self.input.borrow_mut()
-    // }
-
-    // pub fn render_child(&mut self, element: &mut ElementRef<impl Element>) {
-    //     let mut ctx = self.clone();
-
-    //     let scene_layout = self.scene_layout.borrow();
-    //     let placement = scene_layout.get(&element.id());
-
-    //     if let Some(pos) = placement {
-    //         element.get().ui(&mut ctx, *pos);
-    //         self.shapes.extend(ctx.shapes.into_iter());
-    //     }
-    // }
 }

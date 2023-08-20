@@ -2,12 +2,13 @@ use crate::{
     accessibility::{AccessNodeBuilder, AccessRole},
     element::{Element, ElementRef, RootConstructor},
     input::input_state::InputState,
-    math::{Rect, WindowScaleFactor},
+    math::{Pos, Rect, Size, WindowScaleFactor},
     scene::{
         ctx::SceneContext,
         layout::{ColumnReverse, FlexBox, LayoutPass, LayoutPassResult, Percent},
         scene::SceneResources,
     },
+    shape::ClipRect,
 };
 
 use super::{MainElement, TitleBar};
@@ -50,7 +51,16 @@ impl Element for TestRoot {
 
     fn input(&mut self, _: &mut InputState, _: Rect) {}
 
-    fn ui(&mut self, _ctx: &mut SceneContext, _: Rect) {}
+    fn ui(&mut self, ctx: &mut SceneContext, _: Rect) {
+        ctx.push_clip_rect(
+            ClipRect::from(Rect::from_min_size(Pos::zero(), Size::new(500., 312.)))
+                .with_radius(Some(10.)),
+        );
+    }
+
+    fn ui_post(&mut self, ctx: &mut SceneContext, _rect: Rect) {
+        ctx.pop_clip_rect()
+    }
 
     fn node(&self) -> AccessNodeBuilder {
         let mut builder = AccessNodeBuilder::new(AccessRole::Window);

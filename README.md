@@ -19,7 +19,8 @@
  - [x] Better glyph support
  - [x] Move everything into a single shader (draw call optimization)
  - [x] Optimize atlas as "TextureAtlas" (finite maximum of textures on shader)
- - [ ] Include clip rectangle in shader vertex data
+ - [x] Include clip rectangle in shader vertex data
+ - [ ] Support multiple rounded clip rects
  - [ ] Affine transformations
  - [ ] Render engine throughput optimizations (store & diff buffers by widget)
  - [ ] Sharp box strokes

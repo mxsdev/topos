@@ -1,20 +1,25 @@
 use std::{ops::DerefMut, sync::Arc};
 
+use bytemuck::Zeroable;
+use itertools::Itertools;
+
 use crate::{
     accessibility::AccessNode,
     atlas::{self},
     element::{Element, ElementId, ElementRef, RootConstructor},
     graphics::{DynamicGPUMeshTriBuffer, PushVertices, VertexBuffers},
     input::{input_state::InputState, output::PlatformOutput},
-    math::{PhysicalSize, WindowScaleFactor},
-    shape::{self, BoxShaderVertex, PaintMeshVertex, PaintShape},
+    math::{PhysicalSize, Pos, Rect, WindowScaleFactor},
+    shape::{
+        self, BoxShaderVertex, PaintMeshVertex, PaintShape, ShaderClipRect, ShapeBufferWithContext,
+    },
     surface::{RenderAttachment, RenderSurface, RenderingContext},
     texture::TextureManagerRef,
     util::text::{FontSystem, FontSystemRef},
 };
 
 use super::{
-    ctx::SceneContext,
+    ctx::{PaintShapeWithContext, SceneContext},
     layout::{LayoutEngine, LayoutPass},
 };
 
@@ -72,8 +77,6 @@ pub struct Scene<Root: RootConstructor + 'static> {
     root: ElementRef<Root>,
 
     layout_engine: LayoutEngine,
-
-    shape_buffer: DynamicGPUMeshTriBuffer<BoxShaderVertex>,
 }
 
 impl<Root: RootConstructor + 'static> Scene<Root> {
@@ -108,14 +111,11 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
         let root = Root::new(&mut scene_resources).into();
 
-        let shape_buffer = DynamicGPUMeshTriBuffer::new(&scene_resources.rendering_context.device);
-
         Self {
             font_manager,
             shape_renderer,
             root,
             layout_engine,
-            shape_buffer,
         }
     }
 
@@ -136,7 +136,12 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
         let render_ctx = render_surface.rendering_context();
 
-        let RenderingContext { device, queue, .. } = render_ctx;
+        let RenderingContext {
+            device,
+            queue,
+            params_buffer,
+            ..
+        } = render_ctx;
 
         let scale_fac = render_surface.scale_factor();
 
@@ -171,15 +176,31 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         // render pass
         let SceneContext {
             shapes,
+            clip_rects: scene_clip_rects,
             output: platform_output,
             ..
         } = scene_context;
 
-        let mut shape_buffer_local = VertexBuffers::default();
+        let mut shape_buffer_local = ShapeBufferWithContext::new();
 
-        let mut texture_manager_lock = texture_manager.write().unwrap();
+        let clip_rects = scene_clip_rects
+            .into_iter()
+            .map(|r| r * scale_fac)
+            .map(Into::<ShaderClipRect>::into)
+            .collect_vec();
 
-        for shape in shapes {
+        self.shape_renderer
+            .write_all_clip_rects(render_ctx, &clip_rects);
+
+        log::debug!("clip rects: {:?}", clip_rects);
+
+        for PaintShapeWithContext {
+            shape,
+            clip_rect_idx,
+        } in shapes
+        {
+            shape_buffer_local.clip_rect_idx = clip_rect_idx.unwrap_or_default();
+
             match shape {
                 PaintShape::Rectangle(paint_rect) => {
                     shape_buffer_local
@@ -199,13 +220,13 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
                         }),
                     mesh.indices,
                 ),
-
-                PaintShape::ClipRect(_) => {}
             }
         }
 
-        self.shape_buffer
-            .write_all(queue, device, &shape_buffer_local);
+        let mut texture_manager_lock = texture_manager.write().unwrap();
+
+        self.shape_renderer
+            .write_all_shapes(queue, device, &shape_buffer_local.vertex_buffers);
 
         let (texture_bind_group, sampler_bind_group) = {
             (
@@ -252,7 +273,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
             render_pass.set_bind_group(1, &texture_bind_group, &[]);
             render_pass.set_bind_group(2, &sampler_bind_group, &[]);
 
-            self.shape_buffer.render(&mut render_pass, 0..1);
+            self.shape_renderer.render(&mut render_pass, 0..1);
         }
 
         drop(texture_manager_lock);
