@@ -84,7 +84,7 @@ impl Element for TestRect {
         ctx.add_shape(
             PaintRectangle::from_rect(self.response.boundary)
                 .with_fill(fill)
-                .with_stroke(ColorRgba::new(0., 0., 0., 0.75), 1.)
+                .with_stroke(ColorRgba::new(0., 0., 0., 1.), 1.)
                 .with_blur(30., ColorRgba::new(0., 0., 0., 0.75)),
         );
 

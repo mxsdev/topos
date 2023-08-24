@@ -2,7 +2,7 @@ use crate::{
     accessibility::{AccessNodeBuilder, AccessRole},
     element::{Element, ElementRef, RootConstructor},
     input::input_state::InputState,
-    math::{Pos, Rect, Size, WindowScaleFactor},
+    math::{Angle, CoordinateTransform, Pos, Rect, Size, WindowScaleFactor},
     scene::{
         ctx::SceneContext,
         layout::{ColumnReverse, FlexBox, LayoutPass, LayoutPassResult, Percent},
@@ -56,10 +56,17 @@ impl Element for TestRoot {
             ClipRect::from(Rect::from_min_size(Pos::zero(), Size::new(500., 312.)))
                 .with_radius(Some(10.)),
         );
+
+        ctx.push_transformation(CoordinateTransform::rotation(Angle::degrees(20.)));
+
+        // const SCALE_FAC: f32 = 3.;
+        // ctx.push_transformation(CoordinateTransform::scale(SCALE_FAC, SCALE_FAC));
     }
 
     fn ui_post(&mut self, ctx: &mut SceneContext, _rect: Rect) {
-        ctx.pop_clip_rect()
+        ctx.pop_clip_rect();
+        ctx.pop_transformation();
+        // ctx.pop_transformation();
     }
 
     fn node(&self) -> AccessNodeBuilder {

@@ -177,6 +177,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         let SceneContext {
             shapes,
             clip_rects: scene_clip_rects,
+            transformations: scene_transformations,
             output: platform_output,
             ..
         } = scene_context;
@@ -192,14 +193,17 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         self.shape_renderer
             .write_all_clip_rects(render_ctx, &clip_rects);
 
-        log::debug!("clip rects: {:?}", clip_rects);
+        self.shape_renderer
+            .write_all_transformations(render_ctx, &scene_transformations);
 
         for PaintShapeWithContext {
             shape,
             clip_rect_idx,
+            transformation_idx,
         } in shapes
         {
             shape_buffer_local.clip_rect_idx = clip_rect_idx.unwrap_or_default();
+            shape_buffer_local.transformation_idx = transformation_idx.unwrap_or_default();
 
             match shape {
                 PaintShape::Rectangle(paint_rect) => {

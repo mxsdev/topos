@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 use crate::accessibility::{AccessNodeBuilder, AccessNodeId};
 use crate::input::input_state::InputState;
+use crate::math::CoordinateTransform;
 use crate::refbox::{self, coerce_ref, RefBox};
 
 use crate::scene::layout::LayoutPassResult;
@@ -67,6 +68,9 @@ pub trait Element {
     fn ui(&mut self, ctx: &mut SceneContext, rect: Rect);
     fn ui_post(&mut self, _ctx: &mut SceneContext, _rect: Rect) {}
     fn node(&self) -> AccessNodeBuilder;
+    fn coordinate_transform(&self) -> Option<CoordinateTransform> {
+        None
+    }
 }
 
 pub struct ElementRef<T: Element + ?Sized> {

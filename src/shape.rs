@@ -3,7 +3,7 @@ use serde::Serialize;
 use crate::{
     color::ColorRgba,
     graphics::{DynamicGPUBuffer, DynamicGPUMeshTriBuffer, Mesh, PushVertices, VertexBuffers},
-    math::{PhysicalPos, PhysicalRect, Pos, RoundedRect, ScaleFactor},
+    math::{CoordinateTransform, PhysicalPos, PhysicalRect, Pos, RoundedRect, ScaleFactor},
     surface::ParamsBuffer,
     texture::{TextureManagerRef, TextureRef},
     util::{
@@ -35,8 +35,11 @@ pub struct ShapeRenderer {
     pub shape_render_pipeline: wgpu::RenderPipeline,
     pub shape_bind_group: wgpu::BindGroup,
 
+    // shader storage
     clip_rects: DynamicGPUBuffer<ShaderClipRect>,
+    transformations: DynamicGPUBuffer<CoordinateTransform>,
 
+    // vertex buffers
     shape_buffer: DynamicGPUMeshTriBuffer<BoxShaderVertex>,
 }
 
@@ -75,6 +78,16 @@ impl ShapeRenderer {
                             min_binding_size: None,
                         },
                         visibility: wgpu::ShaderStages::FRAGMENT,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        count: None,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        visibility: wgpu::ShaderStages::VERTEX,
                     },
                 ],
             });
@@ -147,18 +160,18 @@ impl ShapeRenderer {
                 multiview: None,
             });
 
-        let clip_rects = DynamicGPUBuffer::new(
-            device,
-            // FIXME: increase this
-            0,
-            BufferUsages::VERTEX | BufferUsages::STORAGE | BufferUsages::COPY_DST,
-        );
+        let shader_storage_caps =
+            BufferUsages::VERTEX | BufferUsages::STORAGE | BufferUsages::COPY_DST;
+
+        let clip_rects = DynamicGPUBuffer::new(device, 4, shader_storage_caps);
+        let transformations = DynamicGPUBuffer::new(device, 4, shader_storage_caps);
 
         let shape_bind_group = Self::create_bind_group(
             device,
             &shape_bind_group_layout,
             params_buffer,
             &clip_rects.buffer,
+            &transformations.buffer,
         );
 
         let shape_buffer = DynamicGPUMeshTriBuffer::new(device);
@@ -169,6 +182,7 @@ impl ShapeRenderer {
             shape_render_pipeline,
 
             clip_rects,
+            transformations,
 
             shape_buffer,
         }
@@ -179,6 +193,7 @@ impl ShapeRenderer {
         shape_bind_group_layout: &wgpu::BindGroupLayout,
         params_buffer: &wgpu::Buffer,
         clip_rects_buffer: &wgpu::Buffer,
+        transformations_buffer: &wgpu::Buffer,
     ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("box bind group"),
@@ -191,6 +206,10 @@ impl ShapeRenderer {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: clip_rects_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: transformations_buffer.as_entire_binding(),
                 },
             ],
         })
@@ -225,6 +244,28 @@ impl ShapeRenderer {
                 &self.shape_bind_group_layout,
                 params_buffer,
                 &self.clip_rects.buffer,
+                &self.transformations.buffer,
+            );
+        }
+    }
+
+    pub fn write_all_transformations(
+        &mut self,
+        RenderingContext {
+            device,
+            queue,
+            params_buffer,
+            ..
+        }: &RenderingContext,
+        transformations: &[CoordinateTransform],
+    ) {
+        if self.transformations.write(device, queue, transformations) {
+            self.shape_bind_group = Self::create_bind_group(
+                device,
+                &self.shape_bind_group_layout,
+                params_buffer,
+                &self.clip_rects.buffer,
+                &self.transformations.buffer,
             );
         }
     }
@@ -276,10 +317,12 @@ pub struct BoxShaderVertex {
     blur_radius: f32,
 
     clip_rect_idx: u32,
+
+    transform_idx: u32,
 }
 
-impl WgpuDescriptor<13> for BoxShaderVertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 13] = wgpu::vertex_attr_array![
+impl WgpuDescriptor<14> for BoxShaderVertex {
+    const ATTRIBS: [wgpu::VertexAttribute; 14] = wgpu::vertex_attr_array![
         // shape_type
         0 => Uint32,
         // fill_mode
@@ -313,6 +356,9 @@ impl WgpuDescriptor<13> for BoxShaderVertex {
 
         // clip_rect_idx
         12 => Uint32,
+
+        // transform_idx
+        13 => Uint32,
     ];
 }
 
@@ -749,6 +795,7 @@ impl<T: Copy + Mul, U1, U2> Mul<ScaleFactor<T, U1, U2>> for PaintRectangle<T, U1
 pub(super) struct ShapeBufferWithContext {
     pub(super) vertex_buffers: VertexBuffers<BoxShaderVertex>,
     pub(super) clip_rect_idx: u32,
+    pub(super) transformation_idx: u32,
 }
 
 impl ShapeBufferWithContext {
@@ -764,10 +811,12 @@ impl PushVertices<BoxShaderVertex> for ShapeBufferWithContext {
         indices: impl IntoIterator<Item = u16>,
     ) {
         let clip_rect_idx = self.clip_rect_idx;
+        let transformation_idx = self.transformation_idx;
 
         self.vertex_buffers.push_vertices(
             vertices.into_iter().map(|mut x| {
                 x.clip_rect_idx = clip_rect_idx;
+                x.transform_idx = transformation_idx;
                 x
             }),
             indices,

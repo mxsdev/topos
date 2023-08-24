@@ -144,6 +144,7 @@ impl<T: Sized + Pod + Debug> DynamicGPUMeshTriBuffer<T> {
 
     pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, instances: Range<u32>) {
         render_pass.set_vertex_buffer(0, self.vertex_buffer.buffer.slice(..));
+
         render_pass.set_index_buffer(
             self.index_buffer.buffer.slice(..),
             wgpu::IndexFormat::Uint16,

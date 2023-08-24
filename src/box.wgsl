@@ -42,6 +42,8 @@ struct VertexInput {
     @location(11) blur_radius: f32,
 
     @location(12) clip_rect_idx: u32,
+
+    @location(13) transformation_idx: u32,
 }
 
 struct VertexOutput {
@@ -66,10 +68,15 @@ struct VertexOutput {
     @location(10) stroke_width: f32,
     @location(11) blur_radius: f32,
 
-    @location(12) clip_rect_idx: u32,
+    @location(12) @interpolate(flat) clip_rect_idx: u32,
 };
 
 var<private> pi: f32 = 3.141592653589793;
+
+var<private> rotation90: mat2x2<f32> = mat2x2<f32>(
+    vec2<f32>(0.0, 1.0),
+    vec2<f32>(-1.0, 0.0),
+);
 
 // A standard gaussian function, used for weighting samples
 fn gaussian(x: f32, sigma: f32) -> f32 {
@@ -121,6 +128,9 @@ var<uniform> params: Params;
 @group(0) @binding(1)
 var<storage, read> clip_rects: array<ClipRect>;
 
+@group(0) @binding(2)
+var<storage, read> transformations: array<mat3x2<f32>>;
+
 {{#times num_atlas_textures}}
 @group(1) @binding({{index}})
 var atlas_texture_{{index}}: texture_2d<f32>;
@@ -135,12 +145,21 @@ fn vs_main(
 ) -> VertexOutput {
     var vertex_out: VertexOutput;
 
+    var transformation_cols = transpose(transformations[vertex_in.transformation_idx]);
+
+    var transformation = transpose(mat3x3<f32>(
+        transformation_cols[0], 
+        transformation_cols[1], 
+        vec3<f32>(0.0, 0.0, 1.0),
+    ));
+
     vertex_out.shapeType = vertex_in.shapeType;
     vertex_out.fillMode = vertex_in.fillMode;
 
     vertex_out.depth = vertex_in.depth;
 
     vertex_out.dims = vertex_in.dims;
+    
     vertex_out.origin = vertex_in.origin;
 
     vertex_out.color = vertex_in.color;
@@ -183,6 +202,8 @@ fn vs_main(
     }
 
     vertex_out.pos = out_pos;
+
+    out_pos = (transformation * vec3<f32>(out_pos, 0.)).xy;
 
     vertex_out.position = vec4<f32>(
         2.0 * out_pos / vec2<f32>(params.screen_resolution) - 1.0,

@@ -2964,6 +2964,7 @@ dependencies = [
  "enum_derive",
  "env_logger",
  "etagere",
+ "euclid",
  "float_next_after 1.0.0",
  "futures",
  "handlebars",

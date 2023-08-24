@@ -3,7 +3,7 @@ use std::ops::DerefMut;
 use crate::{
     element::{Element, ElementRef, ElementWeakref},
     input::input_state::InputState,
-    math::{Pos, Rect, Size, WindowScaleFactor},
+    math::{CoordinateTransform, Pos, Rect, Size, WindowScaleFactor},
     util::text::{FontSystem, FontSystemRef},
 };
 
@@ -15,23 +15,31 @@ pub type LayoutPassResult = crate::util::layout::LayoutNode;
 
 // scene layout
 
-pub type ElementTree = ElementTreeNode;
+pub struct ElementTree {
+    pub root: ElementTreeNode,
+    pub transformations: Vec<CoordinateTransform>,
+}
 
 pub struct ElementTreeNode {
     element: ElementWeakref<dyn Element>,
     rect: Rect,
     children: Vec<ElementTreeNode>,
     layout_node: LayoutPassResult,
+    transformation_idx: Option<usize>,
 }
 
 impl ElementTreeNode {
-    pub(super) fn do_input_pass(&mut self, input: &mut InputState) -> bool {
+    pub(super) fn do_input_pass(
+        &mut self,
+        input: &mut InputState,
+        transformations: &Vec<CoordinateTransform>,
+    ) -> bool {
         input.set_current_element(self.element.id().into());
         let mut focus_within = input.is_focused();
 
         if let Some(mut element) = self.element.try_get() {
             for child in self.children.iter_mut().rev() {
-                focus_within |= child.do_input_pass(input);
+                focus_within |= child.do_input_pass(input, transformations);
             }
 
             input.set_focused_within(focus_within);
@@ -58,6 +66,8 @@ impl ElementTreeNode {
 
             let mut access_node_builder = element.node();
             access_node_builder.set_children(children_access_nodes);
+            // TODO: set accessibility node transform here
+            // access_node_builder.set_transform(accesskit::Affine::as_coeffs(self))
 
             let access_node = access_node_builder.build();
             ctx.output
@@ -154,10 +164,15 @@ impl<'a, 'b: 'a> LayoutPass<'a, 'b> {
             .compute_layout(&node.result, screen_size)
             .unwrap();
 
-        let mut tree = node.finish_rec(layout_engine, Pos::zero());
-        tree.do_layout_post_pass(resources);
+        let mut transformations = Default::default();
 
-        tree
+        let mut root = node.finish_rec(layout_engine, Pos::zero(), &mut transformations, None);
+        root.do_layout_post_pass(resources);
+
+        ElementTree {
+            root,
+            transformations,
+        }
     }
 
     pub fn scale_factor(&self) -> WindowScaleFactor {
@@ -178,7 +193,26 @@ impl<'a, 'b: 'a> LayoutPass<'a, 'b> {
 }
 
 impl LayoutNode {
-    fn finish_rec(self, layout_engine: &mut LayoutEngine, parent_pos: Pos) -> ElementTreeNode {
+    fn finish_rec(
+        mut self,
+        layout_engine: &mut LayoutEngine,
+        parent_pos: Pos,
+        transformations: &mut Vec<CoordinateTransform>,
+        last_transformation_idx: Option<usize>,
+    ) -> ElementTreeNode {
+        let mut transformation_idx = last_transformation_idx;
+
+        if let Some(el) = self.element.try_get() {
+            if let Some(new_transform) = el.coordinate_transform() {
+                transformation_idx = Some(transformations.len());
+                transformations.push(
+                    last_transformation_idx
+                        .map(|idx| transformations[idx].then(&new_transform))
+                        .unwrap_or(new_transform),
+                );
+            }
+        }
+
         let result_rect: Rect = layout_engine.layout(&self.result).unwrap().into();
 
         let mut scene_layout = ElementTreeNode {
@@ -186,12 +220,16 @@ impl LayoutNode {
             element: self.element,
             rect: result_rect.translate(parent_pos.to_vector()),
             layout_node: self.result,
+            transformation_idx,
         };
 
         for child in self.children.into_iter() {
-            scene_layout
-                .children
-                .push(child.finish_rec(layout_engine, scene_layout.rect.min));
+            scene_layout.children.push(child.finish_rec(
+                layout_engine,
+                scene_layout.rect.min,
+                transformations,
+                transformation_idx,
+            ));
         }
 
         scene_layout
