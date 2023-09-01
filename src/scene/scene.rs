@@ -165,10 +165,10 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
         let ElementTree {
             root: mut scene_layout,
-            transformations,
+            mut transformations,
         } = layout_pass.do_layout_pass(screen_size, &mut self.root);
 
-        scene_layout.do_input_pass(&mut input, &transformations, None);
+        scene_layout.do_input_pass(&mut input, &mut transformations, None);
 
         let mut scene_context = SceneContext::new(scale_fac, transformations);
         scene_layout.do_ui_pass(&mut scene_context, None);
@@ -197,7 +197,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
             .write_all_clip_rects(render_ctx, &clip_rects);
 
         self.shape_renderer
-            .write_all_transformations(render_ctx, &scene_transformations);
+            .write_all_transformations(render_ctx, &scene_transformations.transformations);
 
         for PaintShapeWithContext {
             shape,

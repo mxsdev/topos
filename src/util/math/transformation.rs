@@ -541,3 +541,58 @@ impl<Src> Into<Box<accesskit::Affine>> for CoordinateTransform<f64, Src, Src> {
         Box::new(self.into())
     }
 }
+
+#[derive(Debug, Default)]
+pub(crate) struct TransformationCache {
+    inverse: Option<CoordinateTransform>,
+    determinant: Option<f32>,
+}
+
+impl TransformationCache {
+    pub fn get_inverse(&mut self, transform: &CoordinateTransform) -> CoordinateTransform {
+        self.inverse
+            .or_else(|| transform.inverse().map(|x| *self.inverse.insert(x)))
+            .unwrap_or(*transform)
+    }
+
+    pub fn get_determinant(&mut self, transform: &CoordinateTransform) -> f32 {
+        *self
+            .determinant
+            .get_or_insert_with(|| transform.determinant())
+    }
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct TransformationList {
+    pub transformations: Vec<CoordinateTransform>,
+    pub(crate) transformation_cache: Vec<TransformationCache>,
+}
+
+impl TransformationList {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn push_transform(&mut self, transform: CoordinateTransform) -> usize {
+        let idx = self.transformations.len();
+
+        self.transformations.push(transform);
+        self.transformation_cache
+            .push(TransformationCache::default());
+
+        idx
+    }
+
+    #[inline(always)]
+    pub fn get(&self, idx: usize) -> &CoordinateTransform {
+        &self.transformations[idx]
+    }
+
+    pub fn get_inverse(&mut self, idx: usize) -> CoordinateTransform {
+        self.transformation_cache[idx].get_inverse(&self.transformations[idx])
+    }
+
+    pub fn get_determinant(&mut self, idx: usize) -> f32 {
+        self.transformation_cache[idx].get_determinant(&self.transformations[idx])
+    }
+}

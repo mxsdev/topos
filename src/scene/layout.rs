@@ -3,7 +3,7 @@ use std::ops::DerefMut;
 use crate::{
     element::{Element, ElementRef, ElementWeakref},
     input::input_state::InputState,
-    math::{CoordinateTransform, Pos, Rect, Size, WindowScaleFactor},
+    math::{CoordinateTransform, Pos, Rect, Size, TransformationList, WindowScaleFactor},
     util::text::{FontSystem, FontSystemRef},
 };
 
@@ -17,7 +17,7 @@ pub type LayoutPassResult = crate::util::layout::LayoutNode;
 
 pub struct ElementTree {
     pub root: ElementTreeNode,
-    pub transformations: Vec<CoordinateTransform>,
+    pub(crate) transformations: TransformationList,
 }
 
 pub struct ElementTreeNode {
@@ -32,7 +32,7 @@ impl ElementTreeNode {
     pub(super) fn do_input_pass(
         &mut self,
         input: &mut InputState,
-        transformations: &Vec<CoordinateTransform>,
+        transformations: &mut TransformationList,
         last_transformation_idx: Option<usize>,
     ) -> bool {
         input.set_current_element(self.element.id().into());
@@ -41,7 +41,10 @@ impl ElementTreeNode {
         let transform_idx = self.transformation_idx.or(last_transformation_idx);
 
         if let Some(mut element) = self.element.try_get() {
-            input.active_transformation = transform_idx.map(|i| transformations[i]);
+            input.set_active_transformation(
+                transform_idx.map(|idx| transformations.get_inverse(idx)),
+                transform_idx.map(|idx| transformations.get_determinant(idx)),
+            );
 
             for child in self.children.iter_mut().rev() {
                 focus_within |= child.do_input_pass(input, transformations, transform_idx);
@@ -79,7 +82,7 @@ impl ElementTreeNode {
             let mut access_node_builder = element.node();
             access_node_builder.set_children(children_access_nodes);
 
-            let transformation = transform_idx.map(|i| ctx.transformations[i]);
+            let transformation = transform_idx.map(|i| *ctx.transformations.get(i));
 
             transformation.map(|t| access_node_builder.set_transform(t));
 
@@ -211,19 +214,20 @@ impl LayoutNode {
         mut self,
         layout_engine: &mut LayoutEngine,
         parent_pos: Pos,
-        transformations: &mut Vec<CoordinateTransform>,
+        transformations: &mut TransformationList,
         last_transformation_idx: Option<usize>,
     ) -> ElementTreeNode {
         let mut transformation_idx = last_transformation_idx;
 
         if let Some(el) = self.element.try_get() {
             if let Some(new_transform) = el.coordinate_transform() {
-                transformation_idx = Some(transformations.len());
-                transformations.push(
-                    last_transformation_idx
-                        .map(|idx| transformations[idx].then(&new_transform))
-                        .unwrap_or(new_transform),
-                );
+                transformation_idx = transformations
+                    .push_transform(
+                        last_transformation_idx
+                            .map(|idx| transformations.get(idx).then(&new_transform))
+                            .unwrap_or(new_transform),
+                    )
+                    .into();
             }
         }
 

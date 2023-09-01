@@ -133,8 +133,6 @@ pub struct InputState {
 
     focus_state: FocusState,
 
-    pub(crate) active_transformation: Option<CoordinateTransform>,
-
     // /// In-order events received this frame
     // pub events: Vec<Event>,
     accesskit_actions: Rc<Vec<accesskit::ActionRequest>>,
@@ -167,8 +165,6 @@ impl Default for InputState {
             focused_within: false,
 
             focus_state: Default::default(),
-
-            active_transformation: Default::default(),
         }
     }
 }
@@ -270,8 +266,6 @@ impl InputState {
             focused_within: false,
 
             focus_state: self.focus_state,
-
-            active_transformation: Default::default(),
         }
     }
 
@@ -564,6 +558,15 @@ impl InputState {
     pub fn num_accesskit_action_requests(&self, action: accesskit::Action) -> usize {
         self.accesskit_action_requests(action).count()
     }
+
+    pub(crate) fn set_active_transformation(
+        &mut self,
+        transformation_inverse: Option<CoordinateTransform>,
+        transformation_determinant: Option<f32>,
+    ) {
+        self.pointer.active_transformation_inverse = transformation_inverse;
+        self.pointer.active_transformation_determinant = transformation_determinant;
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -675,6 +678,9 @@ pub struct PointerState {
     pub(crate) pointer_events: Vec<PointerEvent>,
 
     hover_consumed: bool,
+
+    active_transformation_inverse: Option<CoordinateTransform>,
+    active_transformation_determinant: Option<f32>,
 }
 
 impl Default for PointerState {
@@ -694,6 +700,8 @@ impl Default for PointerState {
             last_last_click_time: std::f64::NEG_INFINITY,
             pointer_events: vec![],
             hover_consumed: false,
+            active_transformation_determinant: Default::default(),
+            active_transformation_inverse: Default::default(),
         }
     }
 }
@@ -837,7 +845,9 @@ impl PointerState {
     /// How much the pointer moved compared to last frame, in points.
     #[inline(always)]
     pub fn delta(&self) -> Vector {
-        self.delta
+        self.active_transformation_inverse
+            .map(|t| t.transform_vector(self.delta))
+            .unwrap_or(self.delta)
     }
 
     /// Current velocity of pointer.
@@ -860,10 +870,20 @@ impl PointerState {
         self.press_start_time
     }
 
+    #[inline]
+    fn computed_pos(&self) -> Option<Pos> {
+        Option::zip(self.latest_pos, self.active_transformation_inverse)
+            .map(|(pos, transformation)| transformation.transform_point(pos))
+    }
+
     /// Latest reported pointer position.
     /// When tapping a touch screen, this will be `None`.
     #[inline(always)]
     pub(crate) fn latest_pos(&self) -> Option<Pos> {
+        self.computed_pos()
+    }
+
+    pub(crate) fn latest_pos_raw(&self) -> Option<Pos> {
         self.latest_pos
     }
 
@@ -874,7 +894,15 @@ impl PointerState {
             return None;
         }
 
-        self.latest_pos
+        self.latest_pos()
+    }
+
+    pub fn hover_pos_raw(&self) -> Option<Pos> {
+        if self.hover_consumed {
+            return None;
+        }
+
+        self.latest_pos_raw()
     }
 
     /// If you detect a click or drag and wants to know where it happened, use this.

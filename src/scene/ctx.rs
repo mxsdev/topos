@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use crate::{
     input::output::{CursorIcon, PlatformOutput},
-    math::{CoordinateTransform, Pos, Rect, Size, WindowScaleFactor},
+    math::{CoordinateTransform, Pos, Rect, Size, TransformationList, WindowScaleFactor},
     shape::{ClipRect, PaintShape, ShaderClipRect},
 };
 
@@ -19,7 +19,7 @@ pub struct SceneContext {
     pub(super) clip_rects: Vec<ClipRect>,
     clip_rect_stack: Vec<usize>,
 
-    pub(super) transformations: Vec<CoordinateTransform>,
+    pub(super) transformations: TransformationList,
     pub(super) active_transformation_idx: Option<usize>,
 
     scale_factor: WindowScaleFactor,
@@ -28,7 +28,7 @@ pub struct SceneContext {
 impl SceneContext {
     pub(super) fn new(
         scale_factor: WindowScaleFactor,
-        transformations: Vec<CoordinateTransform>,
+        transformations: TransformationList,
     ) -> Self {
         Self {
             shapes: Default::default(),
