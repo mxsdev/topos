@@ -21,7 +21,8 @@
  - [x] Optimize atlas as "TextureAtlas" (finite maximum of textures on shader)
  - [x] Include clip rectangle in shader vertex data
  - [x] Affine transformations
- - [ ] Support multiple rounded clip rects
+ - [ ] Text resolution
+ - [ ] Support multiple rounded clip rects / clip rect intersection
  - [ ] Render engine throughput optimizations (store & diff buffers by widget)
  - [ ] Sharp box strokes
  - [ ] Layers
