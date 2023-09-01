@@ -566,6 +566,30 @@ impl InputState {
     ) {
         self.pointer.active_transformation_inverse = transformation_inverse;
         self.pointer.active_transformation_determinant = transformation_determinant;
+
+        if let Some(transformation_inverse) = transformation_inverse {
+            self.pointer.transformed_delta = transformation_inverse
+                .transform_vector(self.pointer.delta)
+                .into();
+            self.pointer.transformed_interact_pos = self
+                .pointer
+                .interact_pos
+                .map(|pos| transformation_inverse.transform_point(pos))
+                .into();
+            self.pointer.transformed_press_origin = self
+                .pointer
+                .press_origin
+                .map(|pos| transformation_inverse.transform_point(pos))
+                .into();
+            self.pointer.transformed_latest_pos = self
+                .pointer
+                .latest_pos
+                .map(|pos| transformation_inverse.transform_point(pos))
+                .into();
+            self.pointer.transformed_velocity = transformation_inverse
+                .transform_vector(self.pointer.velocity)
+                .into();
+        }
     }
 }
 
@@ -681,6 +705,12 @@ pub struct PointerState {
 
     active_transformation_inverse: Option<CoordinateTransform>,
     active_transformation_determinant: Option<f32>,
+
+    transformed_velocity: Option<Vector>,
+    transformed_delta: Option<Vector>,
+    transformed_press_origin: Option<Pos>,
+    transformed_latest_pos: Option<Pos>,
+    transformed_interact_pos: Option<Pos>,
 }
 
 impl Default for PointerState {
@@ -700,8 +730,15 @@ impl Default for PointerState {
             last_last_click_time: std::f64::NEG_INFINITY,
             pointer_events: vec![],
             hover_consumed: false,
+
             active_transformation_determinant: Default::default(),
             active_transformation_inverse: Default::default(),
+
+            transformed_delta: Default::default(),
+            transformed_velocity: Default::default(),
+            transformed_interact_pos: Default::default(),
+            transformed_press_origin: Default::default(),
+            transformed_latest_pos: Default::default(),
         }
     }
 }
@@ -845,22 +882,20 @@ impl PointerState {
     /// How much the pointer moved compared to last frame, in points.
     #[inline(always)]
     pub fn delta(&self) -> Vector {
-        self.active_transformation_inverse
-            .map(|t| t.transform_vector(self.delta))
-            .unwrap_or(self.delta)
+        self.transformed_delta.unwrap_or(self.delta)
     }
 
     /// Current velocity of pointer.
     #[inline(always)]
     pub fn velocity(&self) -> Vector {
-        self.velocity
+        self.transformed_velocity.unwrap_or(self.velocity)
     }
 
     /// Where did the current click/drag originate?
     /// `None` if no mouse button is down.
     #[inline(always)]
     pub fn press_origin(&self) -> Option<Pos> {
-        self.press_origin
+        self.transformed_press_origin.or(self.press_origin)
     }
 
     /// When did the current click/drag originate?
@@ -870,17 +905,11 @@ impl PointerState {
         self.press_start_time
     }
 
-    #[inline]
-    fn computed_pos(&self) -> Option<Pos> {
-        Option::zip(self.latest_pos, self.active_transformation_inverse)
-            .map(|(pos, transformation)| transformation.transform_point(pos))
-    }
-
     /// Latest reported pointer position.
     /// When tapping a touch screen, this will be `None`.
     #[inline(always)]
     pub(crate) fn latest_pos(&self) -> Option<Pos> {
-        self.computed_pos()
+        self.transformed_latest_pos.or(self.latest_pos)
     }
 
     pub(crate) fn latest_pos_raw(&self) -> Option<Pos> {
@@ -912,7 +941,7 @@ impl PointerState {
     /// When tapping a touch screen, this will be the location of the touch.
     #[inline(always)]
     pub fn interact_pos(&self) -> Option<Pos> {
-        self.interact_pos
+        self.transformed_interact_pos.or(self.interact_pos)
     }
 
     /// Do we have a pointer?
@@ -1095,6 +1124,10 @@ impl PointerState {
     #[inline(always)]
     pub fn middle_down(&self) -> bool {
         self.button_down(PointerButton::Middle)
+    }
+
+    fn logical_scale_factor(&self) -> f32 {
+        self.active_transformation_determinant.unwrap_or(1.)
     }
 }
 
