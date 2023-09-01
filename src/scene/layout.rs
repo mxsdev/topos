@@ -33,13 +33,18 @@ impl ElementTreeNode {
         &mut self,
         input: &mut InputState,
         transformations: &Vec<CoordinateTransform>,
+        last_transformation_idx: Option<usize>,
     ) -> bool {
         input.set_current_element(self.element.id().into());
         let mut focus_within = input.is_focused();
 
+        let transform_idx = self.transformation_idx.or(last_transformation_idx);
+
         if let Some(mut element) = self.element.try_get() {
+            input.active_transformation = transform_idx.map(|i| transformations[i]);
+
             for child in self.children.iter_mut().rev() {
-                focus_within |= child.do_input_pass(input, transformations);
+                focus_within |= child.do_input_pass(input, transformations, transform_idx);
             }
 
             input.set_focused_within(focus_within);
@@ -49,16 +54,23 @@ impl ElementTreeNode {
         focus_within
     }
 
-    pub(super) fn do_ui_pass(&mut self, ctx: &mut SceneContext) {
+    pub(super) fn do_ui_pass(
+        &mut self,
+        ctx: &mut SceneContext,
+        last_transformation_idx: Option<usize>,
+    ) {
         let element_id = self.element.id();
 
         if let Some(mut element) = self.element.try_get() {
+            let transform_idx = self.transformation_idx.or(last_transformation_idx);
+            ctx.active_transformation_idx = transform_idx;
+
             element.ui(ctx, self.rect);
 
             let mut children_access_nodes = Vec::new();
 
             for child in self.children.iter_mut() {
-                child.do_ui_pass(ctx);
+                child.do_ui_pass(ctx, transform_idx);
                 children_access_nodes.push(child.element.id().as_access_id())
             }
 
@@ -66,8 +78,10 @@ impl ElementTreeNode {
 
             let mut access_node_builder = element.node();
             access_node_builder.set_children(children_access_nodes);
-            // TODO: set accessibility node transform here
-            // access_node_builder.set_transform(accesskit::Affine::as_coeffs(self))
+
+            let transformation = transform_idx.map(|i| ctx.transformations[i]);
+
+            transformation.map(|t| access_node_builder.set_transform(t));
 
             let access_node = access_node_builder.build();
             ctx.output

@@ -20,20 +20,23 @@ pub struct SceneContext {
     clip_rect_stack: Vec<usize>,
 
     pub(super) transformations: Vec<CoordinateTransform>,
-    transformation_stack: Vec<usize>,
+    pub(super) active_transformation_idx: Option<usize>,
 
     scale_factor: WindowScaleFactor,
 }
 
 impl SceneContext {
-    pub(super) fn new(scale_factor: WindowScaleFactor) -> Self {
+    pub(super) fn new(
+        scale_factor: WindowScaleFactor,
+        transformations: Vec<CoordinateTransform>,
+    ) -> Self {
         Self {
             shapes: Default::default(),
             clip_rects: Vec::from([ClipRect::default()]),
             clip_rect_stack: Default::default(),
-            transformations: Vec::from([CoordinateTransform::identity()]),
-            transformation_stack: Default::default(),
             scale_factor,
+            active_transformation_idx: Default::default(),
+            transformations,
             output: Default::default(),
         }
     }
@@ -49,7 +52,7 @@ impl SceneContext {
         self.shapes.push(PaintShapeWithContext {
             shape,
             clip_rect_idx: self.current_clip_rect_idx().map(|x| x as u32),
-            transformation_idx: self.current_transformation_idx().map(|x| x as u32),
+            transformation_idx: self.active_transformation_idx.map(|x| x as u32),
         })
     }
 
@@ -70,44 +73,44 @@ impl SceneContext {
         self.clip_rect_stack.last().copied()
     }
 
-    pub fn push_transformation(&mut self, transformation: impl Into<CoordinateTransform>) {
-        let transformation = transformation.into();
-        let new_idx = self.transformations.len();
+    // pub fn push_transformation(&mut self, transformation: impl Into<CoordinateTransform>) {
+    //     let transformation = transformation.into();
+    //     let new_idx = self.transformations.len();
 
-        self.transformations.push(
-            self.current_transformation()
-                .map(|t| t.then(&transformation))
-                .unwrap_or(transformation),
-        );
-        self.transformation_stack.push(new_idx);
-    }
-
-    pub(crate) fn push_transformation_idx(&mut self, idx: usize) {
-        self.transformation_stack.push(idx);
-    }
-
-    // pub fn push_transformation_non_cascading(
-    //     &mut self,
-    //     transformation: impl Into<CoordinateTransform>,
-    // ) {
-    //     self.transformation_stack.push(self.transformations.len());
-    //     self.transformations.push(transformation.into());
+    //     self.transformations.push(
+    //         self.current_transformation()
+    //             .map(|t| t.then(&transformation))
+    //             .unwrap_or(transformation),
+    //     );
+    //     self.transformation_stack.push(new_idx);
     // }
 
-    pub fn pop_transformation(&mut self) {
-        self.transformation_stack
-            .pop()
-            .expect("Expected transformation");
-    }
+    // pub(crate) fn push_transformation_idx(&mut self, idx: usize) {
+    //     self.transformation_stack.push(idx);
+    // }
 
-    pub fn current_transformation(&self) -> Option<CoordinateTransform> {
-        self.current_transformation_idx()
-            .map(|i| self.transformations[i])
-    }
+    // // pub fn push_transformation_non_cascading(
+    // //     &mut self,
+    // //     transformation: impl Into<CoordinateTransform>,
+    // // ) {
+    // //     self.transformation_stack.push(self.transformations.len());
+    // //     self.transformations.push(transformation.into());
+    // // }
 
-    pub(crate) fn current_transformation_idx(&self) -> Option<usize> {
-        self.transformation_stack.last().copied()
-    }
+    // pub fn pop_transformation(&mut self) {
+    //     self.transformation_stack
+    //         .pop()
+    //         .expect("Expected transformation");
+    // }
+
+    // pub fn current_transformation(&self) -> Option<CoordinateTransform> {
+    //     self.current_transformation_idx()
+    //         .map(|i| self.transformations[i])
+    // }
+
+    // pub(crate) fn current_transformation_idx(&self) -> Option<usize> {
+    //     self.transformation_stack.last().copied()
+    // }
 
     pub fn output(&mut self) -> &mut PlatformOutput {
         &mut self.output

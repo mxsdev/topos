@@ -20,7 +20,7 @@ use crate::{
 
 use super::{
     ctx::{PaintShapeWithContext, SceneContext},
-    layout::{LayoutEngine, LayoutPass},
+    layout::{ElementTree, LayoutEngine, LayoutPass},
 };
 
 pub struct SceneResources<'a> {
@@ -163,12 +163,15 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
         let layout_pass = LayoutPass::new(&mut self.root, &mut scene_resources);
 
-        let mut scene_layout = layout_pass.do_layout_pass(screen_size, &mut self.root);
+        let ElementTree {
+            root: mut scene_layout,
+            transformations,
+        } = layout_pass.do_layout_pass(screen_size, &mut self.root);
 
-        scene_layout.do_input_pass(&mut input);
+        scene_layout.do_input_pass(&mut input, &transformations, None);
 
-        let mut scene_context = SceneContext::new(scale_fac);
-        scene_layout.do_ui_pass(&mut scene_context);
+        let mut scene_context = SceneContext::new(scale_fac, transformations);
+        scene_layout.do_ui_pass(&mut scene_context, None);
 
         scene_context.output.accesskit_update().tree =
             Some(accesskit::Tree::new(self.root.id().as_access_id()));

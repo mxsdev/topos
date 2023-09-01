@@ -1,7 +1,7 @@
 use crate::{
     element::ElementId,
     history::History,
-    math::{Pos, Vector},
+    math::{CoordinateTransform, Pos, Vector},
 };
 
 use super::{
@@ -133,6 +133,8 @@ pub struct InputState {
 
     focus_state: FocusState,
 
+    pub(crate) active_transformation: Option<CoordinateTransform>,
+
     // /// In-order events received this frame
     // pub events: Vec<Event>,
     accesskit_actions: Rc<Vec<accesskit::ActionRequest>>,
@@ -165,6 +167,8 @@ impl Default for InputState {
             focused_within: false,
 
             focus_state: Default::default(),
+
+            active_transformation: Default::default(),
         }
     }
 }
@@ -266,6 +270,8 @@ impl InputState {
             focused_within: false,
 
             focus_state: self.focus_state,
+
+            active_transformation: Default::default(),
         }
     }
 

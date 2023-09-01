@@ -517,3 +517,27 @@ where
         }
     }
 }
+
+impl<Src> Into<accesskit::Affine> for CoordinateTransform<f64, Src, Src> {
+    fn into(self) -> accesskit::Affine {
+        accesskit::Affine::new(self.to_array())
+    }
+}
+
+impl<Src> Into<accesskit::Affine> for CoordinateTransform<f32, Src, Src> {
+    fn into(self) -> accesskit::Affine {
+        accesskit::Affine::new(self.to_array().map(|x| x as f64))
+    }
+}
+
+impl<Src> Into<Box<accesskit::Affine>> for CoordinateTransform<f32, Src, Src> {
+    fn into(self) -> Box<accesskit::Affine> {
+        Box::new(self.into())
+    }
+}
+
+impl<Src> Into<Box<accesskit::Affine>> for CoordinateTransform<f64, Src, Src> {
+    fn into(self) -> Box<accesskit::Affine> {
+        Box::new(self.into())
+    }
+}

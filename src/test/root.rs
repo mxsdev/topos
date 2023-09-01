@@ -57,7 +57,7 @@ impl Element for TestRoot {
                 .with_radius(Some(10.)),
         );
 
-        ctx.push_transformation(CoordinateTransform::rotation(Angle::degrees(20.)));
+        // ctx.push_transformation(CoordinateTransform::rotation(Angle::degrees(20.)));
 
         // const SCALE_FAC: f32 = 3.;
         // ctx.push_transformation(CoordinateTransform::scale(SCALE_FAC, SCALE_FAC));
@@ -65,7 +65,6 @@ impl Element for TestRoot {
 
     fn ui_post(&mut self, ctx: &mut SceneContext, _rect: Rect) {
         ctx.pop_clip_rect();
-        ctx.pop_transformation();
         // ctx.pop_transformation();
     }
 
@@ -73,5 +72,9 @@ impl Element for TestRoot {
         let mut builder = AccessNodeBuilder::new(AccessRole::Window);
         builder.set_transform(accesskit::Affine::scale(self.scale_factor.get() as f64));
         builder
+    }
+
+    fn coordinate_transform(&self) -> Option<CoordinateTransform> {
+        CoordinateTransform::rotation(Angle::degrees(20.)).into()
     }
 }
