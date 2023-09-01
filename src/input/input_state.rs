@@ -567,30 +567,17 @@ impl InputState {
         self.pointer.active_transformation_inverse = transformation_inverse;
         self.pointer.active_transformation_determinant = transformation_determinant;
 
-        if let Some(transformation_inverse) = transformation_inverse {
-            // TODO: cache these computations based on transformation idx
-            self.pointer.transformed_delta = transformation_inverse
-                .transform_vector(self.pointer.delta)
-                .into();
-            self.pointer.transformed_interact_pos = self
-                .pointer
-                .interact_pos
-                .map(|pos| transformation_inverse.transform_point(pos))
-                .into();
-            self.pointer.transformed_press_origin = self
-                .pointer
-                .press_origin
-                .map(|pos| transformation_inverse.transform_point(pos))
-                .into();
-            self.pointer.transformed_latest_pos = self
-                .pointer
-                .latest_pos
-                .map(|pos| transformation_inverse.transform_point(pos))
-                .into();
-            self.pointer.transformed_velocity = transformation_inverse
-                .transform_vector(self.pointer.velocity)
-                .into();
-        }
+        // TODO: cache these computations based on transformation idx
+        self.pointer.transformed_delta =
+            transformation_inverse.map(|t| t.transform_vector(self.pointer.delta).into());
+        self.pointer.transformed_interact_pos = transformation_inverse
+            .and_then(|t| self.pointer.interact_pos.map(|pos| t.transform_point(pos)));
+        self.pointer.transformed_press_origin = transformation_inverse
+            .and_then(|t| self.pointer.press_origin.map(|pos| t.transform_point(pos)));
+        self.pointer.transformed_latest_pos = transformation_inverse
+            .and_then(|t| self.pointer.latest_pos.map(|pos| t.transform_point(pos)));
+        self.pointer.transformed_velocity =
+            transformation_inverse.map(|t| t.transform_vector(self.pointer.velocity))
     }
 }
 

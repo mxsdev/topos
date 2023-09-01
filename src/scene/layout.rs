@@ -41,16 +41,17 @@ impl ElementTreeNode {
         let transform_idx = self.transformation_idx.or(last_transformation_idx);
 
         if let Some(mut element) = self.element.try_get() {
+            for child in self.children.iter_mut().rev() {
+                focus_within |= child.do_input_pass(input, transformations, transform_idx);
+            }
+
             input.set_active_transformation(
                 transform_idx.map(|idx| transformations.get_inverse(idx)),
                 transform_idx.map(|idx| transformations.get_determinant(idx)),
             );
 
-            for child in self.children.iter_mut().rev() {
-                focus_within |= child.do_input_pass(input, transformations, transform_idx);
-            }
-
             input.set_focused_within(focus_within);
+
             element.input(input, self.rect);
         }
 
