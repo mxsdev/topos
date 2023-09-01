@@ -4,7 +4,7 @@ use crate::{
     accessibility::{AccessNodeBuilder, AccessRole},
     color::{ColorRgba, ColorSrgba},
     element::{Element, ElementRef},
-    math::{Pos, Rect},
+    math::{Angle, CoordinateTransform, Pos, Rect},
     scene::{
         layout::{FlexBox, LayoutPass, LayoutPassResult, Percent},
         scene::SceneResources,
@@ -75,5 +75,9 @@ impl Element for MainElement {
 
     fn node(&self) -> AccessNodeBuilder {
         AccessNodeBuilder::new(AccessRole::GenericContainer)
+    }
+
+    fn coordinate_transform(&self) -> Option<CoordinateTransform> {
+        CoordinateTransform::rotation(Angle::degrees(20.)).into()
     }
 }

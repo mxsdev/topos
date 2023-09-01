@@ -17,6 +17,7 @@ struct ClipRect {
     origin: vec2<f32>,
     half_size: vec2<f32>,
     rounding: f32,
+    transformation_idx: u32,
 };
 
 struct VertexInput {
@@ -69,6 +70,7 @@ struct VertexOutput {
     @location(11) blur_radius: f32,
 
     @location(12) @interpolate(flat) clip_rect_idx: u32,
+    @location(13) original_pos: vec2<f32>,
 };
 
 var<private> pi: f32 = 3.141592653589793;
@@ -130,6 +132,9 @@ var<storage, read> clip_rects: array<ClipRect>;
 
 @group(0) @binding(2)
 var<storage, read> transformations: array<mat3x2<f32>>;
+
+@group(0) @binding(3)
+var<storage, read> transformation_inversions: array<mat3x2<f32>>;
 
 {{#times num_atlas_textures}}
 @group(1) @binding({{index}})
@@ -205,6 +210,8 @@ fn vs_main(
 
     out_pos = (transformation * vec3<f32>(out_pos, 0.)).xy;
 
+    vertex_out.original_pos = out_pos;
+
     vertex_out.position = vec4<f32>(
         2.0 * out_pos / vec2<f32>(params.screen_resolution) - 1.0,
         vertex_in.depth,
@@ -276,7 +283,16 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if (in.clip_rect_idx != 0u) {
         let clip_rect = clip_rects[in.clip_rect_idx];
 
-        var clip_dist = sdRoundBox(in.pos - clip_rect.origin, clip_rect.half_size, clip_rect.rounding);
+        var clip_transform_cols = transpose(transformation_inversions[clip_rect.transformation_idx]);
+        var clip_transform = transpose(mat3x3<f32>(
+            clip_transform_cols[0], 
+            clip_transform_cols[1], 
+            vec3<f32>(0.0, 0.0, 1.0),
+        ));
+
+        var clip_pos = (clip_transform * vec3<f32>(in.original_pos, 0.)).xy;
+
+        var clip_dist = sdRoundBox(clip_pos - clip_rect.origin, clip_rect.half_size, clip_rect.rounding);
 
         alpha *= sdSmoothStep(clip_dist);
     }

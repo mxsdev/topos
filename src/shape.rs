@@ -38,6 +38,7 @@ pub struct ShapeRenderer {
     // shader storage
     clip_rects: DynamicGPUBuffer<ShaderClipRect>,
     transformations: DynamicGPUBuffer<CoordinateTransform>,
+    transformation_inversions: DynamicGPUBuffer<CoordinateTransform>,
 
     // vertex buffers
     shape_buffer: DynamicGPUMeshTriBuffer<BoxShaderVertex>,
@@ -79,6 +80,7 @@ impl ShapeRenderer {
                         },
                         visibility: wgpu::ShaderStages::FRAGMENT,
                     },
+                    // TODO: combine these two as one buffer
                     wgpu::BindGroupLayoutEntry {
                         binding: 2,
                         count: None,
@@ -88,6 +90,16 @@ impl ShapeRenderer {
                             min_binding_size: None,
                         },
                         visibility: wgpu::ShaderStages::VERTEX,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        count: None,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        visibility: wgpu::ShaderStages::FRAGMENT,
                     },
                 ],
             });
@@ -165,6 +177,7 @@ impl ShapeRenderer {
 
         let clip_rects = DynamicGPUBuffer::new(device, 4, shader_storage_caps);
         let transformations = DynamicGPUBuffer::new(device, 4, shader_storage_caps);
+        let transformation_inversions = DynamicGPUBuffer::new(device, 4, shader_storage_caps);
 
         let shape_bind_group = Self::create_bind_group(
             device,
@@ -172,6 +185,7 @@ impl ShapeRenderer {
             params_buffer,
             &clip_rects.buffer,
             &transformations.buffer,
+            &transformation_inversions.buffer,
         );
 
         let shape_buffer = DynamicGPUMeshTriBuffer::new(device);
@@ -183,6 +197,7 @@ impl ShapeRenderer {
 
             clip_rects,
             transformations,
+            transformation_inversions,
 
             shape_buffer,
         }
@@ -194,6 +209,7 @@ impl ShapeRenderer {
         params_buffer: &wgpu::Buffer,
         clip_rects_buffer: &wgpu::Buffer,
         transformations_buffer: &wgpu::Buffer,
+        transformation_inversions_buffer: &wgpu::Buffer,
     ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("box bind group"),
@@ -210,6 +226,10 @@ impl ShapeRenderer {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: transformations_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: transformation_inversions_buffer.as_entire_binding(),
                 },
             ],
         })
@@ -245,6 +265,7 @@ impl ShapeRenderer {
                 params_buffer,
                 &self.clip_rects.buffer,
                 &self.transformations.buffer,
+                &self.transformation_inversions.buffer,
             );
         }
     }
@@ -258,14 +279,20 @@ impl ShapeRenderer {
             ..
         }: &RenderingContext,
         transformations: &[CoordinateTransform],
+        transformation_inversions: &[CoordinateTransform],
     ) {
-        if self.transformations.write(device, queue, transformations) {
+        if self.transformations.write(device, queue, transformations)
+            || self
+                .transformation_inversions
+                .write(device, queue, transformations)
+        {
             self.shape_bind_group = Self::create_bind_group(
                 device,
                 &self.shape_bind_group_layout,
                 params_buffer,
                 &self.clip_rects.buffer,
                 &self.transformations.buffer,
+                &self.transformation_inversions.buffer,
             );
         }
     }
@@ -548,11 +575,11 @@ pub struct ShaderClipRect {
     origin: [f32; 2],
     half_size: [f32; 2],
     rounding: f32,
-    padding_bytes: f32,
+    transformation_idx: u32,
 }
 
 impl ShaderClipRect {
-    pub fn new(rect: PhysicalRect, rounding: f32) -> Self {
+    pub fn new(rect: PhysicalRect, rounding: f32, transformation_idx: u32) -> Self {
         let origin = rect.center().to_vector();
         let half_size = rect.max - origin;
 
@@ -560,14 +587,12 @@ impl ShaderClipRect {
             origin: origin.into(),
             half_size: half_size.into(),
             rounding,
-            padding_bytes: Default::default(),
+            transformation_idx,
         }
     }
-}
 
-impl From<ClipRect<f32, PhysicalUnit>> for ShaderClipRect {
-    fn from(value: ClipRect<f32, PhysicalUnit>) -> Self {
-        Self::new(value.inner, value.radius.unwrap_or(0.))
+    pub fn from_clip_rect(rect: ClipRect<f32, PhysicalUnit>, transformation_idx: u32) -> Self {
+        Self::new(rect.inner, rect.radius.unwrap_or(0.), transformation_idx)
     }
 }
 

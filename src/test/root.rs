@@ -74,7 +74,7 @@ impl Element for TestRoot {
         builder
     }
 
-    fn coordinate_transform(&self) -> Option<CoordinateTransform> {
-        CoordinateTransform::rotation(Angle::degrees(20.)).into()
-    }
+    // fn coordinate_transform(&self) -> Option<CoordinateTransform> {
+    //     CoordinateTransform::identity().into()
+    // }
 }

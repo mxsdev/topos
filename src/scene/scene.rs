@@ -189,15 +189,18 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
         let clip_rects = scene_clip_rects
             .into_iter()
-            .map(|r| r * scale_fac)
+            .map(|(r, idx)| ShaderClipRect::from_clip_rect(r * scale_fac, idx as u32))
             .map(Into::<ShaderClipRect>::into)
             .collect_vec();
 
         self.shape_renderer
             .write_all_clip_rects(render_ctx, &clip_rects);
 
-        self.shape_renderer
-            .write_all_transformations(render_ctx, &scene_transformations.transformations);
+        self.shape_renderer.write_all_transformations(
+            render_ctx,
+            &scene_transformations.transformations,
+            &scene_transformations.transformation_inverses,
+        );
 
         for PaintShapeWithContext {
             shape,

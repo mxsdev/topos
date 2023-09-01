@@ -568,6 +568,7 @@ impl InputState {
         self.pointer.active_transformation_determinant = transformation_determinant;
 
         if let Some(transformation_inverse) = transformation_inverse {
+            // TODO: cache these computations based on transformation idx
             self.pointer.transformed_delta = transformation_inverse
                 .transform_vector(self.pointer.delta)
                 .into();

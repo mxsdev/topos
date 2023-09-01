@@ -16,7 +16,7 @@ pub struct SceneContext {
     pub(super) shapes: Vec<PaintShapeWithContext>,
     pub(super) output: PlatformOutput,
 
-    pub(super) clip_rects: Vec<ClipRect>,
+    pub(super) clip_rects: Vec<(ClipRect, usize)>,
     clip_rect_stack: Vec<usize>,
 
     pub(super) transformations: TransformationList,
@@ -32,7 +32,7 @@ impl SceneContext {
     ) -> Self {
         Self {
             shapes: Default::default(),
-            clip_rects: Vec::from([ClipRect::default()]),
+            clip_rects: Vec::from([Default::default()]),
             clip_rect_stack: Default::default(),
             scale_factor,
             active_transformation_idx: Default::default(),
@@ -58,7 +58,10 @@ impl SceneContext {
 
     pub fn push_clip_rect(&mut self, rect: impl Into<ClipRect>) {
         self.clip_rect_stack.push(self.clip_rects.len());
-        self.clip_rects.push(rect.into());
+        self.clip_rects.push((
+            rect.into(),
+            self.active_transformation_idx.unwrap_or_default(),
+        ));
     }
 
     pub fn pop_clip_rect(&mut self) {
@@ -66,7 +69,7 @@ impl SceneContext {
     }
 
     pub fn current_clip_rect(&self) -> Option<ClipRect> {
-        self.current_clip_rect_idx().map(|i| self.clip_rects[i])
+        self.current_clip_rect_idx().map(|i| self.clip_rects[i].0)
     }
 
     pub(crate) fn current_clip_rect_idx(&self) -> Option<usize> {
