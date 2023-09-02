@@ -3,16 +3,14 @@ use serde::Serialize;
 use crate::{
     color::ColorRgba,
     graphics::{DynamicGPUBuffer, DynamicGPUMeshTriBuffer, Mesh, PushVertices, VertexBuffers},
-    math::{
-        CoordinateTransform, PhysicalPos, PhysicalRect, Pos, RoundedRect, ScaleFactor, Size,
-        WindowScaleFactor,
-    },
+    math::{CoordinateTransform, PhysicalPos, Pos, RoundedRect, ScaleFactor, WindowScaleFactor},
     surface::ParamsBuffer,
     texture::{TextureManagerRef, TextureRef},
     util::{
         svg::PosVertexBuffers,
         template::{HandlebarsTemplater, Templater},
         text::{GlyphContentType, PlacedTextBox},
+        PhysicalUnit,
     },
 };
 
@@ -30,7 +28,7 @@ use wgpu::{BufferUsages, ShaderModuleDescriptor};
 use crate::{
     num::{MaxNum, Two},
     surface::RenderingContext,
-    util::{math::Rect, LogicalUnit, PhysicalUnit, WgpuDescriptor},
+    util::{math::Rect, LogicalUnit, WgpuDescriptor},
 };
 
 pub struct ShapeRenderer {
@@ -71,7 +69,7 @@ impl ShapeRenderer {
                                 std::mem::size_of::<ParamsBuffer>() as u64
                             ),
                         },
-                        visibility: wgpu::ShaderStages::VERTEX,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
@@ -393,9 +391,7 @@ impl WgpuDescriptor<14> for BoxShaderVertex {
 }
 
 impl BoxShaderVertex {
-    pub fn from_paint_rect(
-        paint_rect: PaintRectangle<f32, PhysicalUnit>,
-    ) -> (impl Iterator<Item = [Self; 4]>, u64) {
+    pub fn from_paint_rect(paint_rect: PaintRectangle) -> (impl Iterator<Item = [Self; 4]>, u64) {
         let fill_rect = paint_rect
             .fill
             .map(|f| Self::from_rect_stroked(paint_rect.rounded_rect, f, None, None));
@@ -423,7 +419,7 @@ impl BoxShaderVertex {
         (rects.into_iter().flatten(), num_rects as u64)
     }
 
-    pub(crate) fn mesh_tri(pos: PhysicalPos, color: ColorRgba) -> Self {
+    pub(crate) fn mesh_tri(pos: Pos, color: ColorRgba) -> Self {
         Self {
             shape_type: ShapeType::Mesh,
             fill_mode: FillMode::Color,
@@ -434,7 +430,7 @@ impl BoxShaderVertex {
     }
 
     pub(crate) fn glyph_rect(
-        rect: Rect<f32, PhysicalUnit>,
+        rect: Rect<f32>,
         uv: Rect<u32, PhysicalUnit>,
         glyph_type: GlyphContentType, // TODO: texture id
         color: ColorRgba,
@@ -493,7 +489,7 @@ impl BoxShaderVertex {
     }
 
     fn from_rect_stroked(
-        rounded_rect: RoundedRect<f32, PhysicalUnit>,
+        rounded_rect: RoundedRect<f32>,
         color: ColorRgba,
         stroke_width: Option<f32>,
         blur_radius: Option<f32>,
@@ -582,7 +578,7 @@ pub struct ShaderClipRect {
 }
 
 impl ShaderClipRect {
-    pub fn new(rect: PhysicalRect, rounding: f32, transformation_idx: u32) -> Self {
+    pub fn new(rect: Rect, rounding: f32, transformation_idx: u32) -> Self {
         let origin = rect.center().to_vector();
         let half_size = rect.max - origin;
 
@@ -594,7 +590,7 @@ impl ShaderClipRect {
         }
     }
 
-    pub fn from_clip_rect(rect: ClipRect<f32, PhysicalUnit>, transformation_idx: u32) -> Self {
+    pub fn from_clip_rect(rect: ClipRect<f32>, transformation_idx: u32) -> Self {
         Self::new(rect.inner, rect.radius.unwrap_or(0.), transformation_idx)
     }
 
@@ -646,10 +642,7 @@ impl ClipRectList {
         window_scale_fac: WindowScaleFactor,
     ) -> impl Iterator<Item = ShaderClipRect> {
         self.rects.into_iter().map(move |(r, idx)| {
-            ShaderClipRect::from_clip_rect(
-                r * window_scale_fac,
-                idx.map(|x| x as u32).unwrap_or_default(),
-            )
+            ShaderClipRect::from_clip_rect(r, idx.map(|x| x as u32).unwrap_or_default())
         })
     }
 

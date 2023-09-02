@@ -837,6 +837,9 @@ pub struct PointerState {
     /// All button events that occurred this frame
     pub(crate) pointer_events: Vec<PointerEvent>,
 
+    /// Was touchpad used at all this frame
+    touchpad_used: bool,
+
     hover_consumed: bool,
 
     active_transformation_idx: Option<usize>,
@@ -865,6 +868,8 @@ impl Default for PointerState {
             pointer_events: vec![],
             hover_consumed: false,
 
+            touchpad_used: false,
+
             active_transformation_idx: Default::default(),
 
             active_clip_rect: Default::default(),
@@ -884,6 +889,8 @@ impl PointerState {
 
         let old_pos = self.latest_pos;
         self.interact_pos = self.latest_pos;
+
+        self.touchpad_used = false;
 
         for event in &new.events {
             match event {
@@ -970,6 +977,10 @@ impl PointerState {
                 Event::PointerGone => {
                     self.latest_pos = None;
                     // NOTE: we do NOT clear `self.interact_pos` here. It will be cleared next frame.
+                }
+
+                Event::TouchPad => {
+                    self.touchpad_used = true;
                 }
 
                 _ => {}
@@ -1284,6 +1295,12 @@ impl PointerState {
 
     fn logical_scale_factor(&self) -> f32 {
         todo!("implement with cache")
+    }
+
+    /// Was the touchpad used this frame?
+    #[inline(always)]
+    pub fn is_touchpad_used(&self) -> bool {
+        self.touchpad_used
     }
 }
 

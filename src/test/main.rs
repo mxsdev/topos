@@ -4,7 +4,8 @@ use crate::{
     accessibility::{AccessNodeBuilder, AccessRole},
     color::{ColorRgba, ColorSrgba},
     element::{Element, ElementRef},
-    math::{Angle, CoordinateTransform, Pos, Rect},
+    input::input_state::InputState,
+    math::{Angle, CoordinateTransform, Pos, Rect, Vector},
     scene::{
         layout::{FlexBox, LayoutPass, LayoutPassResult, Percent},
         scene::SceneResources,
@@ -17,6 +18,9 @@ use super::{TestRect, TextBoxElement};
 pub struct MainElement {
     rects: Vec<ElementRef<TestRect>>,
     text_box: ElementRef<TextBoxElement>,
+
+    scale_fac: f32,
+    delta: Vector,
 }
 
 impl MainElement {
@@ -36,6 +40,8 @@ impl MainElement {
                 TestRect::new(Pos::new(60., 60.)).into(),
             ],
             text_box: text_box.into(),
+            scale_fac: 1.,
+            delta: Vector::zero(),
         }
     }
 }
@@ -55,10 +61,6 @@ impl Element for MainElement {
     }
 
     fn ui(&mut self, ctx: &mut crate::scene::ctx::SceneContext, rect: Rect) {
-        ctx.add_shape(
-            PaintRectangle::from_rect(rect).with_fill(ColorSrgba::new(255, 254, 209, 255)),
-        );
-
         let mut send_to_back = None::<usize>;
 
         for (i, rect) in self.rects.iter_mut().enumerate() {
@@ -73,11 +75,26 @@ impl Element for MainElement {
         }
     }
 
+    fn input(&mut self, input: &mut InputState, _rect: Rect) {
+        if let Some(pos) = input.pointer.latest_pos() {
+            let scroll_del = (input.scroll_delta.y * 0.01).exp();
+
+            let old_scale_fac = self.scale_fac;
+            self.scale_fac *= scroll_del;
+
+            let f = old_scale_fac - self.scale_fac;
+
+            self.delta += Vector::new(pos.x * f, pos.y * f);
+        }
+    }
+
     fn node(&self) -> AccessNodeBuilder {
         AccessNodeBuilder::new(AccessRole::GenericContainer)
     }
 
     fn coordinate_transform(&self) -> Option<CoordinateTransform> {
-        CoordinateTransform::rotation(Angle::degrees(20.)).into()
+        CoordinateTransform::scale(self.scale_fac, self.scale_fac)
+            .then_translate(self.delta)
+            .into()
     }
 }

@@ -11,6 +11,7 @@ const fillModeTextureMaskColor = 2;
 
 struct Params {
     screen_resolution: vec2<u32>,
+    scale_factor: f32,
 };
 
 struct ClipRect {
@@ -153,10 +154,10 @@ fn vs_main(
     var transformation_cols = transpose(transformations[vertex_in.transformation_idx]);
 
     var transformation = transpose(mat3x3<f32>(
-        transformation_cols[0], 
-        transformation_cols[1], 
+        transformation_cols[0],
+        transformation_cols[1],
         vec3<f32>(0.0, 0.0, 1.0),
-    ));
+    )) * params.scale_factor;
 
     vertex_out.shapeType = vertex_in.shapeType;
     vertex_out.fillMode = vertex_in.fillMode;
@@ -208,7 +209,7 @@ fn vs_main(
 
     vertex_out.pos = out_pos;
 
-    out_pos = (transformation * vec3<f32>(out_pos, 0.)).xy;
+    out_pos = (transformation * vec3<f32>(out_pos, 1.)).xy;
 
     vertex_out.original_pos = out_pos;
 
@@ -288,9 +289,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             clip_transform_cols[0], 
             clip_transform_cols[1], 
             vec3<f32>(0.0, 0.0, 1.0),
-        ));
+        )) * (1. / params.scale_factor);
 
-        var clip_pos = (clip_transform * vec3<f32>(in.original_pos, 0.)).xy;
+        var clip_pos = (clip_transform * vec3<f32>(in.original_pos, 1.)).xy;
 
         var clip_dist = sdRoundBox(clip_pos - clip_rect.origin, clip_rect.half_size, clip_rect.rounding);
 

@@ -401,6 +401,7 @@ impl WinitState {
                 // Negative delta values indicate shrinking (zooming out).
                 let zoom_factor = (*delta as f32).exp();
                 self.egui_input.events.push(Event::Zoom(zoom_factor));
+                self.egui_input.events.push(Event::TouchPad);
                 EventResponse {
                     repaint: true,
                     // consumed: egui_ctx.wants_pointer_input(),

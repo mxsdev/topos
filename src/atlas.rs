@@ -1,14 +1,13 @@
 use crate::{
     color::ColorRgba,
     graphics::PushVertices,
-    math::{PhysicalPos, PhysicalRect, PhysicalSize},
+    math::{PhysicalPos, PhysicalRect, PhysicalSize, Pos, Rect},
     shape::BoxShaderVertex,
     texture::{TextureManagerError, TextureManagerRef, TextureRef},
     util::text::{FontSystem, FontSystemRef, GlyphContentType, PlacedTextBox},
 };
 
 use std::{
-    borrow::BorrowMut,
     cell::RefCell,
     collections::{HashMap, HashSet},
     hash::Hash,
@@ -26,7 +25,6 @@ use crate::{
     debug_panic,
     num::NextPowerOfTwo,
     surface::RenderingContext,
-    util::PhysicalUnit,
 };
 
 type GlyphCacheKey = cosmic_text::CacheKey;
@@ -35,7 +33,7 @@ const MAX_ATLAS_SIZE: u32 = 4096;
 
 pub struct GlyphToRender {
     size: PhysicalSize<u32>,
-    draw_rect: PhysicalRect,
+    draw_rect: Rect,
     alloc: AtlasAllocation, // uv: Option<Size2>,
     color: ColorRgba,
     // clip_rect: Option<PhysicalRect>,
@@ -204,7 +202,7 @@ impl FontAtlasManager {
 
     pub fn prepare<'a>(
         &mut self,
-        boxes: impl IntoIterator<Item = PlacedTextBox<PhysicalUnit>>,
+        boxes: impl IntoIterator<Item = PlacedTextBox>,
         output: &mut impl PushVertices<BoxShaderVertex>,
     ) {
         for text_box in boxes {
@@ -223,7 +221,10 @@ impl FontAtlasManager {
                             let color = g.color;
 
                             let PlacedTextBox { clip_rect, pos, .. } = text_box;
-                            let draw_rect = g.to_draw_glyph(pos, *size, *placement);
+
+                            // FIXME: scale this properly
+                            let draw_rect =
+                                g.to_draw_glyph(pos, (*size).cast_unit(), (*placement).cast_unit());
 
                             if clip_rect
                                 .map(|clip_rect| clip_rect.inner.intersection(&draw_rect).is_none())
@@ -234,7 +235,7 @@ impl FontAtlasManager {
 
                             let uv = allocation.rectangle;
 
-                            let alloc_pos = PhysicalPos::new(uv.min.x as u32, uv.min.y as u32);
+                            let alloc_pos = Pos::new(uv.min.x as u32, uv.min.y as u32);
                             let uv = PhysicalRect::new(alloc_pos, alloc_pos + *size);
                             let color = (*color).into();
 
@@ -393,7 +394,7 @@ impl FontManager {
 
     pub fn prepare<'a>(
         &mut self,
-        text_box: PlacedTextBox<PhysicalUnit>,
+        text_box: PlacedTextBox,
         output: &mut impl PushVertices<BoxShaderVertex>,
     ) {
         self.generate_textures(text_box.glyph_cache_keys().collect());

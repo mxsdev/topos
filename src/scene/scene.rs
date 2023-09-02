@@ -136,12 +136,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
         let render_ctx = render_surface.rendering_context();
 
-        let RenderingContext {
-            device,
-            queue,
-            params_buffer,
-            ..
-        } = render_ctx;
+        let RenderingContext { device, queue, .. } = render_ctx;
 
         let scale_fac = render_surface.scale_factor();
 
@@ -165,7 +160,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
         let ElementTree {
             root: mut scene_layout,
-            mut transformations,
+            transformations,
             mut clip_rects,
         } = layout_pass.do_layout_pass(screen_size, scale_fac, &mut self.root);
 
@@ -212,20 +207,18 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
             match shape {
                 PaintShape::Rectangle(paint_rect) => {
-                    shape_buffer_local
-                        .push_quads(BoxShaderVertex::from_paint_rect(paint_rect * scale_fac).0);
+                    shape_buffer_local.push_quads(BoxShaderVertex::from_paint_rect(paint_rect).0);
                 }
 
                 PaintShape::Text(text_box) => {
-                    self.font_manager
-                        .prepare(text_box.apply_scale_fac(scale_fac), &mut shape_buffer_local);
+                    self.font_manager.prepare(text_box, &mut shape_buffer_local);
                 }
 
                 PaintShape::Mesh(mesh) => shape_buffer_local.push_vertices(
                     mesh.vertices
                         .into_iter()
                         .map(|PaintMeshVertex { color, pos }| {
-                            BoxShaderVertex::mesh_tri(pos * scale_fac, color)
+                            BoxShaderVertex::mesh_tri(pos, color)
                         }),
                     mesh.indices,
                 ),

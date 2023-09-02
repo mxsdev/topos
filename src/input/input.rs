@@ -295,6 +295,8 @@ pub enum Event {
 
     /// An assistive technology (e.g. screen reader) requested an action.
     AccessKitActionRequest(accesskit::ActionRequest),
+
+    TouchPad,
 }
 
 /// Mouse button (or similar for touch input)

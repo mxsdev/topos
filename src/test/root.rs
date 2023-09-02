@@ -1,5 +1,6 @@
 use crate::{
     accessibility::{AccessNodeBuilder, AccessRole},
+    color::ColorSrgba,
     element::{Element, ElementRef, RootConstructor},
     input::input_state::InputState,
     math::{Angle, CoordinateTransform, Pos, Rect, Size, WindowScaleFactor},
@@ -8,7 +9,7 @@ use crate::{
         layout::{ColumnReverse, FlexBox, LayoutPass, LayoutPassResult, Percent},
         scene::SceneResources,
     },
-    shape::ClipRect,
+    shape::{ClipRect, PaintRectangle},
 };
 
 use super::{MainElement, TitleBar};
@@ -51,7 +52,11 @@ impl Element for TestRoot {
 
     fn input(&mut self, _: &mut InputState, _: Rect) {}
 
-    fn ui(&mut self, ctx: &mut SceneContext, _: Rect) {
+    fn ui(&mut self, ctx: &mut SceneContext, rect: Rect) {
+        ctx.add_shape(
+            PaintRectangle::from_rect(rect).with_fill(ColorSrgba::new(255, 254, 209, 255)),
+        );
+
         // ctx.push_clip_rect(
         //     ClipRect::from(Rect::from_min_size(Pos::zero(), Size::new(500., 312.)))
         //         .with_radius(Some(10.)),

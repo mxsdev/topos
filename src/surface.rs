@@ -11,6 +11,8 @@ use crate::math::WindowScaleFactor;
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct ParamsBuffer {
     screen_resolution: [u32; 2],
+    scale_fac: f32,
+    padding: u32,
 }
 
 struct ScreenDescriptor {
@@ -175,6 +177,8 @@ impl RenderSurface {
 
         let params = ParamsBuffer {
             screen_resolution: size.into(),
+            scale_fac: window.scale_factor() as f32,
+            padding: 0,
         };
 
         let params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
