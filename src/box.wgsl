@@ -72,6 +72,8 @@ struct VertexOutput {
 
     @location(12) @interpolate(flat) clip_rect_idx: u32,
     @location(13) original_pos: vec2<f32>,
+
+    @location(14) scale_factor: f32,
 };
 
 var<private> pi: f32 = 3.141592653589793;
@@ -189,11 +191,13 @@ fn vs_main(
         default: { }
     }
 
+    let scale_fac = determinant(transformation);
+
     vertex_out.uv = vec2<f32>(vertex_in.uv) / vec2<f32>(tex_dims);
 
     switch (vertex_in.shapeType) {
         case 0u: { // shapeRect
-            var padding = FEATHERING + vertex_in.stroke_width + vertex_in.blur_radius;
+            var padding = (FEATHERING / scale_fac) + vertex_in.stroke_width + vertex_in.blur_radius;
             var rel_pos = vertex_in.pos - vertex_in.origin;
             var padding_quantity = sign(rel_pos) * padding;
 
@@ -222,6 +226,8 @@ fn vs_main(
     vertex_out.position.y *= -1.;
 
     vertex_out.clip_rect_idx = vertex_in.clip_rect_idx;
+
+    vertex_out.scale_factor = scale_fac;
 
     return vertex_out;
 }
@@ -284,6 +290,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if (in.clip_rect_idx != 0u) {
         let clip_rect = clip_rects[in.clip_rect_idx];
 
+        // TODO: pass clip rect instead of clip_rect_idx
         var clip_transform_cols = transpose(transformation_inversions[clip_rect.transformation_idx]);
         var clip_transform = transpose(mat3x3<f32>(
             clip_transform_cols[0], 
@@ -324,7 +331,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             } 
 
             // draw stroke
-            alpha *= 1. - (smoothstep(0., 0.5, abs(dist) - in.stroke_width / 2.) * 2.);
+            alpha *= 1. - (smoothstep(0., 0.5 / in.scale_factor, abs(dist) - in.stroke_width / 2.) * 2.);
         }
 
         case 1u: { // shapeMesh
