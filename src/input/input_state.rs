@@ -1,7 +1,8 @@
 use crate::{
-    element::ElementId,
+    element::{boundary::Boundary, ElementId},
     history::History,
-    math::{CoordinateTransform, Pos, Vector},
+    math::{CoordinateTransform, Pos, TransformationList, Vector},
+    shape::ClipRect,
 };
 
 use super::{
@@ -34,7 +35,7 @@ const MAX_DOUBLE_CLICK_DELAY: f64 = 0.3; // TODO(emilk): move to settings
 ///
 /// You can check if `egui` is using the inputs using
 /// [`crate::Context::wants_pointer_input`] and [`crate::Context::wants_keyboard_input`].
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct InputState {
     /// The raw input we got this frame from the backend.
     pub raw: RawInput,
@@ -559,25 +560,34 @@ impl InputState {
         self.accesskit_action_requests(action).count()
     }
 
-    pub(crate) fn set_active_transformation(
+    pub(crate) fn insert_transformations(
         &mut self,
-        transformation_inverse: Option<CoordinateTransform>,
-        transformation_determinant: Option<f32>,
-    ) {
-        self.pointer.active_transformation_inverse = transformation_inverse;
-        self.pointer.active_transformation_determinant = transformation_determinant;
+        transformations: TransformationList,
+    ) -> &mut TransformationList {
+        self.pointer
+            .transformable_pointer_cache
+            .transformations
+            .insert(transformations)
+    }
 
-        // TODO: cache these computations based on transformation idx
-        self.pointer.transformed_delta =
-            transformation_inverse.map(|t| t.transform_vector(self.pointer.delta).into());
-        self.pointer.transformed_interact_pos = transformation_inverse
-            .and_then(|t| self.pointer.interact_pos.map(|pos| t.transform_point(pos)));
-        self.pointer.transformed_press_origin = transformation_inverse
-            .and_then(|t| self.pointer.press_origin.map(|pos| t.transform_point(pos)));
-        self.pointer.transformed_latest_pos = transformation_inverse
-            .and_then(|t| self.pointer.latest_pos.map(|pos| t.transform_point(pos)));
-        self.pointer.transformed_velocity =
-            transformation_inverse.map(|t| t.transform_vector(self.pointer.velocity))
+    pub(crate) fn take_transformations(&mut self) -> Option<TransformationList> {
+        self.pointer
+            .transformable_pointer_cache
+            .transformations
+            .take()
+    }
+
+    pub(crate) fn set_active_transformation(&mut self, transformation_idx: Option<usize>) {
+        self.pointer.active_transformation_idx = transformation_idx;
+    }
+
+    pub(crate) fn set_active_clip_rect(
+        &mut self,
+        clip_rect: Option<ClipRect>,
+        transformation_idx: Option<usize>,
+    ) {
+        self.pointer.active_clip_rect = clip_rect;
+        self.pointer.active_clip_rect_transformation_idx = transformation_idx;
     }
 }
 
@@ -632,12 +642,147 @@ impl PointerEvent {
     }
 }
 
-/// Mouse or touch state.
-#[derive(Clone, Debug)]
-pub struct PointerState {
-    /// Latest known time
-    time: f64,
+#[derive(Debug, Default, Clone)]
+struct TransformablePointerState {
+    transformed_velocity: Option<Vector>,
+    transformed_delta: Option<Vector>,
+    transformed_press_origin: Option<Pos>,
+    transformed_latest_pos: Option<Pos>,
+    transformed_interact_pos: Option<Pos>,
+}
 
+impl TransformablePointerState {
+    pub fn new(
+        latest_pos: Option<Pos>,
+        interact_pos: Option<Pos>,
+        delta: Vector,
+        velocity: Vector,
+        press_origin: Option<Pos>,
+    ) -> Self {
+        Self {
+            transformed_velocity: Default::default(),
+            transformed_delta: Default::default(),
+            transformed_press_origin: Default::default(),
+            transformed_latest_pos: Default::default(),
+            transformed_interact_pos: Default::default(),
+        }
+    }
+
+    pub fn get_velocity(
+        &mut self,
+        transform: Option<CoordinateTransform>,
+        velocity: Vector,
+    ) -> Vector {
+        transform
+            .map(|t| t.transform_vector(velocity))
+            .unwrap_or(velocity)
+    }
+
+    pub fn get_delta(&mut self, transform: Option<CoordinateTransform>, delta: Vector) -> Vector {
+        transform
+            .map(|t| t.transform_vector(delta))
+            .unwrap_or(delta)
+    }
+
+    pub fn get_press_origin(
+        &mut self,
+        transform: Option<CoordinateTransform>,
+        press_origin: Option<Pos>,
+    ) -> Option<Pos> {
+        transform
+            .and_then(|t| t.transform_point(press_origin?).into())
+            .or(press_origin)
+    }
+
+    pub fn get_latest_pos(
+        &mut self,
+        transform: Option<CoordinateTransform>,
+        latest_pos: Option<Pos>,
+    ) -> Option<Pos> {
+        transform
+            .and_then(|t| t.transform_point(latest_pos?).into())
+            .or(latest_pos)
+    }
+
+    pub fn get_interact_pos(
+        &mut self,
+        transform: Option<CoordinateTransform>,
+        interact_pos: Option<Pos>,
+    ) -> Option<Pos> {
+        transform
+            .and_then(|t| t.transform_point(interact_pos?).into())
+            .or(interact_pos)
+    }
+}
+
+#[derive(Debug, Default)]
+struct TransformablePointerCache {
+    transformations: Option<TransformationList>,
+
+    cache: Vec<TransformablePointerState>,
+    dummy: TransformablePointerState,
+}
+
+impl TransformablePointerCache {
+    fn at(
+        &mut self,
+        idx: Option<usize>,
+    ) -> (&mut TransformablePointerState, Option<CoordinateTransform>) {
+        match idx {
+            Some(idx) => {
+                if idx >= self.cache.len() {
+                    self.cache.resize_with(idx + 1, || Default::default());
+                }
+
+                let inverse_transform = self.transformations.as_mut().map(|t| t.get_inverse(idx));
+
+                (&mut self.cache[idx], inverse_transform)
+            }
+            None => (&mut self.dummy, None),
+        }
+    }
+
+    pub fn get_velocity_at(&mut self, idx: Option<usize>, velocity: Vector) -> Vector {
+        let (state, transform) = self.at(idx);
+        state.get_velocity(transform, velocity)
+    }
+
+    pub fn get_delta_at(&mut self, idx: Option<usize>, delta: Vector) -> Vector {
+        let (state, transform) = self.at(idx);
+        state.get_delta(transform, delta)
+    }
+
+    pub fn get_press_origin_at(
+        &mut self,
+        idx: Option<usize>,
+        press_origin: Option<Pos>,
+    ) -> Option<Pos> {
+        let (state, transform) = self.at(idx);
+        state.get_press_origin(transform, press_origin)
+    }
+
+    pub fn get_latest_pos_at(
+        &mut self,
+        idx: Option<usize>,
+        latest_pos: Option<Pos>,
+    ) -> Option<Pos> {
+        let (state, transform) = self.at(idx);
+        state.get_latest_pos(transform, latest_pos)
+    }
+
+    pub fn get_interact_pos_at(
+        &mut self,
+        idx: Option<usize>,
+        interact_pos: Option<Pos>,
+    ) -> Option<Pos> {
+        let (state, transform) = self.at(idx);
+        state.get_interact_pos(transform, interact_pos)
+    }
+}
+
+/// Mouse or touch state.
+#[derive(Debug)]
+pub struct PointerState {
     // Consider a finger tapping a touch screen.
     // What position should we report?
     // The location of the touch, or `None`, because the finger is gone?
@@ -659,16 +804,19 @@ pub struct PointerState {
     /// Current velocity of pointer.
     velocity: Vector,
 
+    /// Where did the current click/drag originate?
+    /// `None` if no mouse button is down.
+    press_origin: Option<Pos>,
+
+    /// Latest known time
+    time: f64,
+
     /// Recent movement of the pointer.
     /// Used for calculating velocity of pointer.
     pos_history: History<Pos>,
 
     // down: [bool; NUM_POINTER_BUTTONS],
     down: FxHashMap<PointerButton, bool>,
-
-    /// Where did the current click/drag originate?
-    /// `None` if no mouse button is down.
-    press_origin: Option<Pos>,
 
     /// When did the current click/drag originate?
     /// `None` if no mouse button is down.
@@ -691,14 +839,12 @@ pub struct PointerState {
 
     hover_consumed: bool,
 
-    active_transformation_inverse: Option<CoordinateTransform>,
-    active_transformation_determinant: Option<f32>,
+    active_transformation_idx: Option<usize>,
 
-    transformed_velocity: Option<Vector>,
-    transformed_delta: Option<Vector>,
-    transformed_press_origin: Option<Pos>,
-    transformed_latest_pos: Option<Pos>,
-    transformed_interact_pos: Option<Pos>,
+    active_clip_rect: Option<ClipRect>,
+    active_clip_rect_transformation_idx: Option<usize>,
+
+    transformable_pointer_cache: TransformablePointerCache,
 }
 
 impl Default for PointerState {
@@ -719,14 +865,12 @@ impl Default for PointerState {
             pointer_events: vec![],
             hover_consumed: false,
 
-            active_transformation_determinant: Default::default(),
-            active_transformation_inverse: Default::default(),
+            active_transformation_idx: Default::default(),
 
-            transformed_delta: Default::default(),
-            transformed_velocity: Default::default(),
-            transformed_interact_pos: Default::default(),
-            transformed_press_origin: Default::default(),
-            transformed_latest_pos: Default::default(),
+            active_clip_rect: Default::default(),
+            active_clip_rect_transformation_idx: Default::default(),
+
+            transformable_pointer_cache: Default::default(),
         }
     }
 }
@@ -856,6 +1000,8 @@ impl PointerState {
 
         self.hover_consumed = false;
 
+        self.transformable_pointer_cache = Default::default();
+
         self
     }
 
@@ -869,35 +1015,39 @@ impl PointerState {
 
     /// How much the pointer moved compared to last frame, in points.
     #[inline(always)]
-    pub fn delta(&self) -> Vector {
-        self.transformed_delta.unwrap_or(self.delta)
+    pub fn delta(&mut self) -> Vector {
+        self.transformable_pointer_cache
+            .get_delta_at(self.active_transformation_idx, self.delta)
     }
 
     /// Current velocity of pointer.
     #[inline(always)]
-    pub fn velocity(&self) -> Vector {
-        self.transformed_velocity.unwrap_or(self.velocity)
+    pub fn velocity(&mut self) -> Vector {
+        self.transformable_pointer_cache
+            .get_velocity_at(self.active_transformation_idx, self.velocity)
     }
 
     /// Where did the current click/drag originate?
     /// `None` if no mouse button is down.
     #[inline(always)]
-    pub fn press_origin(&self) -> Option<Pos> {
-        self.transformed_press_origin.or(self.press_origin)
+    pub fn press_origin(&mut self) -> Option<Pos> {
+        self.transformable_pointer_cache
+            .get_press_origin_at(self.active_transformation_idx, self.press_origin)
     }
 
     /// When did the current click/drag originate?
     /// `None` if no mouse button is down.
     #[inline(always)]
-    pub fn press_start_time(&self) -> Option<f64> {
+    pub fn press_start_time(&mut self) -> Option<f64> {
         self.press_start_time
     }
 
     /// Latest reported pointer position.
     /// When tapping a touch screen, this will be `None`.
     #[inline(always)]
-    pub(crate) fn latest_pos(&self) -> Option<Pos> {
-        self.transformed_latest_pos.or(self.latest_pos)
+    pub(crate) fn latest_pos(&mut self) -> Option<Pos> {
+        self.transformable_pointer_cache
+            .get_latest_pos_at(self.active_transformation_idx, self.latest_pos)
     }
 
     pub(crate) fn latest_pos_raw(&self) -> Option<Pos> {
@@ -906,9 +1056,26 @@ impl PointerState {
 
     /// If it is a good idea to show a tooltip, where is pointer?
     #[inline(always)]
-    pub fn hover_pos(&self) -> Option<Pos> {
+    pub fn hover_pos(&mut self) -> Option<Pos> {
         if self.hover_consumed {
             return None;
+        }
+
+        if let Some(clip_rect) = self.active_clip_rect {
+            let mut pos = self.latest_pos_raw();
+
+            if let Some(transformed_pos) = self
+                .transformable_pointer_cache
+                .get_latest_pos_at(self.active_clip_rect_transformation_idx, self.latest_pos)
+            {
+                pos = transformed_pos.into();
+            }
+
+            if let Some(pos) = pos {
+                if !clip_rect.is_inside(&pos) {
+                    return None;
+                }
+            }
         }
 
         self.latest_pos()
@@ -928,8 +1095,9 @@ impl PointerState {
     /// if there were interactions this frame.
     /// When tapping a touch screen, this will be the location of the touch.
     #[inline(always)]
-    pub fn interact_pos(&self) -> Option<Pos> {
-        self.transformed_interact_pos.or(self.interact_pos)
+    pub fn interact_pos(&mut self) -> Option<Pos> {
+        self.transformable_pointer_cache
+            .get_interact_pos_at(self.active_transformation_idx, self.interact_pos)
     }
 
     /// Do we have a pointer?
@@ -1115,7 +1283,7 @@ impl PointerState {
     }
 
     fn logical_scale_factor(&self) -> f32 {
-        self.active_transformation_determinant.unwrap_or(1.)
+        todo!("implement with cache")
     }
 }
 

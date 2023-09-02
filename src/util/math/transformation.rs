@@ -542,7 +542,7 @@ impl<Src> Into<Box<accesskit::Affine>> for CoordinateTransform<f64, Src, Src> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct TransformationList {
     pub transformations: Vec<CoordinateTransform>,
     pub(crate) transformation_inverses: Vec<CoordinateTransform>,

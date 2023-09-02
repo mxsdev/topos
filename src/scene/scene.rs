@@ -166,12 +166,15 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         let ElementTree {
             root: mut scene_layout,
             mut transformations,
-        } = layout_pass.do_layout_pass(screen_size, &mut self.root);
+            mut clip_rects,
+        } = layout_pass.do_layout_pass(screen_size, scale_fac, &mut self.root);
 
-        scene_layout.do_input_pass(&mut input, &mut transformations, None);
+        input.insert_transformations(transformations);
+        scene_layout.do_input_pass(&mut input, None, &mut clip_rects, None);
+        let transformations = input.take_transformations().unwrap();
 
-        let mut scene_context = SceneContext::new(scale_fac, transformations);
-        scene_layout.do_ui_pass(&mut scene_context, None);
+        let mut scene_context = SceneContext::new(scale_fac, transformations, clip_rects);
+        scene_layout.do_ui_pass(&mut scene_context, None, None);
 
         scene_context.output.accesskit_update().tree =
             Some(accesskit::Tree::new(self.root.id().as_access_id()));
@@ -187,11 +190,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
         let mut shape_buffer_local = ShapeBufferWithContext::new();
 
-        let clip_rects = scene_clip_rects
-            .into_iter()
-            .map(|(r, idx)| ShaderClipRect::from_clip_rect(r * scale_fac, idx as u32))
-            .map(Into::<ShaderClipRect>::into)
-            .collect_vec();
+        let clip_rects = scene_clip_rects.finish(scale_fac).collect_vec();
 
         self.shape_renderer
             .write_all_clip_rects(render_ctx, &clip_rects);

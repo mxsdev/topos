@@ -9,6 +9,7 @@ use crate::refbox::{self, coerce_ref, RefBox};
 
 use crate::scene::layout::LayoutPassResult;
 use crate::scene::scene::SceneResources;
+use crate::shape::ClipRect;
 use crate::util::LogicalUnit;
 use crate::{
     math::{Rect, Size},
@@ -68,7 +69,12 @@ pub trait Element {
     fn ui(&mut self, ctx: &mut SceneContext, rect: Rect);
     fn ui_post(&mut self, _ctx: &mut SceneContext, _rect: Rect) {}
     fn node(&self) -> AccessNodeBuilder;
+
     fn coordinate_transform(&self) -> Option<CoordinateTransform> {
+        None
+    }
+
+    fn clip_rect(&self) -> Option<ClipRect> {
         None
     }
 }

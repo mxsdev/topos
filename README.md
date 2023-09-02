@@ -22,6 +22,7 @@
  - [x] Include clip rectangle in shader vertex data
  - [x] Affine transformations
  - [ ] Text resolution
+ - [ ] Move all device pixel ratio logic to the shader
  - [ ] Support multiple rounded clip rects / clip rect intersection
  - [ ] Render engine throughput optimizations (store & diff buffers by widget)
  - [ ] Sharp box strokes

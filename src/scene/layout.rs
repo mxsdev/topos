@@ -1,9 +1,13 @@
 use std::ops::DerefMut;
 
+use bytemuck::Zeroable;
+use winit::window;
+
 use crate::{
     element::{Element, ElementRef, ElementWeakref},
     input::input_state::InputState,
-    math::{CoordinateTransform, Pos, Rect, Size, TransformationList, WindowScaleFactor},
+    math::{Pos, Rect, Size, TransformationList, WindowScaleFactor},
+    shape::{ClipRect, ClipRectList, ShaderClipRect},
     util::text::{FontSystem, FontSystemRef},
 };
 
@@ -18,6 +22,7 @@ pub type LayoutPassResult = crate::util::layout::LayoutNode;
 pub struct ElementTree {
     pub root: ElementTreeNode,
     pub(crate) transformations: TransformationList,
+    pub(crate) clip_rects: ClipRectList,
 }
 
 pub struct ElementTreeNode {
@@ -26,29 +31,39 @@ pub struct ElementTreeNode {
     children: Vec<ElementTreeNode>,
     layout_node: LayoutPassResult,
     transformation_idx: Option<usize>,
+    clip_rect_idx: Option<usize>,
 }
 
 impl ElementTreeNode {
     pub(super) fn do_input_pass(
         &mut self,
         input: &mut InputState,
-        transformations: &mut TransformationList,
-        last_transformation_idx: Option<usize>,
+        parent_transformation_idx: Option<usize>,
+        clip_rects: &mut ClipRectList,
+        parent_clip_rect_idx: Option<usize>,
     ) -> bool {
         input.set_current_element(self.element.id().into());
         let mut focus_within = input.is_focused();
 
-        let transform_idx = self.transformation_idx.or(last_transformation_idx);
+        let transform_idx = self.transformation_idx.or(parent_transformation_idx);
+        let clip_rect_idx = self.clip_rect_idx.or(parent_clip_rect_idx);
 
         if let Some(mut element) = self.element.try_get() {
             for child in self.children.iter_mut().rev() {
-                focus_within |= child.do_input_pass(input, transformations, transform_idx);
+                focus_within |=
+                    child.do_input_pass(input, transform_idx, clip_rects, parent_clip_rect_idx);
             }
 
-            input.set_active_transformation(
-                transform_idx.map(|idx| transformations.get_inverse(idx)),
-                transform_idx.map(|idx| transformations.get_determinant(idx)),
-            );
+            input.set_active_transformation(transform_idx);
+
+            let (clip_rect, clip_rect_transformation_idx) = clip_rect_idx
+                .map(|idx| {
+                    let (r, idx) = *clip_rects.get(idx);
+                    (Some(r), idx)
+                })
+                .unwrap_or((None, None));
+
+            input.set_active_clip_rect(clip_rect, clip_rect_transformation_idx);
 
             input.set_focused_within(focus_within);
 
@@ -61,20 +76,23 @@ impl ElementTreeNode {
     pub(super) fn do_ui_pass(
         &mut self,
         ctx: &mut SceneContext,
-        last_transformation_idx: Option<usize>,
+        parent_transformation_idx: Option<usize>,
+        parent_clip_rect_idx: Option<usize>,
     ) {
         let element_id = self.element.id();
 
         if let Some(mut element) = self.element.try_get() {
-            let transform_idx = self.transformation_idx.or(last_transformation_idx);
+            let transform_idx = self.transformation_idx.or(parent_transformation_idx);
+            let clip_rect_idx = self.clip_rect_idx.or(parent_clip_rect_idx);
             ctx.active_transformation_idx = transform_idx;
+            ctx.active_clip_rect_idx = clip_rect_idx;
 
             element.ui(ctx, self.rect);
 
             let mut children_access_nodes = Vec::new();
 
             for child in self.children.iter_mut() {
-                child.do_ui_pass(ctx, transform_idx);
+                child.do_ui_pass(ctx, transform_idx, clip_rect_idx);
                 children_access_nodes.push(child.element.id().as_access_id())
             }
 
@@ -171,6 +189,7 @@ impl<'a, 'b: 'a> LayoutPass<'a, 'b> {
     pub(super) fn do_layout_pass(
         mut self,
         screen_size: Size,
+        window_scale_factor: WindowScaleFactor,
         root: &mut ElementRef<impl Element>,
     ) -> ElementTree {
         let root_layout_node = root.get().layout(&mut self);
@@ -183,13 +202,23 @@ impl<'a, 'b: 'a> LayoutPass<'a, 'b> {
             .unwrap();
 
         let mut transformations = Default::default();
+        let mut clip_rects = Default::default();
 
-        let mut root = node.finish_rec(layout_engine, Pos::zero(), &mut transformations, None);
+        let mut root = node.finish_rec(
+            window_scale_factor,
+            layout_engine,
+            Pos::zero(),
+            &mut transformations,
+            None,
+            &mut clip_rects,
+            None,
+        );
         root.do_layout_post_pass(resources);
 
         ElementTree {
             root,
             transformations,
+            clip_rects,
         }
     }
 
@@ -213,21 +242,32 @@ impl<'a, 'b: 'a> LayoutPass<'a, 'b> {
 impl LayoutNode {
     fn finish_rec(
         mut self,
+        window_scale_factor: WindowScaleFactor,
         layout_engine: &mut LayoutEngine,
         parent_pos: Pos,
         transformations: &mut TransformationList,
-        last_transformation_idx: Option<usize>,
+        parent_transformation_idx: Option<usize>,
+        clip_rects: &mut ClipRectList,
+        parent_clip_rect_idx: Option<usize>,
     ) -> ElementTreeNode {
-        let mut transformation_idx = last_transformation_idx;
+        let mut transformation_idx = parent_transformation_idx;
+        let mut clip_rect_idx = parent_clip_rect_idx;
 
         if let Some(el) = self.element.try_get() {
             if let Some(new_transform) = el.coordinate_transform() {
                 transformation_idx = transformations
                     .push_transform(
-                        last_transformation_idx
+                        parent_transformation_idx
                             .map(|idx| transformations.get(idx).then(&new_transform))
                             .unwrap_or(new_transform),
                     )
+                    .into();
+            }
+
+            if let Some(new_clip_rect) = el.clip_rect() {
+                // TODO: cascading intersections
+                clip_rect_idx = clip_rects
+                    .push_clip_rect(new_clip_rect, transformation_idx)
                     .into();
             }
         }
@@ -240,14 +280,18 @@ impl LayoutNode {
             rect: result_rect.translate(parent_pos.to_vector()),
             layout_node: self.result,
             transformation_idx,
+            clip_rect_idx,
         };
 
         for child in self.children.into_iter() {
             scene_layout.children.push(child.finish_rec(
+                window_scale_factor,
                 layout_engine,
                 scene_layout.rect.min,
                 transformations,
                 transformation_idx,
+                clip_rects,
+                clip_rect_idx,
             ));
         }
 

@@ -3,7 +3,10 @@ use serde::Serialize;
 use crate::{
     color::ColorRgba,
     graphics::{DynamicGPUBuffer, DynamicGPUMeshTriBuffer, Mesh, PushVertices, VertexBuffers},
-    math::{CoordinateTransform, PhysicalPos, PhysicalRect, Pos, RoundedRect, ScaleFactor},
+    math::{
+        CoordinateTransform, PhysicalPos, PhysicalRect, Pos, RoundedRect, ScaleFactor, Size,
+        WindowScaleFactor,
+    },
     surface::ParamsBuffer,
     texture::{TextureManagerRef, TextureRef},
     util::{
@@ -593,6 +596,71 @@ impl ShaderClipRect {
 
     pub fn from_clip_rect(rect: ClipRect<f32, PhysicalUnit>, transformation_idx: u32) -> Self {
         Self::new(rect.inner, rect.radius.unwrap_or(0.), transformation_idx)
+    }
+
+    pub fn to_clip_rect_idx(self) -> (ClipRect, Option<usize>) {
+        (
+            ClipRect::new(
+                Rect::new(
+                    Pos::new(
+                        self.origin[0] - self.half_size[0],
+                        self.origin[1] - self.half_size[1],
+                    ),
+                    Pos::new(
+                        self.half_size[0] + self.half_size[0],
+                        self.half_size[1] - self.half_size[1],
+                    ),
+                ),
+                Some(self.rounding),
+            ),
+            match self.transformation_idx {
+                0 => Some(self.transformation_idx as usize),
+                _ => None,
+            },
+        )
+    }
+}
+
+impl Into<ClipRect> for ShaderClipRect {
+    #[inline(always)]
+    fn into(self) -> ClipRect {
+        self.to_clip_rect_idx().0
+    }
+}
+
+pub struct ClipRectList {
+    pub rects: Vec<(ClipRect, Option<usize>)>,
+}
+
+impl Default for ClipRectList {
+    fn default() -> Self {
+        Self {
+            rects: vec![Default::default()],
+        }
+    }
+}
+
+impl ClipRectList {
+    pub fn finish(
+        self,
+        window_scale_fac: WindowScaleFactor,
+    ) -> impl Iterator<Item = ShaderClipRect> {
+        self.rects.into_iter().map(move |(r, idx)| {
+            ShaderClipRect::from_clip_rect(
+                r * window_scale_fac,
+                idx.map(|x| x as u32).unwrap_or_default(),
+            )
+        })
+    }
+
+    pub fn push_clip_rect(&mut self, rect: ClipRect, transformation_idx: Option<usize>) -> usize {
+        let idx = self.rects.len();
+        self.rects.push((rect, transformation_idx));
+        idx
+    }
+
+    pub fn get(&mut self, idx: usize) -> &(ClipRect, Option<usize>) {
+        &self.rects[idx]
     }
 }
 

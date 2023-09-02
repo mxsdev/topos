@@ -52,10 +52,10 @@ impl Element for TestRoot {
     fn input(&mut self, _: &mut InputState, _: Rect) {}
 
     fn ui(&mut self, ctx: &mut SceneContext, _: Rect) {
-        ctx.push_clip_rect(
-            ClipRect::from(Rect::from_min_size(Pos::zero(), Size::new(500., 312.)))
-                .with_radius(Some(10.)),
-        );
+        // ctx.push_clip_rect(
+        //     ClipRect::from(Rect::from_min_size(Pos::zero(), Size::new(500., 312.)))
+        //         .with_radius(Some(10.)),
+        // );
 
         // ctx.push_transformation(CoordinateTransform::rotation(Angle::degrees(20.)));
 
@@ -64,7 +64,7 @@ impl Element for TestRoot {
     }
 
     fn ui_post(&mut self, ctx: &mut SceneContext, _rect: Rect) {
-        ctx.pop_clip_rect();
+        // ctx.pop_clip_rect();
         // ctx.pop_transformation();
     }
 
@@ -77,4 +77,10 @@ impl Element for TestRoot {
     // fn coordinate_transform(&self) -> Option<CoordinateTransform> {
     //     CoordinateTransform::identity().into()
     // }
+
+    fn clip_rect(&self) -> Option<ClipRect> {
+        ClipRect::from(Rect::from_min_size(Pos::zero(), Size::new(500., 312.)))
+            .with_radius(Some(10.))
+            .into()
+    }
 }
