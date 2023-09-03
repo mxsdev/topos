@@ -243,7 +243,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
                 r: 0.0,
                 g: 0.0,
                 b: 0.0,
-                a: 1.0,
+                a: 0.0,
             });
 
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

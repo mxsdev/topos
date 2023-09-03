@@ -33,6 +33,14 @@ pub struct Response<B: Boundary = RoundedRect, const NUM_POINTER_BUTTONS: usize 
     just_blurred: bool,
 }
 
+impl<B: Boundary + Default, const NUM_POINTER_BUTTONS: usize> Default
+    for Response<B, NUM_POINTER_BUTTONS>
+{
+    fn default() -> Self {
+        Self::new(Default::default())
+    }
+}
+
 macro_rules! input_boundary_config_boilerplate {
     ($field: ident, $ty: ty) => {
         paste! {

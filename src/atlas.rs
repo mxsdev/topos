@@ -1,5 +1,5 @@
 use crate::{
-    color::ColorRgba,
+    color::{ColorRgb, ColorRgba},
     graphics::PushVertices,
     math::{PhysicalPos, PhysicalRect, PhysicalSize, Pos, Rect},
     shape::BoxShaderVertex,
@@ -17,6 +17,7 @@ use std::{
 use std::sync::mpsc;
 
 use itertools::Itertools;
+use palette::{Alpha, IntoColor};
 use rayon::prelude::*;
 
 use etagere::{AllocId, Allocation as AtlasAllocation, BucketedAtlasAllocator};
@@ -255,7 +256,7 @@ impl FontAtlasManager {
 
                             let alloc_pos = Pos::new(uv.min.x as u32, uv.min.y as u32);
                             let uv = PhysicalRect::new(alloc_pos, alloc_pos + *size);
-                            let color = (*color).into();
+                            let color = color.into();
 
                             let (vertices, indices) = BoxShaderVertex::glyph_rect(
                                 draw_rect,

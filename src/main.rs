@@ -61,6 +61,7 @@ fn main() {
         .filter_module("cosmic_text", log::LevelFilter::Warn)
         .filter_module("tao", log::LevelFilter::Warn)
         .filter_module("winit", log::LevelFilter::Warn)
+        .filter_module("handlebars", log::LevelFilter::Warn)
         .init();
 
     #[cfg(target_arch = "wasm32")]

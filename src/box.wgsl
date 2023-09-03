@@ -341,5 +341,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         default: { }
     }
 
-    return vec4<f32>(in.color.rgb, alpha * in.color.a);
+    return vec4<f32>(col.rgb, alpha);
 }

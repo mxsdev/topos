@@ -1,7 +1,7 @@
-use crate::{texture::TextureManagerRef, util::min};
+use crate::{surface::RenderTarget, texture::TextureManagerRef, util::min};
 use core::panic;
 
-use raw_window_handle::HasRawWindowHandle;
+use raw_window_handle::{AppKitWindowHandle, HasRawDisplayHandle, HasRawWindowHandle};
 use winit::{
     event::{ElementState, Event, KeyboardInput, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
@@ -194,9 +194,10 @@ impl<Root: RootConstructor + 'static> App<Root> {
             use winit::platform::macos::WindowBuilderExtMacOS;
 
             builder = builder
-                .with_title_hidden(true)
+                // .with_title_hidden(true)
                 .with_titlebar_transparent(true)
-                .with_fullsize_content_view(true);
+                .with_fullsize_content_view(true)
+                .with_transparent(true);
         }
 
         let window = builder.build(event_loop).unwrap();
@@ -224,34 +225,77 @@ impl<Root: RootConstructor + 'static> App<Root> {
 
         // TODO: move this to separate file
         let rwh = window.raw_window_handle();
-        match rwh {
+
+        let rwh_target = match rwh {
             #[cfg(target_os = "macos")]
             raw_window_handle::RawWindowHandle::AppKit(handle) => unsafe {
-                use cocoa::appkit::{NSColor, NSWindow};
+                use icrate::AppKit::{
+                    NSColor, NSView, NSViewHeightSizable, NSViewWidthSizable,
+                    NSVisualEffectBlendingModeBehindWindow,
+                    NSVisualEffectMaterialUnderWindowBackground, NSVisualEffectStateActive,
+                    NSVisualEffectView, NSWindow, NSWindowBelow, NSWindowMiniaturizeButton,
+                    NSWindowZoomButton,
+                };
 
-                use cocoa::base::id;
-                use objc::{sel, sel_impl};
+                use objc2::ClassType;
 
-                let ns_window: id = std::mem::transmute(handle.ns_window);
+                let ns_window: &mut NSWindow =
+                    (handle.ns_window as *mut NSWindow).as_mut().unwrap();
 
-                ns_window.setMovable_(false);
+                let ns_view: &NSView = (handle.ns_view as *mut NSView).as_mut().unwrap();
 
-                let fs_button = ns_window
-                    .standardWindowButton_(cocoa::appkit::NSWindowButton::NSWindowZoomButton);
-                let _: () = objc::msg_send![fs_button, setHidden:true];
+                ns_window.setMovable(false);
 
-                let min_button = ns_window.standardWindowButton_(
-                    cocoa::appkit::NSWindowButton::NSWindowMiniaturizeButton,
+                ns_window
+                    .standardWindowButton(NSWindowMiniaturizeButton)
+                    .map(|b| b.setHidden(true));
+
+                ns_window
+                    .standardWindowButton(NSWindowZoomButton)
+                    .map(|b| b.setHidden(true));
+
+                let metal_view = NSView::initWithFrame(NSView::alloc(), ns_view.bounds());
+
+                metal_view.setAutoresizingMask(NSViewWidthSizable | NSViewHeightSizable);
+                metal_view.setTranslatesAutoresizingMaskIntoConstraints(true);
+                metal_view.setFrame(ns_view.bounds());
+
+                ns_view.addSubview(&metal_view);
+
+                let view = NSVisualEffectView::initWithFrame(
+                    NSVisualEffectView::alloc(),
+                    ns_view.bounds(),
                 );
-                let _: () = objc::msg_send![min_button, setHidden:true];
 
-                let bg_col = id::colorWithRed_green_blue_alpha_(ns_window, 0., 0., 0., 1.);
-                ns_window.setBackgroundColor_(bg_col);
+                view.setAutoresizingMask(NSViewWidthSizable | NSViewHeightSizable);
+                view.setTranslatesAutoresizingMaskIntoConstraints(true);
+                view.setFrame(ns_view.bounds());
+                view.setWantsLayer(true);
+
+                view.setMaterial(NSVisualEffectMaterialUnderWindowBackground);
+                view.setState(NSVisualEffectStateActive);
+                view.setBlendingMode(NSVisualEffectBlendingModeBehindWindow);
+
+                ns_view.addSubview_positioned_relativeTo(&view, NSWindowBelow, None);
+
+                ns_window.setBackgroundColor(NSColor::windowBackgroundColor().as_ref().into());
+
+                let mut appkit_wh = AppKitWindowHandle::empty();
+
+                appkit_wh.ns_view = metal_view.as_ref() as *const _ as *mut _;
+                appkit_wh.ns_window = handle.ns_window;
+
+                raw_window_handle::RawWindowHandle::AppKit(appkit_wh)
             },
-            _ => {}
-        }
+            _ => rwh,
+        };
 
-        let render_surface = RenderSurface::new(&window).await;
+        let render_target = RenderTarget {
+            raw_window_handle: rwh_target,
+            raw_display_handle: window.raw_display_handle(),
+        };
+
+        let render_surface = RenderSurface::new(&window, &render_target).await;
         let rendering_context = render_surface.clone_rendering_context();
 
         let wgpu::Limits {

@@ -2,9 +2,10 @@ use cosmic_text::{Attrs, Family, Metrics};
 
 use crate::{
     accessibility::{AccessNodeBuilder, AccessRole},
-    color::{ColorRgba, ColorSrgba},
+    color::{ColorRgba, ColorSrgba, FromNSColor},
     element::{Element, ElementRef},
     input::input_state::InputState,
+    lib::Response,
     math::{Angle, CoordinateTransform, Pos, Rect, Vector},
     scene::{
         layout::{FlexBox, LayoutPass, LayoutPassResult, Percent},
@@ -25,10 +26,20 @@ pub struct MainElement {
 
 impl MainElement {
     pub fn new(resources: &mut SceneResources) -> Self {
+        let mut color = ColorRgba::new(1., 1., 1., 1.);
+
+        #[cfg(target_os = "macos")]
+        {
+            use icrate::AppKit::NSColor;
+            color = ColorSrgba::from_ns_color(unsafe { NSColor::textColor() }.as_ref()).into();
+        }
+
+        color.alpha = 0.3;
+
         let text_box = TextBoxElement::new(
             resources,
             Metrics::new(20., 20.),
-            ColorRgba::new(0., 0., 0., 1.),
+            color,
             "Hello world".into(),
             Attrs::new().family(Family::Name("Test Calibre")),
         );
@@ -75,7 +86,7 @@ impl Element for MainElement {
         }
     }
 
-    fn input(&mut self, input: &mut InputState, _rect: Rect) {
+    fn input(&mut self, input: &mut InputState, rect: Rect) {
         if let Some(pos) = input.pointer.latest_pos() {
             let scroll_del = (input.scroll_delta.y * 0.01).exp();
 
@@ -93,8 +104,10 @@ impl Element for MainElement {
     }
 
     fn coordinate_transform(&self) -> Option<CoordinateTransform> {
-        CoordinateTransform::scale(self.scale_fac * 2., self.scale_fac * 2.)
-            .then_translate(self.delta)
-            .into()
+        // CoordinateTransform::scale(self.scale_fac * 2., self.scale_fac * 2.)
+        //     .then_translate(self.delta)
+        //     .into()
+
+        None
     }
 }

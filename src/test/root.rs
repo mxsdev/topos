@@ -3,6 +3,7 @@ use crate::{
     color::ColorSrgba,
     element::{Element, ElementRef, RootConstructor},
     input::input_state::InputState,
+    lib::Response,
     math::{Angle, CoordinateTransform, Pos, Rect, Size, WindowScaleFactor},
     scene::{
         ctx::SceneContext,
@@ -19,6 +20,8 @@ pub struct TestRoot {
 
     main: ElementRef<MainElement>,
     title_bar: ElementRef<TitleBar>,
+
+    response: Response<Rect>,
 }
 
 impl RootConstructor for TestRoot {
@@ -28,6 +31,8 @@ impl RootConstructor for TestRoot {
 
             main: MainElement::new(resources).into(),
             title_bar: TitleBar::new(resources, 27.).into(),
+
+            response: Default::default(),
         }
     }
 }
@@ -50,12 +55,18 @@ impl Element for TestRoot {
         result
     }
 
-    fn input(&mut self, _: &mut InputState, _: Rect) {}
+    fn input(&mut self, input: &mut InputState, rect: Rect) {
+        self.response.update_rect(input, rect);
+    }
 
     fn ui(&mut self, ctx: &mut SceneContext, rect: Rect) {
-        ctx.add_shape(
-            PaintRectangle::from_rect(rect).with_fill(ColorSrgba::new(255, 254, 209, 255)),
-        );
+        if self.response.primary_clicked() {
+            ctx.start_window_drag();
+        }
+
+        // ctx.add_shape(
+        //     PaintRectangle::from_rect(rect).with_fill(ColorSrgba::new(255, 254, 209, 255)),
+        // );
 
         // ctx.push_clip_rect(
         //     ClipRect::from(Rect::from_min_size(Pos::zero(), Size::new(500., 312.)))
@@ -84,8 +95,10 @@ impl Element for TestRoot {
     // }
 
     fn clip_rect(&self) -> Option<ClipRect> {
-        ClipRect::from(Rect::from_min_size(Pos::zero(), Size::new(500., 312.)))
-            .with_radius(Some(10.))
-            .into()
+        // ClipRect::from(Rect::from_min_size(Pos::zero(), Size::new(500., 312.)))
+        //     .with_radius(Some(10.))
+        //     .into()
+
+        None
     }
 }

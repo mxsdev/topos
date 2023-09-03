@@ -1,5 +1,8 @@
 use std::sync::{Arc, RwLock};
 
+use raw_window_handle::{
+    HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
+};
 use wgpu::util::DeviceExt;
 
 use winit::dpi::PhysicalSize;
@@ -13,6 +16,23 @@ pub(crate) struct ParamsBuffer {
     screen_resolution: [u32; 2],
     scale_fac: f32,
     padding: u32,
+}
+
+pub(crate) struct RenderTarget {
+    pub raw_window_handle: RawWindowHandle,
+    pub raw_display_handle: RawDisplayHandle,
+}
+
+unsafe impl HasRawDisplayHandle for RenderTarget {
+    fn raw_display_handle(&self) -> RawDisplayHandle {
+        self.raw_display_handle
+    }
+}
+
+unsafe impl HasRawWindowHandle for RenderTarget {
+    fn raw_window_handle(&self) -> RawWindowHandle {
+        self.raw_window_handle
+    }
 }
 
 struct ScreenDescriptor {
@@ -95,7 +115,10 @@ pub struct RenderAttachment {
 }
 
 impl RenderSurface {
-    pub async fn new(window: &Window) -> Self {
+    pub async fn new(
+        window: &Window,
+        render_target: &(impl HasRawWindowHandle + HasRawDisplayHandle),
+    ) -> Self {
         let size = window.inner_size();
 
         let screen_descriptor = ScreenDescriptor {
@@ -114,7 +137,7 @@ impl RenderSurface {
         //
         // The surface needs to live as long as the window that created it.
         // State owns the window so this should be safe.
-        let surface = unsafe { instance.create_surface(&window) }.unwrap();
+        let surface = unsafe { instance.create_surface(&render_target) }.unwrap();
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -170,7 +193,7 @@ impl RenderSurface {
             //     .into_iter()
             //     .find(|m| *m == wgpu::PresentMode::Immediate)
             //     .unwrap_or(wgpu::PresentMode::Fifo),
-            alpha_mode: surface_caps.alpha_modes[0],
+            alpha_mode: wgpu::CompositeAlphaMode::PostMultiplied,
             view_formats: vec![],
         };
         surface.configure(&device, &config);

@@ -75,26 +75,22 @@ impl TitleBar {
 
 impl Element for TitleBar {
     fn layout(&mut self, layout_pass: &mut LayoutPass) -> LayoutPassResult {
-        for (child, _) in self.glyphs.iter_mut() {
-            layout_pass.layout_child(child)
-        }
+        // for (child, _) in self.glyphs.iter_mut() {
+        //     layout_pass.layout_child(child)
+        // }
 
         self.layout_node.clone()
     }
 
     fn ui(&mut self, ctx: &mut SceneContext, _rect: Rect) {
-        if self.clicked {
-            ctx.start_window_drag()
-        }
+        // let col: ColorRgba = ColorSrgba::<u8>::new(178, 132, 190, 255).into_linear();
 
-        let col: ColorRgba = ColorSrgba::<u8>::new(178, 132, 190, 255).into_linear();
+        // let col2: ColorRgba = Hsva::from_color(col)
+        //     .desaturate(0.3)
+        //     .darken(0.9)
+        //     .into_color();
 
-        let col2: ColorRgba = Hsva::from_color(col)
-            .desaturate(0.3)
-            .darken(0.9)
-            .into_color();
-
-        ctx.add_shape(PaintRectangle::from_rect(self.input_rect).with_fill(col2));
+        // ctx.add_shape(PaintRectangle::from_rect(self.input_rect).with_fill(col2));
     }
 
     fn ui_post(&mut self, _ctx: &mut SceneContext, _rect: Rect) {
@@ -122,12 +118,12 @@ impl Element for TitleBar {
 
         self.input_rect = rect;
 
-        if let Some(hover_pos) = input.pointer.hover_pos() {
-            if self.input_rect.contains(hover_pos) {
-                input.pointer.consume_hover();
-                self.clicked = input.pointer.primary_clicked();
-            }
-        }
+        // if let Some(hover_pos) = input.pointer.hover_pos() {
+        //     if self.input_rect.contains(hover_pos) {
+        //         input.pointer.consume_hover();
+        //         self.clicked = input.pointer.primary_clicked();
+        //     }
+        // }
     }
 
     fn node(&self) -> AccessNodeBuilder {
