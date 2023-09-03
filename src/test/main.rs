@@ -93,7 +93,7 @@ impl Element for MainElement {
     }
 
     fn coordinate_transform(&self) -> Option<CoordinateTransform> {
-        CoordinateTransform::scale(self.scale_fac, self.scale_fac)
+        CoordinateTransform::scale(self.scale_fac * 2., self.scale_fac * 2.)
             .then_translate(self.delta)
             .into()
     }

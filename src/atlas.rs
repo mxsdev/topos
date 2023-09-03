@@ -14,9 +14,12 @@ use std::{
     sync::{Arc, Mutex, RwLock},
 };
 
+use std::sync::mpsc;
+
+use itertools::Itertools;
 use rayon::prelude::*;
 
-use etagere::{Allocation as AtlasAllocation, BucketedAtlasAllocator};
+use etagere::{AllocId, Allocation as AtlasAllocation, BucketedAtlasAllocator};
 use rustc_hash::FxHashMap;
 use swash::scale::ScaleContext;
 
@@ -47,6 +50,8 @@ pub(crate) struct FontAtlas {
     atlas_type: GlyphContentType,
     width: i32,
     height: i32,
+
+    num_glyphs: usize,
 }
 
 impl FontAtlas {
@@ -92,6 +97,7 @@ impl FontAtlas {
             width: width as i32,
             height: width as i32,
             texture_ref,
+            num_glyphs: 0,
         })
     }
 
@@ -139,7 +145,14 @@ impl FontAtlas {
             },
         );
 
+        self.num_glyphs += 1;
+
         Some(alloc)
+    }
+
+    pub fn deallocate_glyph(&mut self, alloc: AllocId) {
+        self.num_glyphs -= 1;
+        self.allocator.deallocate(alloc);
     }
 
     fn can_fit(&self, space: PhysicalSize<i32>) -> bool {
@@ -167,32 +180,25 @@ enum GlyphCacheEntry {
 type FontAtlasCollection = HashMap<AtlasId, FontAtlas>;
 
 struct FontAtlasManager {
-    mask_atlases: FontAtlasCollection,
-    color_atlases: FontAtlasCollection,
+    // mask_atlases: FontAtlasCollection,
+    // color_atlases: FontAtlasCollection,
+    atlases: FontAtlasCollection,
 
     glyphs: FxHashMap<GlyphCacheKey, GlyphCacheEntry>,
+    used_glyphs_this_frame: HashSet<GlyphCacheKey>,
 
     id: u32,
 
     rendering_context: Arc<RenderingContext>,
 }
 
-macro_rules! get_coll_mut {
-    ($self:ident, $($arg:tt)*) => {
-        match $($arg)* {
-            GlyphContentType::Color => &mut $self.color_atlases,
-            GlyphContentType::Mask => &mut $self.mask_atlases,
-        }
-    };
-}
-
 impl FontAtlasManager {
     pub fn new(rendering_context: Arc<RenderingContext>) -> Self {
         return Self {
-            mask_atlases: Default::default(),
-            color_atlases: Default::default(),
+            atlases: Default::default(),
 
             glyphs: Default::default(),
+            used_glyphs_this_frame: Default::default(),
 
             id: 0,
 
@@ -201,12 +207,19 @@ impl FontAtlasManager {
     }
 
     pub fn prepare<'a>(
-        &mut self,
-        boxes: impl IntoIterator<Item = PlacedTextBox>,
-        output: &mut impl PushVertices<BoxShaderVertex>,
-    ) {
-        for text_box in boxes {
-            for g in text_box.glyphs {
+        &'a mut self,
+        boxes: impl IntoIterator<Item = PlacedTextBox> + 'a,
+        output: &'a mut impl PushVertices<BoxShaderVertex>,
+    ) -> impl Iterator<Item = GlyphCacheKey> + 'a {
+        boxes
+            .into_iter()
+            .flat_map(move |text_box| {
+                text_box
+                    .glyphs
+                    .into_iter()
+                    .map(move |g| (g, text_box.clip_rect, text_box.pos, text_box.scale_fac))
+            })
+            .filter_map(|(g, clip_rect, pos, scale_fac)| {
                 let alloc = self.glyphs.get(&g.cache_key);
 
                 match alloc {
@@ -220,17 +233,22 @@ impl FontAtlasManager {
                         if let Some(atlas) = self.get_atlas(atlas_id) {
                             let color = g.color;
 
-                            let PlacedTextBox { clip_rect, pos, .. } = text_box;
-
                             // FIXME: scale this properly
-                            let draw_rect =
-                                g.to_draw_glyph(pos, (*size).cast_unit(), (*placement).cast_unit());
+                            let draw_rect = g.to_draw_glyph(
+                                pos,
+                                ((*size).map(|x| x as f32) / scale_fac)
+                                    .map(|x| x.round() as u32)
+                                    .cast_unit(),
+                                ((*placement).map(|x| x as f32) / scale_fac)
+                                    .map(|x| x.round() as i32)
+                                    .cast_unit(),
+                            );
 
                             if clip_rect
                                 .map(|clip_rect| clip_rect.inner.intersection(&draw_rect).is_none())
                                 .unwrap_or_default()
                             {
-                                continue;
+                                return None;
                             }
 
                             let uv = allocation.rectangle;
@@ -248,32 +266,24 @@ impl FontAtlasManager {
                             );
 
                             output.push_vertices(vertices, indices);
+
+                            return Some(g.cache_key);
                         }
                     }
                     None => log::trace!("Glyph {} not cached", g.cache_key.glyph_id),
                     Some(GlyphCacheEntry::Noop) => {}
-                }
-            }
-        }
+                };
+
+                None
+            })
     }
 
-    fn get_coll(&self, kind: GlyphContentType) -> &FontAtlasCollection {
-        match kind {
-            GlyphContentType::Color => &self.color_atlases,
-            GlyphContentType::Mask => &self.mask_atlases,
-        }
-    }
-
-    fn get_coll_mut(&mut self, kind: GlyphContentType) -> &mut FontAtlasCollection {
-        get_coll_mut!(self, kind)
-    }
-
-    fn get_atlas_mut(&mut self, id: AtlasId) -> Option<&mut FontAtlas> {
-        self.get_coll_mut(id.0).get_mut(&id)
+    fn get_atlas_mut(&mut self, id: &AtlasId) -> Option<&mut FontAtlas> {
+        self.atlases.get_mut(id)
     }
 
     fn get_atlas(&self, id: &AtlasId) -> Option<&FontAtlas> {
-        self.get_coll(id.0).get(id)
+        self.atlases.get(id)
     }
 
     fn create_atlas(
@@ -291,7 +301,7 @@ impl FontAtlasManager {
 
         let atlas = FontAtlas::new(&self.rendering_context, texture_manager, kind, size, size)?;
 
-        self.get_coll_mut(kind).insert(atlas_id, atlas);
+        self.atlases.insert(atlas_id, atlas);
 
         Ok(atlas_id)
     }
@@ -318,14 +328,16 @@ impl FontAtlasManager {
 
         let rendering_context = self.rendering_context.clone();
 
-        let coll = self.get_coll_mut(kind);
-
-        let alloc = coll
+        let alloc = self
+            .atlases
             .iter_mut()
-            .map(|(id, atlas)| {
-                atlas
-                    .allocate_glyph(&image, &rendering_context)
-                    .map(|res| (*id, res))
+            .filter_map(|(id, atlas)| match id.0.eq(&kind) {
+                true => Some(
+                    atlas
+                        .allocate_glyph(&image, &rendering_context)
+                        .map(|res| (*id, res)),
+                ),
+                false => None,
             })
             .flatten()
             .next()
@@ -333,7 +345,7 @@ impl FontAtlasManager {
                 let size = u32::max(glyph_size.width, glyph_size.height).next_power_of_2();
                 let atlas_id = self.create_atlas(texture_manager, kind, size).unwrap();
 
-                match self.get_atlas_mut(atlas_id) {
+                match self.get_atlas_mut(&atlas_id) {
                     Some(atlas) => match atlas.allocate_glyph(&image, &rendering_context) {
                         Some(res) => Some((atlas_id, res)),
                         None => {
@@ -362,12 +374,31 @@ impl FontAtlasManager {
         self.glyphs
             .insert(cache_key, GlyphCacheEntry::GlyphAllocation(alloc?));
 
-        let _atlas = self.get_atlas_mut(alloc?.atlas_id).debug_assert()?;
+        let _atlas = self.get_atlas_mut(&alloc?.atlas_id).debug_assert()?;
 
         alloc
     }
 
-    pub fn get_glyph_uv() {}
+    pub fn collect_garbage(&mut self) {
+        let mut glyphs_to_remove: HashSet<_> = self.glyphs.keys().copied().collect();
+        glyphs_to_remove.retain(|key| !self.used_glyphs_this_frame.contains(key));
+
+        for key in glyphs_to_remove.iter() {
+            if let Some((atlas_id, allocation)) = match self.glyphs.get(key).unwrap() {
+                GlyphCacheEntry::GlyphAllocation(alloc) => Some((alloc.atlas_id, alloc.allocation)),
+                GlyphCacheEntry::Noop => None,
+            } {
+                if let Some(atlas) = self.get_atlas_mut(&atlas_id) {
+                    atlas.deallocate_glyph(allocation.id);
+                }
+            }
+        }
+
+        self.glyphs.retain(|key, _| !glyphs_to_remove.contains(key));
+        self.used_glyphs_this_frame.clear();
+
+        self.atlases.retain(|_, atlas| atlas.num_glyphs > 0);
+    }
 }
 
 pub struct FontManager {
@@ -397,12 +428,26 @@ impl FontManager {
         text_box: PlacedTextBox,
         output: &mut impl PushVertices<BoxShaderVertex>,
     ) {
-        self.generate_textures(text_box.glyph_cache_keys().collect());
+        // if (text_box.clip_rect.map(|x| x.is_empty()).unwrap_or_default()) {
+        //     return;
+        // }
+
+        let glyph_cache_keys: HashSet<_> = text_box.glyphs.iter().map(|g| g.cache_key).collect();
 
         self.atlas_manager
             .write()
             .unwrap()
-            .prepare([text_box], output);
+            .used_glyphs_this_frame
+            .extend(glyph_cache_keys.iter());
+
+        self.generate_textures(glyph_cache_keys);
+
+        self.atlas_manager
+            .write()
+            .unwrap()
+            .prepare([text_box], output)
+            // TODO: this shouldnt be needed
+            .for_each(drop);
     }
 
     pub fn get_font_system_ref(&self) -> FontSystemRef {
@@ -411,6 +456,10 @@ impl FontManager {
 
     pub fn get_font_system(&mut self) -> &FontSystemRef {
         return &self.font_system;
+    }
+
+    pub fn collect_garbage(&mut self) {
+        self.atlas_manager.write().unwrap().collect_garbage();
     }
 
     // pub fn render<'a, 'b, 'c>(
@@ -437,18 +486,18 @@ impl FontManager {
         let drain_iter = glyphs.drain();
 
         let results: Vec<(GlyphCacheKey, cosmic_text::SwashImage)> = drain_iter
-            .map(|g| {
-                if atlas_manager.read().unwrap().has_glyph(&g) {
+            .map(|cache_key| {
+                if atlas_manager.read().unwrap().has_glyph(&cache_key) {
                     return None;
                 }
 
-                match rasterize_glyph(&g, font_system.as_ref()) {
+                match rasterize_glyph(&cache_key, font_system.as_ref()) {
                     Some(image) => {
-                        log::trace!("rasterized glyph {:?}", g.glyph_id);
-                        Some((g, image))
+                        log::trace!("rasterized glyph {:?}", cache_key.glyph_id);
+                        Some((cache_key, image))
                     }
                     None => {
-                        log::error!("failed to render glyph {}!", g.glyph_id);
+                        log::error!("failed to render glyph {}!", cache_key.glyph_id);
 
                         None
                     }

@@ -6,7 +6,7 @@ use std::sync::{
 use itertools::Itertools;
 use shrinkwraprs::Shrinkwrap;
 
-use crate::surface::RenderingContext;
+use crate::{surface::RenderingContext, text};
 
 use drain_filter_polyfill::VecExt;
 

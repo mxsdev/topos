@@ -131,7 +131,7 @@ impl<U> PlacedGlyph<U> {
     }
 
     pub fn to_draw_glyph(
-        self,
+        &self,
         pos: Pos<f32, U>,
         size: Size<u32, U>,
         placement: Pos<i32, U>,
@@ -160,6 +160,8 @@ pub struct PlacedTextBox<U = LogicalUnit> {
     pub clip_rect: Option<RoundedRect<f32, U>>,
     pub pos: Pos<f32, U>,
     pub color: ColorRgba,
+    pub scale_fac: f32,
+    pub bounding_size: Size<f32, U>,
 }
 
 impl<U> PlacedTextBox<U> {
@@ -168,44 +170,21 @@ impl<U> PlacedTextBox<U> {
         pos: Pos<f32, U>,
         color: ColorRgba,
         clip_rect: Option<RoundedRect<f32, U>>,
+        scale_fac: f32,
+        bounding_size: Size<f32, U>,
     ) -> Self {
         Self {
             glyphs,
             clip_rect,
             pos,
             color,
+            scale_fac,
+            bounding_size,
         }
     }
 
     pub fn glyph_cache_keys(&self) -> impl Iterator<Item = GlyphCacheKey> + '_ {
         self.glyphs.iter().map(|glyph| glyph.cache_key)
-    }
-
-    pub fn apply_scale_fac<NewUnit>(
-        self,
-        sf: ScaleFactor<f32, U, NewUnit>,
-    ) -> PlacedTextBox<NewUnit> {
-        let Self {
-            glyphs,
-            clip_rect,
-            pos,
-            color,
-        } = self;
-
-        let clip_rect = clip_rect.map(|clip_rect| clip_rect * sf);
-        let pos = pos * sf;
-        let mut glyphs = glyphs.into_iter().map(|glyph| glyph * sf).collect_vec();
-
-        glyphs.iter_mut().for_each(|glyph| {
-            glyph.recalculate_subpixel_offsets(&pos);
-        });
-
-        PlacedTextBox {
-            glyphs,
-            clip_rect,
-            pos,
-            color,
-        }
     }
 
     #[inline]
@@ -355,6 +334,8 @@ impl<U> TextBox<U> {
         pos: Pos<f32, U>,
         clip_rect: impl Into<Option<RoundedRect<f32, U>>>,
     ) -> PlacedTextBox<U> {
+        let bounding_size = self.computed_size();
+
         let glyphs = self
             .buffer
             .layout_runs()
@@ -372,6 +353,8 @@ impl<U> TextBox<U> {
             clip_rect: clip_rect.into(),
             pos,
             color: self.color,
+            scale_fac: 1.,
+            bounding_size,
         }
     }
 

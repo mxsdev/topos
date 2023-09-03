@@ -46,7 +46,24 @@ impl SceneContext {
         let mut shape = shape.into();
 
         match &mut shape {
-            PaintShape::Text(text) => text.clip_rect = self.current_clip_rect(),
+            PaintShape::Text(text) => {
+                text.clip_rect = self.current_clip_rect();
+
+                text.scale_fac = self
+                    .active_transformation_idx
+                    // TODO: cache computation
+                    .map(|idx| {
+                        let (sx, sy) = self.transformations.get(idx).scale_factor();
+                        sx.max(sy)
+                    })
+                    .unwrap_or(1.)
+                    * self.scale_factor.get();
+
+                for glyph in text.glyphs.iter_mut() {
+                    glyph.cache_key.font_size_bits =
+                        (f32::from_bits(glyph.cache_key.font_size_bits) * text.scale_fac).to_bits();
+                }
+            }
             _ => {}
         }
 

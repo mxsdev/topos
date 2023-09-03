@@ -16,6 +16,7 @@ use core::hash::Hash;
 use core::marker::PhantomData;
 use core::ops::{Add, Div, Mul, Sub};
 use num_traits::NumCast;
+use palette::num::Powu;
 
 use crate::num::{One, Zero};
 use crate::util::LogicalUnit;
@@ -456,6 +457,28 @@ where
     }
 }
 
+impl<Src, Dst> CoordinateTransform<f32, Src, Dst> {
+    pub fn eigenvalues(&self) -> (Vector, Vector) {
+        let discriminant = ((self.m11 - self.m22).powu(2) - 4.0 * self.m12 * self.m21);
+        let is_complex = discriminant.is_sign_negative();
+
+        let r = discriminant.abs().sqrt() / 2.0;
+        let val = (self.m11 + self.m22) / 2.;
+
+        match is_complex {
+            false => (Vector::new(val + r, 0.), Vector::new(val - r, 0.)),
+            true => (Vector::new(val, r), Vector::new(val, -r)),
+        }
+    }
+
+    pub fn scale_factor(&self) -> (f32, f32) {
+        (
+            (self.m11.powu(2) + self.m12.powu(2)).sqrt(),
+            (self.m21.powu(2) + self.m22.powu(2)).sqrt(),
+        )
+    }
+}
+
 impl<T, Src, Dst> CoordinateTransform<T, Src, Dst>
 where
     T: Copy + Sub<Output = T> + Mul<Output = T> + Div<Output = T> + PartialEq + Zero + One,
@@ -583,5 +606,20 @@ impl TransformationList {
 
     pub fn get_determinant(&mut self, idx: usize) -> f32 {
         self.determinants[idx]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scale_factoe() {
+        let (sx, sy) = CoordinateTransform::<f32, LogicalUnit, LogicalUnit>::scale(5., 1.)
+            .then_rotate(Angle::degrees(90.))
+            .scale_factor();
+
+        assert_eq!(sx, 5.);
+        assert_eq!(sy, 1.);
     }
 }

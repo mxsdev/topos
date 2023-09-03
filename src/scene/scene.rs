@@ -285,6 +285,8 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         queue.submit(std::iter::once(encoder.finish()));
         window_texture.present();
 
+        self.font_manager.collect_garbage();
+
         (input, platform_output)
     }
 

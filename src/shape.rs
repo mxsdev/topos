@@ -846,6 +846,16 @@ custom_derive! {
     }
 }
 
+// impl PaintShape {
+//     pub fn get_bounding_box(&self) -> Rect {
+//         match self {
+//             Self::Rectangle(rect) => rect.get_bounding_box(),
+//             Self::Text(text) => Rect::from_min_size(text.pos, text.bounding_size),
+//             Self::Mesh(mesh) => mesh.get_bounding_box(),
+//         }
+//     }
+// }
+
 impl<F: Num + Copy + Default + Two + MaxNum, U> PaintRectangle<F, U> {
     pub fn get_bounding_box(&self) -> Rect<F, U> {
         let fac = [
