@@ -42,7 +42,7 @@ impl ElementTreeNode {
         clip_rects: &mut ClipRectList,
         parent_clip_rect_idx: Option<usize>,
     ) -> bool {
-        input.set_current_element(self.element.id().into());
+        let element_id = self.element.id();
         let mut focus_within = input.is_focused();
 
         let transform_idx = self.transformation_idx.or(parent_transformation_idx);
@@ -67,6 +67,7 @@ impl ElementTreeNode {
 
             input.set_focused_within(focus_within);
 
+            input.set_current_element(element_id.into());
             element.input(input, self.rect);
         }
 
