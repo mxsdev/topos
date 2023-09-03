@@ -1,7 +1,7 @@
 use crate::{
     color::{ColorRgb, ColorRgba},
     graphics::PushVertices,
-    math::{PhysicalPos, PhysicalRect, PhysicalSize, Pos, Rect},
+    math::{PhysicalPos, PhysicalRect, PhysicalSize, Pos, Rect, Size},
     shape::BoxShaderVertex,
     texture::{TextureManagerError, TextureManagerRef, TextureRef},
     util::text::{FontSystem, FontSystemRef, GlyphContentType, PlacedTextBox},
@@ -123,43 +123,37 @@ impl TextureAtlas {
         &self.texture_ref
     }
 
-    // pub fn allocate_glyph(
-    //     &mut self,
-    //     image: &cosmic_text::SwashImage,
-    //     RenderingContext { queue, .. }: &RenderingContext,
-    // ) -> Option<EtagereAllocation> {
-    //     let size = PhysicalSize::new(image.placement.width, image.placement.height);
-
-    //     let alloc = self.try_allocate_space(&size)?;
-
-    //     queue.write_texture(
-    //         wgpu::ImageCopyTexture {
-    //             texture: &self.texture_ref.texture,
-    //             mip_level: 0,
-    //             origin: wgpu::Origin3d {
-    //                 x: alloc.rectangle.min.x as u32,
-    //                 y: alloc.rectangle.min.y as u32,
-    //                 z: 0,
-    //             },
-    //             aspect: wgpu::TextureAspect::default(),
-    //         },
-    //         &image.data,
-    //         wgpu::ImageDataLayout {
-    //             offset: 0,
-    //             bytes_per_row: Some(image.placement.width * self.atlas_type.num_channels()),
-    //             rows_per_image: None,
-    //         },
-    //         wgpu::Extent3d {
-    //             width: image.placement.width,
-    //             height: image.placement.height,
-    //             depth_or_array_layers: 1,
-    //         },
-    //     );
-
-    //     self.num_glyphs += 1;
-
-    //     Some(alloc)
-    // }
+    pub fn write_texture(
+        &self,
+        rendering_context: &RenderingContext,
+        alloc: &EtagereAllocation,
+        image_data: &[u8],
+        image_placement: PhysicalSize<u32>,
+    ) {
+        rendering_context.queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &self.texture_ref.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: alloc.rectangle.min.x as u32,
+                    y: alloc.rectangle.min.y as u32,
+                    z: 0,
+                },
+                aspect: wgpu::TextureAspect::default(),
+            },
+            &image_data,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(image_placement.width * self.atlas_type.num_channels()),
+                rows_per_image: None,
+            },
+            wgpu::Extent3d {
+                width: image_placement.width,
+                height: image_placement.height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
 
     pub fn deallocate_glyph(&mut self, alloc: AllocId) {
         self.num_glyphs -= 1;
@@ -464,28 +458,11 @@ impl TextureAtlasManager {
             .map(|allocation| {
                 let atlas = self.atlases.get(&allocation.atlas_id).unwrap();
 
-                self.rendering_context.queue.write_texture(
-                    wgpu::ImageCopyTexture {
-                        texture: &atlas.texture_ref.texture,
-                        mip_level: 0,
-                        origin: wgpu::Origin3d {
-                            x: allocation.rect().min.x as u32,
-                            y: allocation.rect().min.y as u32,
-                            z: 0,
-                        },
-                        aspect: wgpu::TextureAspect::default(),
-                    },
+                atlas.write_texture(
+                    &self.rendering_context,
+                    &allocation.allocation,
                     &image.data,
-                    wgpu::ImageDataLayout {
-                        offset: 0,
-                        bytes_per_row: Some(image.placement.width * kind.num_channels()),
-                        rows_per_image: None,
-                    },
-                    wgpu::Extent3d {
-                        width: image.placement.width,
-                        height: image.placement.height,
-                        depth_or_array_layers: 1,
-                    },
+                    Size::new(image.placement.width, image.placement.height),
                 );
 
                 allocation
