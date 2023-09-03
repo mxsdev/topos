@@ -21,8 +21,9 @@
  - [x] Optimize atlas as "TextureAtlas" (finite maximum of textures on shader)
  - [x] Include clip rectangle in shader vertex data
  - [x] Affine transformations
+ - [x] Move all device pixel ratio logic to the shader
+ - [ ] Image fill textures with `TextureRef`
  - [ ] Text resolution
- - [ ] Move all device pixel ratio logic to the shader
  - [ ] Support multiple rounded clip rects / clip rect intersection
  - [ ] Render engine throughput optimizations (store & diff buffers by widget)
  - [ ] Sharp box strokes
@@ -32,7 +33,6 @@
  - [ ] Abstract out renderer, layout engine, platform integration, application state
  - [ ] Replace Arc<...> with nominal "Ref" types
  - [ ] Replace Mutex, RwLock with auto-unwrapping alternatives (and bring to a crate, too)
- - [ ] Image fill textures with `TextureRef`
  - [x] Accessibility
  - [x] Native Context Menus
  - [x] Native System Menus
