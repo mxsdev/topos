@@ -1,11 +1,14 @@
-use std::{ops::DerefMut, sync::Arc};
+use std::{
+    ops::DerefMut,
+    sync::{Arc, RwLock},
+};
 
 use bytemuck::Zeroable;
 use itertools::Itertools;
 
 use crate::{
     accessibility::AccessNode,
-    atlas::{self},
+    atlas::{self, TextureAtlasManager, TextureAtlasManagerRef},
     element::{Element, ElementId, ElementRef, RootConstructor},
     graphics::{DynamicGPUMeshTriBuffer, PushVertices, VertexBuffers},
     input::{input_state::InputState, output::PlatformOutput},
@@ -24,6 +27,8 @@ use super::{
 };
 
 pub struct SceneResources<'a> {
+    texture_atlas_manager: atlas::TextureAtlasManagerRef,
+    texture_manager: TextureManagerRef,
     font_system: FontSystemRef,
     rendering_context: Arc<RenderingContext>,
     layout_engine: &'a mut LayoutEngine,
@@ -32,12 +37,16 @@ pub struct SceneResources<'a> {
 
 impl<'a> SceneResources<'a> {
     pub fn new(
+        texture_atlas_manager: atlas::TextureAtlasManagerRef,
+        texture_manager: TextureManagerRef,
         font_system: FontSystemRef,
         rendering_context: Arc<RenderingContext>,
         scale_factor: WindowScaleFactor,
         layout_engine: &'a mut LayoutEngine,
     ) -> Self {
         Self {
+            texture_atlas_manager,
+            texture_manager,
             font_system,
             rendering_context,
             scale_factor,
@@ -68,11 +77,21 @@ impl<'a> SceneResources<'a> {
     pub fn layout_engine(&mut self) -> &mut LayoutEngine {
         self.layout_engine
     }
+
+    pub fn texture_atlas_manager(&self) -> &TextureAtlasManagerRef {
+        &self.texture_atlas_manager
+    }
+
+    pub fn texture_manager(&self) -> &TextureManagerRef {
+        &self.texture_manager
+    }
 }
 
 pub struct Scene<Root: RootConstructor + 'static> {
     font_manager: atlas::FontManager,
     shape_renderer: shape::ShapeRenderer,
+    atlas_manager: atlas::TextureAtlasManagerRef,
+    texture_manager: TextureManagerRef,
 
     root: ElementRef<Root>,
 
@@ -102,7 +121,12 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         let mut layout_engine = LayoutEngine::default();
         layout_engine.disable_rounding();
 
+        let atlas_manager = font_manager.atlas_manager_ref();
+        let texture_manager = texture_manager.clone();
+
         let mut scene_resources = SceneResources::new(
+            atlas_manager.clone(),
+            texture_manager.clone(),
             font_manager.get_font_system_ref(),
             rendering_context,
             WindowScaleFactor::new(scale_fac as f32),
@@ -114,8 +138,10 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         Self {
             font_manager,
             shape_renderer,
+            atlas_manager,
             root,
             layout_engine,
+            texture_manager,
         }
     }
 
@@ -150,6 +176,8 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
         // layout pass
         let mut scene_resources = SceneResources::new(
+            self.atlas_manager.clone(),
+            self.texture_manager.clone(),
             self.font_manager.get_font_system_ref(),
             render_surface.clone_rendering_context(),
             scale_fac,
@@ -168,7 +196,8 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         scene_layout.do_input_pass(&mut input, None, &mut clip_rects, None);
         let transformations = input.take_transformations().unwrap();
 
-        let mut scene_context = SceneContext::new(scale_fac, transformations, clip_rects);
+        let mut scene_context =
+            SceneContext::new(scale_fac, transformations, clip_rects, scene_resources);
         scene_layout.do_ui_pass(&mut scene_context, None, None);
 
         scene_context.output.accesskit_update().tree =
@@ -196,6 +225,16 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
             &scene_transformations.transformation_inverses,
         );
 
+        let mut texture_manager_lock = texture_manager.write().unwrap();
+
+        let (texture_bind_group, sampler_bind_group) = {
+            (
+                // TODO: store these things
+                texture_manager_lock.generate_texture_bind_group(device),
+                texture_manager_lock.generate_sampler_bind_group(device),
+            )
+        };
+
         for PaintShapeWithContext {
             shape,
             clip_rect_idx,
@@ -207,7 +246,9 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
             match shape {
                 PaintShape::Rectangle(paint_rect) => {
-                    shape_buffer_local.push_quads(BoxShaderVertex::from_paint_rect(paint_rect).0);
+                    shape_buffer_local.push_quads(
+                        BoxShaderVertex::from_paint_rect(&self.atlas_manager, paint_rect).0,
+                    );
                 }
 
                 PaintShape::Text(text_box) => {
@@ -225,18 +266,8 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
             }
         }
 
-        let mut texture_manager_lock = texture_manager.write().unwrap();
-
         self.shape_renderer
             .write_all_shapes(queue, device, &shape_buffer_local.vertex_buffers);
-
-        let (texture_bind_group, sampler_bind_group) = {
-            (
-                // TODO: store these things
-                texture_manager_lock.generate_texture_bind_group(device),
-                texture_manager_lock.generate_sampler_bind_group(device),
-            )
-        };
 
         {
             let load_op = wgpu::LoadOp::Clear(wgpu::Color {

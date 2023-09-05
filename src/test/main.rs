@@ -2,16 +2,16 @@ use cosmic_text::{Attrs, Family, Metrics};
 
 use crate::{
     accessibility::{AccessNodeBuilder, AccessRole},
+    atlas::AtlasAllocation,
     color::{ColorRgba, ColorSrgba, FromNSColor},
     element::{Element, ElementRef},
     input::input_state::InputState,
-    lib::Response,
-    math::{Angle, CoordinateTransform, Pos, Rect, Vector},
+    math::{CoordinateTransform, Pos, Rect, Size, Vector},
     scene::{
         layout::{FlexBox, LayoutPass, LayoutPassResult, Percent},
         scene::SceneResources,
     },
-    shape::PaintRectangle,
+    util::text::AtlasContentType,
 };
 
 use super::{TestRect, TextBoxElement};
@@ -46,9 +46,9 @@ impl MainElement {
 
         Self {
             rects: vec![
-                TestRect::new(Pos::new(20., 20.)).into(),
-                TestRect::new(Pos::new(40., 40.)).into(),
-                TestRect::new(Pos::new(60., 60.)).into(),
+                TestRect::new(resources, Pos::new(20., 20.)).into(),
+                TestRect::new(resources, Pos::new(40., 40.)).into(),
+                TestRect::new(resources, Pos::new(60., 60.)).into(),
             ],
             text_box: text_box.into(),
             scale_fac: 1.,

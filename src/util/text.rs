@@ -21,16 +21,16 @@ use super::LogicalUnit;
 
 #[repr(u32)]
 #[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
-pub(crate) enum GlyphContentType {
+pub enum AtlasContentType {
     Color = 0,
     Mask = 1,
 }
 
-impl GlyphContentType {
+impl AtlasContentType {
     pub fn num_channels(&self) -> u32 {
         match self {
-            GlyphContentType::Color => 4,
-            GlyphContentType::Mask => 1,
+            AtlasContentType::Color => 4,
+            AtlasContentType::Mask => 1,
         }
     }
 }

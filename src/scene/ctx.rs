@@ -1,10 +1,13 @@
 use std::borrow::Cow;
 
 use crate::{
+    atlas::TextureAtlasManagerRef,
     input::output::{CursorIcon, PlatformOutput},
     math::{CoordinateTransform, Pos, Rect, Size, TransformationList, WindowScaleFactor},
     shape::{ClipRect, ClipRectList, PaintShape, ShaderClipRect},
 };
+
+use super::scene::SceneResources;
 
 pub(super) struct PaintShapeWithContext {
     pub shape: PaintShape,
@@ -12,7 +15,7 @@ pub(super) struct PaintShapeWithContext {
     pub transformation_idx: Option<u32>,
 }
 
-pub struct SceneContext {
+pub struct SceneContext<'a> {
     pub(super) shapes: Vec<PaintShapeWithContext>,
     pub(super) output: PlatformOutput,
 
@@ -22,14 +25,17 @@ pub struct SceneContext {
     pub(super) clip_rects: ClipRectList,
     pub(super) active_clip_rect_idx: Option<usize>,
 
+    scene_resources: SceneResources<'a>,
+
     scale_factor: WindowScaleFactor,
 }
 
-impl SceneContext {
+impl<'a> SceneContext<'a> {
     pub(super) fn new(
         scale_factor: WindowScaleFactor,
         transformations: TransformationList,
         clip_rects: ClipRectList,
+        scene_resources: SceneResources<'a>,
     ) -> Self {
         Self {
             shapes: Default::default(),
@@ -39,6 +45,7 @@ impl SceneContext {
             output: Default::default(),
             clip_rects,
             active_clip_rect_idx: Default::default(),
+            scene_resources,
         }
     }
 
@@ -110,5 +117,9 @@ impl SceneContext {
     /// If egui is running in a browser, the same tab will be reused.
     pub fn open_url(&mut self, url: impl ToString) {
         self.output.open_url(url)
+    }
+
+    pub fn resources(&mut self) -> &mut SceneResources<'a> {
+        &mut self.scene_resources
     }
 }

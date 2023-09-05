@@ -3,8 +3,8 @@ use crate::{
     graphics::PushVertices,
     math::{PhysicalPos, PhysicalRect, PhysicalSize, Pos, Rect, Size},
     shape::BoxShaderVertex,
-    texture::{TextureManagerError, TextureManagerRef, TextureRef},
-    util::text::{FontSystem, FontSystemRef, GlyphContentType, PlacedTextBox},
+    texture::{TextureManagerError, TextureManagerRef, TextureRef, TextureWeakRef},
+    util::text::{AtlasContentType, FontSystem, FontSystemRef, PlacedTextBox},
 };
 
 use std::{
@@ -20,7 +20,7 @@ use itertools::Itertools;
 use palette::{Alpha, IntoColor};
 use rayon::prelude::*;
 
-use etagere::{AllocId, Allocation as EtagereAllocation, BucketedAtlasAllocator};
+use etagere::{AllocId as EtagereAllocId, Allocation as EtagereAllocation, BucketedAtlasAllocator};
 use rustc_hash::FxHashMap;
 use shrinkwraprs::Shrinkwrap;
 use swash::scale::ScaleContext;
@@ -44,12 +44,12 @@ pub struct GlyphToRender {
     // clip_rect: Option<PhysicalRect>,
 }
 
-pub(crate) struct TextureAtlas {
+pub struct TextureAtlas {
     allocator: BucketedAtlasAllocator,
 
     texture_ref: TextureRef,
 
-    atlas_type: GlyphContentType,
+    atlas_type: AtlasContentType,
     width: i32,
     height: i32,
 
@@ -57,10 +57,10 @@ pub(crate) struct TextureAtlas {
 }
 
 impl TextureAtlas {
-    pub fn new(
+    fn new(
         context: &RenderingContext,
         texture_manager: &TextureManagerRef,
-        atlas_type: GlyphContentType,
+        atlas_type: AtlasContentType,
         width: u32,
         height: u32,
     ) -> Result<Self, TextureManagerError> {
@@ -84,8 +84,8 @@ impl TextureAtlas {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: match atlas_type {
-                GlyphContentType::Mask => wgpu::TextureFormat::R8Unorm,
-                GlyphContentType::Color => wgpu::TextureFormat::Rgba8UnormSrgb,
+                AtlasContentType::Mask => wgpu::TextureFormat::R8Unorm,
+                AtlasContentType::Color => wgpu::TextureFormat::Rgba8UnormSrgb,
             },
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
@@ -103,7 +103,7 @@ impl TextureAtlas {
         })
     }
 
-    pub fn try_allocate_space(&mut self, space: &PhysicalSize<u32>) -> Option<EtagereAllocation> {
+    fn try_allocate_space(&mut self, space: &PhysicalSize<u32>) -> Option<EtagereAllocation> {
         let space = PhysicalSize::new(space.width as i32, space.height as i32);
 
         if !self.can_fit(space) {
@@ -126,17 +126,22 @@ impl TextureAtlas {
     pub fn write_texture(
         &self,
         rendering_context: &RenderingContext,
-        alloc: &EtagereAllocation,
+        alloc: &impl HasAtlasAllocationId,
         image_data: &[u8],
-        image_placement: PhysicalSize<u32>,
+        // image_size: PhysicalSize<u32>,
     ) {
+        let rect = alloc.get_id().rect;
+
+        let image_width = rect.width() as u32;
+        let image_height = rect.height() as u32;
+
         rendering_context.queue.write_texture(
             wgpu::ImageCopyTexture {
                 texture: &self.texture_ref.texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d {
-                    x: alloc.rectangle.min.x as u32,
-                    y: alloc.rectangle.min.y as u32,
+                    x: rect.min.x as u32,
+                    y: rect.min.y as u32,
                     z: 0,
                 },
                 aspect: wgpu::TextureAspect::default(),
@@ -144,18 +149,18 @@ impl TextureAtlas {
             &image_data,
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: Some(image_placement.width * self.atlas_type.num_channels()),
+                bytes_per_row: (image_width * self.atlas_type.num_channels()).into(),
                 rows_per_image: None,
             },
             wgpu::Extent3d {
-                width: image_placement.width,
-                height: image_placement.height,
+                width: image_width,
+                height: image_height,
                 depth_or_array_layers: 1,
             },
         );
     }
 
-    pub fn deallocate_glyph(&mut self, alloc: AllocId) {
+    fn deallocate_glyph(&mut self, alloc: EtagereAllocId) {
         self.num_glyphs -= 1;
         self.allocator.deallocate(alloc);
     }
@@ -166,11 +171,11 @@ impl TextureAtlas {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub struct AtlasId(GlyphContentType, u32);
+pub struct AtlasId(AtlasContentType, u32);
 
 #[derive(Debug, Default)]
 struct DeallocationQueue {
-    inner: Arc<Mutex<VecDeque<(AtlasId, AllocId)>>>,
+    inner: Arc<Mutex<VecDeque<(AtlasId, EtagereAllocId)>>>,
 }
 
 impl DeallocationQueue {
@@ -178,7 +183,7 @@ impl DeallocationQueue {
         Self::default()
     }
 
-    pub fn drain(&self) -> Vec<(AtlasId, AllocId)> {
+    pub fn drain(&self) -> Vec<(AtlasId, EtagereAllocId)> {
         self.inner.lock().unwrap().drain(..).collect()
     }
 
@@ -191,55 +196,91 @@ impl DeallocationQueue {
 
 #[derive(Debug)]
 struct DeallocationQueueSender {
-    inner: Weak<Mutex<VecDeque<(AtlasId, AllocId)>>>,
+    inner: Weak<Mutex<VecDeque<(AtlasId, EtagereAllocId)>>>,
 }
 
 impl DeallocationQueueSender {
-    pub fn send(&self, data: (AtlasId, AllocId)) {
+    pub fn send(&self, data: (AtlasId, EtagereAllocId)) {
         if let Some(inner) = self.inner.upgrade() {
             inner.lock().unwrap().push_back(data);
         }
     }
 }
 
+pub trait HasAtlasAllocationId {
+    fn get_id(&self) -> AtlasAllocationId;
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct AtlasAllocationId {
+    pub(crate) atlas_id: AtlasId,
+    pub(crate) allocation: EtagereAllocation,
+    pub(crate) rect: PhysicalRect<i32>,
+}
+
+impl HasAtlasAllocationId for AtlasAllocationId {
+    fn get_id(&self) -> AtlasAllocationId {
+        *self
+    }
+}
+
 #[derive(Debug)]
 pub struct AtlasAllocation {
-    atlas_id: AtlasId,
-    allocation: EtagereAllocation,
+    pub(crate) alloc_id: AtlasAllocationId,
     deallocation_queue_sender: DeallocationQueueSender,
+    rect: PhysicalRect<i32>,
 }
 
 impl AtlasAllocation {
     fn new(
         atlas_id: AtlasId,
         allocation: EtagereAllocation,
+        rect: PhysicalRect<i32>,
         deallocation_queue_sender: DeallocationQueueSender,
     ) -> Self {
         Self {
-            atlas_id,
-            allocation,
             deallocation_queue_sender,
+            alloc_id: AtlasAllocationId {
+                atlas_id,
+                allocation,
+                rect,
+            },
+            rect,
         }
     }
 
-    fn rect(&self) -> PhysicalRect<i32> {
-        Rect::new(
-            Pos::new(
-                self.allocation.rectangle.min.x,
-                self.allocation.rectangle.min.y,
-            ),
-            Pos::new(
-                self.allocation.rectangle.max.x,
-                self.allocation.rectangle.max.y,
-            ),
-        )
+    #[inline(always)]
+    pub fn atlas_id(&self) -> AtlasId {
+        self.alloc_id.atlas_id
     }
+
+    #[inline(always)]
+    fn etagere_allocation(&self) -> EtagereAllocation {
+        self.alloc_id.allocation
+    }
+
+    #[inline(always)]
+    pub fn rect(&self) -> PhysicalRect<i32> {
+        self.rect
+    }
+
+    // // FIXME: make this return a reference
+    // #[inline(always)]
+    // pub fn get_id(&self) -> AtlasAllocationId {
+    //     self.alloc_id
+    // }
 }
 
 impl Drop for AtlasAllocation {
     fn drop(&mut self) {
         self.deallocation_queue_sender
-            .send((self.atlas_id, self.allocation.id))
+            .send((self.atlas_id(), self.etagere_allocation().id))
+    }
+}
+
+impl HasAtlasAllocationId for AtlasAllocation {
+    fn get_id(&self) -> AtlasAllocationId {
+        self.alloc_id
     }
 }
 
@@ -260,9 +301,22 @@ enum GlyphCacheEntry {
 type FontAtlasCollection = HashMap<AtlasId, TextureAtlas>;
 
 #[derive(Shrinkwrap, Clone)]
-pub(crate) struct TextureAtlasManagerRef(Arc<RwLock<TextureAtlasManager>>);
+pub struct TextureAtlasManagerRef(Arc<RwLock<TextureAtlasManager>>);
 
-pub(crate) struct TextureAtlasManager {
+impl From<Arc<RwLock<TextureAtlasManager>>> for TextureAtlasManagerRef {
+    #[inline(always)]
+    fn from(value: Arc<RwLock<TextureAtlasManager>>) -> Self {
+        Self(value)
+    }
+}
+
+impl From<TextureAtlasManager> for TextureAtlasManagerRef {
+    fn from(value: TextureAtlasManager) -> Self {
+        Self(Arc::new(RwLock::new(value)))
+    }
+}
+
+pub struct TextureAtlasManager {
     atlases: FontAtlasCollection,
 
     glyphs: FxHashMap<GlyphCacheKey, GlyphCacheEntry>,
@@ -276,7 +330,7 @@ pub(crate) struct TextureAtlasManager {
 }
 
 impl TextureAtlasManager {
-    pub fn new(rendering_context: Arc<RenderingContext>) -> Self {
+    pub(crate) fn new(rendering_context: Arc<RenderingContext>) -> Self {
         return Self {
             atlases: Default::default(),
 
@@ -291,7 +345,7 @@ impl TextureAtlasManager {
         };
     }
 
-    pub fn prepare<'a>(
+    pub(crate) fn prepare<'a>(
         &'a mut self,
         boxes: impl IntoIterator<Item = PlacedTextBox> + 'a,
         output: &'a mut impl PushVertices<BoxShaderVertex>,
@@ -314,7 +368,7 @@ impl TextureAtlasManager {
                         placement,
                         ..
                     })) => {
-                        if let Some(atlas) = self.get_atlas(&allocation.atlas_id) {
+                        if let Some(atlas) = self.get_atlas_by_id(&allocation.atlas_id()) {
                             let color = g.color;
 
                             // FIXME: scale this properly
@@ -344,7 +398,7 @@ impl TextureAtlasManager {
                             let (vertices, indices) = BoxShaderVertex::glyph_rect(
                                 draw_rect,
                                 uv,
-                                allocation.atlas_id.0,
+                                allocation.atlas_id().0,
                                 color,
                                 &atlas.texture_ref,
                             );
@@ -362,18 +416,22 @@ impl TextureAtlasManager {
             })
     }
 
-    fn get_atlas_mut(&mut self, id: &AtlasId) -> Option<&mut TextureAtlas> {
+    pub(crate) fn get_atlas_mut(&mut self, id: &AtlasId) -> Option<&mut TextureAtlas> {
         self.atlases.get_mut(id)
     }
 
-    fn get_atlas(&self, id: &AtlasId) -> Option<&TextureAtlas> {
+    pub(crate) fn get_atlas_by_id(&self, id: &AtlasId) -> Option<&TextureAtlas> {
         self.atlases.get(id)
+    }
+
+    pub fn get_atlas(&self, alloc: &impl HasAtlasAllocationId) -> &TextureAtlas {
+        self.get_atlas_by_id(&alloc.get_id().atlas_id).unwrap()
     }
 
     fn create_atlas(
         &mut self,
         texture_manager: &TextureManagerRef,
-        kind: GlyphContentType,
+        kind: AtlasContentType,
         size: u32,
     ) -> Result<AtlasId, TextureManagerError> {
         let size = u32::max(size, 512);
@@ -394,10 +452,10 @@ impl TextureAtlasManager {
         self.glyphs.contains_key(key)
     }
 
-    pub fn allocate_space(
+    pub fn allocate(
         &mut self,
         texture_manager: &TextureManagerRef,
-        kind: GlyphContentType,
+        kind: AtlasContentType,
         size: PhysicalSize<u32>,
     ) -> Option<AtlasAllocation> {
         self.atlases
@@ -409,10 +467,8 @@ impl TextureAtlasManager {
             .flatten()
             .next()
             .or_else(|| {
-                let new_dimensions = u32::max(size.width, size.height).next_power_of_2();
-                let atlas_id = self
-                    .create_atlas(texture_manager, kind, new_dimensions)
-                    .unwrap();
+                // let new_dimensions = u32::max(size.width, size.height).next_power_of_2();
+                let atlas_id = self.create_atlas(texture_manager, kind, 4096).unwrap();
 
                 match self.get_atlas_mut(&atlas_id) {
                     Some(atlas) => match atlas.try_allocate_space(&size) {
@@ -434,14 +490,22 @@ impl TextureAtlasManager {
                 }
             })
             .map(|(atlas_id, alloc)| {
-                AtlasAllocation::new(atlas_id, alloc, self.deallocation_queue.get_ref())
+                AtlasAllocation::new(
+                    atlas_id,
+                    alloc,
+                    Rect::from_min_size(
+                        Pos::new(alloc.rectangle.min.x, alloc.rectangle.min.y),
+                        size.map(|x| x as i32),
+                    ),
+                    self.deallocation_queue.get_ref(),
+                )
             })
     }
 
-    pub fn allocate_glyph(
+    pub(crate) fn allocate_glyph(
         &mut self,
         texture_manager: &TextureManagerRef,
-        kind: GlyphContentType,
+        kind: AtlasContentType,
         image: cosmic_text::SwashImage,
         cache_key: GlyphCacheKey,
     ) {
@@ -454,15 +518,15 @@ impl TextureAtlasManager {
         }
 
         let alloc = self
-            .allocate_space(texture_manager, kind, glyph_size)
+            .allocate(texture_manager, kind, glyph_size)
             .map(|allocation| {
-                let atlas = self.atlases.get(&allocation.atlas_id).unwrap();
+                let atlas = self.atlases.get(&allocation.atlas_id()).unwrap();
 
                 atlas.write_texture(
                     &self.rendering_context,
-                    &allocation.allocation,
+                    &allocation,
                     &image.data,
-                    Size::new(image.placement.width, image.placement.height),
+                    // Size::new(image.placement.width, image.placement.height),
                 );
 
                 allocation
@@ -475,7 +539,7 @@ impl TextureAtlasManager {
 
         match alloc {
             Some(alloc) => {
-                let alloc_id = alloc.allocation.atlas_id;
+                let alloc_id = alloc.allocation.atlas_id();
 
                 self.glyphs
                     .insert(cache_key, GlyphCacheEntry::GlyphAllocation(alloc));
@@ -486,7 +550,7 @@ impl TextureAtlasManager {
         }
     }
 
-    pub fn collect_garbage(&mut self) {
+    fn collect_garbage(&mut self) {
         let mut glyphs_to_remove: HashSet<_> = self.glyphs.keys().copied().collect();
         glyphs_to_remove.retain(|key| !self.used_glyphs_this_frame.contains(key));
 
@@ -501,18 +565,18 @@ impl TextureAtlasManager {
             }
         }
 
-        log::trace!(
-            "Atlas GC result: total number of atlases: {}, allocated glyphs: {}, total glyphs: {}",
-            self.atlases.len(),
-            self.glyphs.len(),
-            self.atlases.values().map(|x| x.num_glyphs).sum::<usize>()
-        )
+        // log::trace!(
+        //     "Atlas GC result: total number of atlases: {}, allocated glyphs: {}, total glyphs: {}",
+        //     self.atlases.len(),
+        //     self.glyphs.len(),
+        //     self.atlases.values().map(|x| x.num_glyphs).sum::<usize>()
+        // )
     }
 }
 
 pub struct FontManager {
     font_system: FontSystemRef,
-    atlas_manager: Arc<RwLock<TextureAtlasManager>>,
+    atlas_manager: TextureAtlasManagerRef,
     texture_manager: TextureManagerRef,
 }
 
@@ -523,11 +587,11 @@ impl FontManager {
     ) -> Self {
         let font_system = FontSystem::new().into();
 
-        let atlas_manager = TextureAtlasManager::new(rendering_context);
+        let atlas_manager = TextureAtlasManager::new(rendering_context).into();
 
         return Self {
             font_system,
-            atlas_manager: Arc::new(RwLock::new(atlas_manager)),
+            atlas_manager,
             texture_manager,
         };
     }
@@ -583,7 +647,7 @@ impl FontManager {
 
     fn generate_textures_worker(
         mut glyphs: HashSet<GlyphCacheKey>,
-        atlas_manager: Arc<RwLock<TextureAtlasManager>>,
+        atlas_manager: TextureAtlasManagerRef,
         font_system: FontSystemRef,
         texture_manager: TextureManagerRef,
     ) {
@@ -617,8 +681,8 @@ impl FontManager {
 
         for (cache_key, image) in results {
             if let Some(kind) = match image.content {
-                cosmic_text::SwashContent::Mask => Some(GlyphContentType::Mask),
-                cosmic_text::SwashContent::Color => Some(GlyphContentType::Color),
+                cosmic_text::SwashContent::Mask => Some(AtlasContentType::Mask),
+                cosmic_text::SwashContent::Color => Some(AtlasContentType::Color),
                 cosmic_text::SwashContent::SubpixelMask => {
                     debug_panic!("Found subpixel mask!");
                     None
@@ -651,6 +715,10 @@ impl FontManager {
                 Self::generate_textures_worker(glyphs, atlas_manager, font_system, texture_manager);
             });
         }
+    }
+
+    pub(crate) fn atlas_manager_ref(&self) -> TextureAtlasManagerRef {
+        self.atlas_manager.clone()
     }
 }
 

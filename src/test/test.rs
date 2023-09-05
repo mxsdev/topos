@@ -6,18 +6,23 @@ use lyon::{
 
 use crate::{
     accessibility::{AccessNodeBuilder, AccessRole, AsAccessRect},
+    atlas::AtlasAllocation,
     color::ColorRgba,
     element::transition::Transition,
     graphics::VertexBuffers,
     input::input_state::InputState,
     lib::Response,
-    math::{Pos, Rect, RoundedRect, Size, Vector},
+    math::{PhysicalSize, Pos, Rect, RoundedRect, Size, Vector},
     scene::{
         ctx::SceneContext,
         layout::{LayoutPassResult, Manual},
+        scene::SceneResources,
     },
-    shape::{PaintMesh, PaintRectangle},
-    util::svg::{svg_path_to_lyon, PosVertexBuffers, PosVertexCtor},
+    shape::{PaintFill, PaintMesh, PaintRectangle},
+    util::{
+        svg::{svg_path_to_lyon, PosVertexBuffers, PosVertexCtor},
+        text::AtlasContentType,
+    },
 };
 
 use crate::element::Element;
@@ -31,10 +36,12 @@ pub struct TestRect {
     transition: Transition,
 
     glyph_tris: PosVertexBuffers,
+
+    image_allocation: AtlasAllocation,
 }
 
 impl TestRect {
-    pub fn new(pos: Pos) -> Self {
+    pub fn new(resources: &mut SceneResources, pos: Pos) -> Self {
         let curve = BezierCurve::from(Vector2 { x: 0.62, y: 0. }, Vector2 { x: 0.43, y: 0.98 });
 
         let mut glyph_tris = VertexBuffers::new();
@@ -56,6 +63,29 @@ impl TestRect {
             )
             .unwrap();
 
+        let image_allocation = {
+            let mut atlas_manager = resources.texture_atlas_manager().write().unwrap();
+
+            let s = PhysicalSize::new(4, 3);
+
+            let image_allocation = atlas_manager
+                .allocate(resources.texture_manager(), AtlasContentType::Color, s)
+                .unwrap();
+
+            atlas_manager.get_atlas(&image_allocation).write_texture(
+                &resources.rendering_context_ref(),
+                &image_allocation,
+                &vec![
+                    //
+                    255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, //
+                    255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, //
+                    255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0,
+                ],
+            );
+
+            image_allocation
+        };
+
         Self {
             size: Size::new(180., 180.),
 
@@ -68,22 +98,28 @@ impl TestRect {
             transition: Transition::new(0.15).set_ease_func(curve),
 
             glyph_tris,
+
+            image_allocation,
         }
     }
 }
 
 impl Element for TestRect {
     fn ui(&mut self, ctx: &mut SceneContext, _rect: Rect) {
-        use palette::Mix;
-        let fill = ColorRgba::mix(
-            ColorRgba::new(1., 0., 0., 1.),
-            ColorRgba::new(0., 1., 0., 1.),
-            self.transition.fac(),
-        );
+        // use palette::Mix;
+        // let fill = ColorRgba::mix(
+        //     ColorRgba::new(1., 0., 0., 1.),
+        //     ColorRgba::new(0., 1., 0., 1.),
+        //     self.transition.fac(),
+        // );
 
         ctx.add_shape(
             PaintRectangle::from_rect(self.response.boundary)
-                .with_fill(fill)
+                .with_fill(PaintFill::from_atlas_allocation_uv(
+                    &self.image_allocation,
+                    Rect::new(Pos::new(1, 1), Pos::new(2, 1)),
+                    // Rect::new(Pos::new(1, 1), Pos::new(2, 1)),
+                ))
                 .with_stroke(ColorRgba::new(0., 0., 0., 1.), 1.)
                 .with_blur(30., ColorRgba::new(0., 0., 0., 0.75)),
         );

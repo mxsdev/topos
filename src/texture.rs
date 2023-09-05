@@ -14,7 +14,13 @@ use drain_filter_polyfill::VecExt;
 pub struct TextureRefInner {
     pub texture: wgpu::Texture,
     pub texture_view: wgpu::TextureView,
-    pub(crate) binding_idx: AtomicU32,
+    binding_idx: AtomicU32,
+}
+
+impl TextureRefInner {
+    pub(crate) fn get_binding_idx(&self) -> u32 {
+        self.binding_idx.load(Ordering::Relaxed)
+    }
 }
 
 #[derive(Clone, Debug, Shrinkwrap)]
@@ -22,7 +28,31 @@ pub struct TextureRef {
     pub inner: Arc<TextureRefInner>,
 }
 
-type TextureWeakRef = Weak<TextureRefInner>;
+impl From<Arc<TextureRefInner>> for TextureRef {
+    #[inline(always)]
+    fn from(value: Arc<TextureRefInner>) -> Self {
+        Self { inner: value }
+    }
+}
+
+#[derive(Clone, Debug, Shrinkwrap)]
+pub(crate) struct TextureWeakRef {
+    inner: Weak<TextureRefInner>,
+}
+
+impl From<Weak<TextureRefInner>> for TextureWeakRef {
+    #[inline(always)]
+    fn from(value: Weak<TextureRefInner>) -> Self {
+        Self { inner: value }
+    }
+}
+
+impl TextureWeakRef {
+    #[inline]
+    pub(crate) fn upgrade(&self) -> Option<TextureRef> {
+        self.inner.upgrade().map(Into::into)
+    }
+}
 
 impl TextureRef {
     fn new(
@@ -41,8 +71,8 @@ impl TextureRef {
         }
     }
 
-    fn get_weak_ref(&self) -> TextureWeakRef {
-        Arc::downgrade(&self.inner)
+    pub(crate) fn get_weak_ref(&self) -> TextureWeakRef {
+        Arc::downgrade(&self.inner).into()
     }
 
     pub fn texture(&self) -> &wgpu::Texture {
@@ -120,6 +150,10 @@ impl TextureManager {
         let dummy_texture_view = dummy_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            // address_mode_u: wgpu::AddressMode::MirrorRepeat,
+            // address_mode_v: wgpu::AddressMode::MirrorRepeat,
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
@@ -199,7 +233,7 @@ impl TextureManager {
         let textures_to_allocate = self
             .textures
             .iter()
-            .map(Weak::upgrade)
+            .map(TextureWeakRef::upgrade)
             .flatten()
             .collect_vec();
 

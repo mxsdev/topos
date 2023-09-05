@@ -1,25 +1,33 @@
 use serde::Serialize;
 
 use crate::{
-    color::ColorRgba,
+    atlas::{
+        AtlasAllocation, AtlasAllocationId, HasAtlasAllocationId, TextureAtlasManager,
+        TextureAtlasManagerRef,
+    },
+    color::{ColorRgba, ColorSrgba},
     graphics::{DynamicGPUBuffer, DynamicGPUMeshTriBuffer, Mesh, PushVertices, VertexBuffers},
-    math::{CoordinateTransform, PhysicalPos, Pos, RoundedRect, ScaleFactor, WindowScaleFactor},
+    math::{
+        CoordinateTransform, PhysicalPos, PhysicalRect, PhysicalSize, Pos, RoundedRect,
+        ScaleFactor, WindowScaleFactor,
+    },
     surface::ParamsBuffer,
     texture::{TextureManagerRef, TextureRef},
     util::{
         svg::PosVertexBuffers,
         template::{HandlebarsTemplater, Templater},
-        text::{GlyphContentType, PlacedTextBox},
+        text::{AtlasContentType, PlacedTextBox},
         PhysicalUnit,
     },
 };
 
 use std::{
+    borrow::Borrow,
     fmt::Debug,
     marker::PhantomData,
     num::NonZeroU64,
     ops::{Mul, Range},
-    sync::atomic::Ordering,
+    sync::{atomic::Ordering, Arc, RwLock},
 };
 
 use num_traits::{Float, Num};
@@ -317,6 +325,7 @@ pub enum FillMode {
     Color,
     Texture,
     TextureMaskColor,
+    // TODO: allow specifying two textures: one for color, one for mask
 }
 
 unsafe impl bytemuck::Zeroable for FillMode {}
@@ -391,24 +400,39 @@ impl WgpuDescriptor<14> for BoxShaderVertex {
 }
 
 impl BoxShaderVertex {
-    pub fn from_paint_rect(paint_rect: PaintRectangle) -> (impl Iterator<Item = [Self; 4]>, u64) {
-        let fill_rect = paint_rect
-            .fill
-            .map(|f| Self::from_rect_stroked(paint_rect.rounded_rect, f, None, None));
+    pub(crate) fn from_paint_rect(
+        atlas_manager: &TextureAtlasManagerRef,
+        paint_rect: PaintRectangle,
+    ) -> (impl Iterator<Item = [Self; 4]>, u64) {
+        let fill_rect = paint_rect.fill.map(|f| {
+            Self::from_rect_stroked(&atlas_manager, paint_rect.rounded_rect, f, None, None)
+        });
 
         let stroke_rect =
             paint_rect
                 .stroke_color
                 .zip(paint_rect.stroke_width)
                 .map(|(color, width)| {
-                    Self::from_rect_stroked(paint_rect.rounded_rect, color, Some(width), None)
+                    Self::from_rect_stroked(
+                        &atlas_manager,
+                        paint_rect.rounded_rect,
+                        color,
+                        Some(width),
+                        None,
+                    )
                 });
 
         let blur_rect = paint_rect.blur.map(
             |PaintBlur {
                  blur_radius, color, ..
              }| {
-                Self::from_rect_stroked(paint_rect.rounded_rect, color, None, Some(blur_radius))
+                Self::from_rect_stroked(
+                    &atlas_manager,
+                    paint_rect.rounded_rect,
+                    color,
+                    None,
+                    Some(blur_radius),
+                )
             },
         );
 
@@ -432,17 +456,17 @@ impl BoxShaderVertex {
     pub(crate) fn glyph_rect(
         rect: Rect<f32>,
         uv: Rect<u32, PhysicalUnit>,
-        glyph_type: GlyphContentType, // TODO: texture id
+        glyph_type: AtlasContentType, // TODO: texture id
         color: ColorRgba,
         texture_ref: &TextureRef,
     ) -> ([Self; 4], [u16; 6]) {
         let color: [f32; 4] = color.into();
 
-        let binding_idx = texture_ref.binding_idx.load(Ordering::Relaxed);
+        let binding_idx = texture_ref.get_binding_idx();
 
         let fill_mode = match glyph_type {
-            GlyphContentType::Color => FillMode::Texture,
-            GlyphContentType::Mask => FillMode::TextureMaskColor,
+            AtlasContentType::Color => FillMode::Texture,
+            AtlasContentType::Mask => FillMode::TextureMaskColor,
         };
 
         return (
@@ -489,8 +513,9 @@ impl BoxShaderVertex {
     }
 
     fn from_rect_stroked(
+        atlas_manager: &TextureAtlasManagerRef,
         rounded_rect: RoundedRect<f32>,
-        color: ColorRgba,
+        color: PaintFill,
         stroke_width: Option<f32>,
         blur_radius: Option<f32>,
     ) -> [Self; 4] {
@@ -503,63 +528,121 @@ impl BoxShaderVertex {
 
         let dims = rect.max - origin;
 
-        let color: [f32; 4] = color.into();
+        let (color, binding_idx, fill_mode, uv) = match color {
+            PaintFill::Color(color) => (
+                color,
+                Default::default(),
+                FillMode::Color,
+                Default::default(),
+            ),
+            PaintFill::Texture(_) => todo!(),
+            PaintFill::TextureAtlas(alloc, uv) => {
+                let binding_idx = atlas_manager
+                    .read()
+                    .unwrap()
+                    .get_atlas_by_id(&alloc.atlas_id)
+                    .unwrap()
+                    .get_texture_ref()
+                    .get_binding_idx();
+
+                let alloc_rect = alloc.rect;
+
+                let mut uv_rect = alloc_rect;
+
+                if let Some(uv) = uv {
+                    println!(
+                        "original: {:?},\n\tprovided: {:?}\n\ttranslated: {:?}\n\tintersection: {:?}",
+                        uv_rect,
+                        uv,
+                        uv.translate(uv_rect.min.to_vector()),
+                        uv_rect.intersection(&uv.translate(uv_rect.min.to_vector()))
+                    );
+
+                    uv_rect = uv_rect
+                        .intersection(&(uv.translate(uv_rect.min.to_vector())))
+                        .unwrap_or_default();
+                }
+
+                // let uv_rect = PhysicalRect::new(Pos::new(0, 0), Pos::new(4096, 4096));
+                println!("stroked rect uv: {:?}", uv_rect);
+
+                (
+                    ColorRgba::default(),
+                    binding_idx,
+                    FillMode::Texture,
+                    uv_rect.map(|x| x as u32),
+                )
+            }
+        };
+
+        let color = color.into();
+
         let stroke_width = stroke_width.unwrap_or(0.);
         let blur_radius = blur_radius.unwrap_or(0.);
 
         let origin = origin.into();
 
+        let atlas_idx = binding_idx;
+
         return [
             Self {
                 shape_type: ShapeType::Rectangle,
-                fill_mode: FillMode::Color,
+                fill_mode,
                 origin,
                 pos: [rect.min.x, rect.min.y],
+                uv: [uv.min.x, uv.min.y],
                 dims: [dims.x, dims.y],
                 color,
                 depth: 0.,
                 rounding: radius.unwrap_or(0.),
                 stroke_width,
                 blur_radius,
+                atlas_idx,
                 ..Default::default()
             },
             Self {
                 shape_type: ShapeType::Rectangle,
-                fill_mode: FillMode::Color,
+                fill_mode,
                 origin,
                 pos: [rect.max.x, rect.min.y],
+                uv: [uv.max.x, uv.min.y],
                 dims: [dims.x, dims.y],
                 color,
                 depth: 0.,
                 rounding: radius.unwrap_or(0.),
                 stroke_width,
                 blur_radius,
+                atlas_idx,
                 ..Default::default()
             },
             Self {
                 shape_type: ShapeType::Rectangle,
-                fill_mode: FillMode::Color,
+                fill_mode,
                 origin,
                 pos: [rect.min.x, rect.max.y],
+                uv: [uv.min.x, uv.max.y],
                 dims: [dims.x, dims.y],
                 color,
                 depth: 0.,
                 rounding: radius.unwrap_or(0.),
                 stroke_width,
                 blur_radius,
+                atlas_idx,
                 ..Default::default()
             },
             Self {
                 shape_type: ShapeType::Rectangle,
-                fill_mode: FillMode::Color,
+                fill_mode,
                 origin,
                 pos: [rect.max.x, rect.max.y],
+                uv: [uv.max.x, uv.max.y],
                 dims: [dims.x, dims.y],
                 color,
                 depth: 0.,
                 rounding: radius.unwrap_or(0.),
                 stroke_width,
                 blur_radius,
+                atlas_idx,
                 ..Default::default()
             },
         ];
@@ -657,18 +740,28 @@ impl ClipRectList {
     }
 }
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Debug)]
 pub struct PaintBlur<F = f32, U = LogicalUnit> {
     pub blur_radius: F,
-    pub color: ColorRgba,
+    pub color: PaintFill,
     _unit: PhantomData<U>,
 }
 
+impl<F: Default, U> Default for PaintBlur<F, U> {
+    fn default() -> Self {
+        Self {
+            blur_radius: Default::default(),
+            color: PaintFill::Color(Default::default()),
+            _unit: Default::default(),
+        }
+    }
+}
+
 impl<F: Float, U> PaintBlur<F, U> {
-    pub fn new(blur_radius: F, color: ColorRgba) -> Self {
+    pub fn new(blur_radius: F, color: impl Into<PaintFill>) -> Self {
         Self {
             blur_radius,
-            color,
+            color: color.into(),
             _unit: PhantomData,
         }
     }
@@ -687,12 +780,69 @@ impl<T: Copy + Mul, U1, U2> Mul<ScaleFactor<T, U1, U2>> for PaintBlur<T, U1> {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct TextureFill {
+    binding_idx: u32,
+    uv: PhysicalRect<u32>,
+}
+
+#[derive(Clone, Debug)]
+pub enum PaintFill {
+    Color(ColorRgba),
+    Texture(TextureFill),
+    TextureAtlas(AtlasAllocationId, Option<PhysicalRect<i32>>),
+}
+
+impl From<ColorRgba> for PaintFill {
+    fn from(value: ColorRgba) -> Self {
+        Self::Color(value)
+    }
+}
+
+impl PaintFill {
+    #[inline(always)]
+    pub fn from_atlas_allocation(alloc: &AtlasAllocation) -> Self {
+        Self::TextureAtlas(alloc.get_id(), None)
+    }
+
+    #[inline(always)]
+    pub fn from_atlas_allocation_uv(alloc: &AtlasAllocation, uv: PhysicalRect<i32>) -> Self {
+        Self::TextureAtlas(alloc.get_id(), uv.into())
+    }
+
+    #[inline(always)]
+    pub fn from_texture(texture: &TextureRef, uv: PhysicalRect<u32>) -> Self {
+        Self::Texture(TextureFill {
+            binding_idx: texture.get_binding_idx(),
+            uv,
+        })
+    }
+
+    #[inline(always)]
+    pub fn from_entire_texture(texture: &TextureRef) -> Self {
+        Self::Texture(TextureFill {
+            binding_idx: texture.get_binding_idx(),
+            uv: PhysicalRect::new(
+                Pos::zero(),
+                Pos::new(texture.texture.width(), texture.texture.height()),
+            ),
+        })
+    }
+}
+
+impl From<&AtlasAllocation> for PaintFill {
+    #[inline(always)]
+    fn from(value: &AtlasAllocation) -> Self {
+        Self::from_atlas_allocation(value)
+    }
+}
+
 // TODO: adopt builder pattern (with `impl` args)
 #[derive(Clone, Default, Debug)]
 pub struct PaintRectangle<F = f32, U = LogicalUnit> {
     pub rounded_rect: RoundedRect<F, U>,
-    pub fill: Option<ColorRgba>,
-    pub stroke_color: Option<ColorRgba>,
+    pub fill: Option<PaintFill>,
+    pub stroke_color: Option<PaintFill>,
     pub stroke_width: Option<F>,
     pub blur: Option<PaintBlur<F, U>>,
 }
@@ -733,7 +883,7 @@ impl<F, U> PaintRectangle<F, U> {
     }
 
     #[inline]
-    pub fn with_fill(mut self, fill_color: impl Into<ColorRgba>) -> Self {
+    pub fn with_fill(mut self, fill_color: impl Into<PaintFill>) -> Self {
         self.fill = fill_color.into().into();
         self
     }
@@ -745,7 +895,7 @@ impl<F, U> PaintRectangle<F, U> {
     }
 
     #[inline]
-    pub fn with_stroke_color(mut self, stroke_color: impl Into<ColorRgba>) -> Self {
+    pub fn with_stroke_color(mut self, stroke_color: impl Into<PaintFill>) -> Self {
         self.stroke_color = stroke_color.into().into();
         self
     }
@@ -759,7 +909,7 @@ impl<F, U> PaintRectangle<F, U> {
     #[inline]
     pub fn with_stroke(
         self,
-        stroke_color: impl Into<ColorRgba>,
+        stroke_color: impl Into<PaintFill>,
         stroke_width: impl Into<F>,
     ) -> Self {
         self.with_stroke_width(stroke_width)
@@ -792,7 +942,7 @@ impl<F, U> PaintRectangle<F, U> {
     }
 
     #[inline]
-    pub fn with_blur_color(mut self, color: impl Into<ColorRgba>) -> Self
+    pub fn with_blur_color(mut self, color: impl Into<PaintFill>) -> Self
     where
         F: Default,
         U: Default,

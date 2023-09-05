@@ -22,6 +22,7 @@
  - [x] Include clip rectangle in shader vertex data
  - [x] Affine transformations
  - [x] Move all device pixel ratio logic to the shader
+ - [ ] Text culling w/ clip rects
  - [ ] Image fill textures with `TextureRef`
  - [ ] Text resolution
  - [ ] Support multiple rounded clip rects / clip rect intersection

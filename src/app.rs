@@ -1,4 +1,9 @@
-use crate::{surface::RenderTarget, texture::TextureManagerRef, util::min};
+use crate::{
+    math::{Pos, Rect},
+    surface::RenderTarget,
+    texture::TextureManagerRef,
+    util::{min, PhysicalUnit},
+};
 use core::panic;
 
 use raw_window_handle::{AppKitWindowHandle, HasRawDisplayHandle, HasRawWindowHandle};
@@ -187,6 +192,17 @@ impl<Root: RootConstructor + 'static> App<Root> {
     }
 
     pub async fn new(event_loop: &ToposEventLoop) -> Self {
+        println!(
+            "{:?}",
+            Rect::<i32, PhysicalUnit>::new(Pos::new(3968, 0), Pos::new(3972, 3))
+                .intersection_unchecked(&Rect::<i32, PhysicalUnit>::new(
+                    Pos::new(3969, 1),
+                    Pos::new(3970, 1),
+                ))
+        );
+
+        panic!();
+
         let mut builder = WindowBuilder::new();
 
         #[cfg(target_os = "macos")]
