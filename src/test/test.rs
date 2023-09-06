@@ -75,20 +75,7 @@ impl TestRect {
             atlas_manager.get_atlas(&image_allocation).write_texture(
                 &resources.rendering_context_ref(),
                 &image_allocation,
-                (&vec![
-                    // 255u8, 255, 255, 255, 0, 0, 0,
-                    // 255,
-                    0xFF, 0xEC, 0xD2, 0xFF, 0xFC, 0xB6, 0x9F,
-                    0xFF,
-                    // half::f16::from_f32(1.),
-                    // half::f16::from_f32(1.),
-                    // half::f16::from_f32(1.),
-                    // half::f16::from_f32(1.),
-                    // half::f16::from_f32(0.),
-                    // half::f16::from_f32(0.),
-                    // half::f16::from_f32(0.),
-                    // half::f16::from_f32(1.),
-                ]),
+                &[0xFF, 0xEC, 0xD2, 0xFF, 0xFC, 0xB6, 0x9F, 0xFF],
             );
 
             image_allocation
