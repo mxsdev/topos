@@ -345,7 +345,8 @@ pub struct BoxShaderVertex {
     origin: [f32; 2],
 
     uv: [f32; 2],
-    atlas_idx: u32,
+    atlas_idx_alt: u16,
+    atlas_idx: u16,
 
     color: [f32; 4],
 
@@ -462,7 +463,7 @@ impl BoxShaderVertex {
     ) -> ([Self; 4], [u16; 6]) {
         let color: [f32; 4] = color.into();
 
-        let binding_idx = texture_ref.get_binding_idx();
+        let binding_idx = texture_ref.get_binding_idx() as u16;
 
         let fill_mode = match glyph_type {
             AtlasContentType::Color => FillMode::Texture,
@@ -572,7 +573,7 @@ impl BoxShaderVertex {
 
         let origin = origin.into();
 
-        let atlas_idx = binding_idx;
+        let atlas_idx = binding_idx as u16;
 
         return [
             Self {

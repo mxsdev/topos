@@ -8,6 +8,7 @@ const shapeMesh = 1;
 const fillModeColor = 0;
 const fillModeTexture = 1;
 const fillModeTextureMaskColor = 2;
+const fillModeTextureMaskTexture = 2;
 
 struct Params {
     screen_resolution: vec2<u32>,
@@ -63,17 +64,18 @@ struct VertexOutput {
 
     @location(6) uv: vec2<f32>,
     @location(7) atlas_idx: u32,
+    @location(8) atlas_idx_alt: u32,
 
-    @location(8) color: vec4<f32>,
+    @location(9) color: vec4<f32>,
 
-    @location(9) rounding: f32,
-    @location(10) stroke_width: f32,
-    @location(11) blur_radius: f32,
+    @location(10) rounding: f32,
+    @location(11) stroke_width: f32,
+    @location(12) blur_radius: f32,
 
-    @location(12) @interpolate(flat) clip_rect_idx: u32,
-    @location(13) original_pos: vec2<f32>,
+    @location(14) @interpolate(flat) clip_rect_idx: u32,
+    @location(15) original_pos: vec2<f32>,
 
-    @location(14) scale_factor: f32,
+    @location(16) scale_factor: f32,
 };
 
 var<private> pi: f32 = 3.141592653589793;
@@ -178,7 +180,8 @@ fn vs_main(
 
     var out_pos = vertex_in.pos;
 
-    vertex_out.atlas_idx = vertex_in.atlas_idx;
+    vertex_out.atlas_idx = vertex_in.atlas_idx & u32(0xFFFF);
+    vertex_out.atlas_idx_alt = vertex_in.atlas_idx >> 16u;
 
     var tex_dims: vec2<u32>;
     switch (vertex_in.atlas_idx) {
@@ -273,38 +276,61 @@ fn toSrgb(linear: vec4<f32>) -> vec4<f32>
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var col = in.color;
 
+    var mask_atlas = in.atlas_idx;
+    var do_mask_texture = false;
+
+    var color_atlas = in.atlas_idx;
+    var do_color_texture = false;
+
     switch (in.fillMode) {
         case 0u: { // fillModeColor
 
         }
 
         case 1u: { // fillModeTexture
-            switch (in.atlas_idx) {
-                {{#times num_atlas_textures}}
-                case {{index}}u: {
-                    col = textureSampleLevel(atlas_texture_{{index}}, atlas_sampler, in.uv, 0.0);
-                    col = toLinear(col);
-                }
-                {{/times}}
-
-                default: { }
-            }
+            do_color_texture = true;
         }
 
         case 2u: { // fillModeTextureMaskColor
-            switch (in.atlas_idx) {
-                {{#times num_atlas_textures}}
-                case {{index}}u: {
-                    var alpha = textureSampleLevel(atlas_texture_{{index}}, atlas_sampler, in.uv, 0.0).x;
-                    col = vec4<f32>(col.rgb, in.color.a * alpha);
-                }
-                {{/times}}
+            do_mask_texture = true;
+        }
 
-                default: { }
-            }
+        case 3u: { // fillModeTextureMaskTexture
+            do_color_texture = true;
+            do_mask_texture = true;
+
+            color_atlas = in.atlas_idx_alt;
         }
 
         default: { }
+    }
+
+    if do_color_texture {
+        switch (color_atlas) {
+            {{#times num_atlas_textures}}
+            case {{index}}u: {
+                col = textureSampleLevel(atlas_texture_{{index}}, atlas_sampler, in.uv, 0.0);
+                col = toLinear(col);
+            }
+            {{/times}}
+
+            default: { }
+        }
+    }
+
+    if do_mask_texture {
+        // return vec4<f32>(1., 1., 0., 1.);
+        
+        switch (mask_atlas) {
+            {{#times num_atlas_textures}}
+            case {{index}}u: {
+                var alpha = textureSampleLevel(atlas_texture_{{index}}, atlas_sampler, in.uv, 0.0).x;
+                col = vec4<f32>(col.rgb, in.color.a * alpha);
+            }
+            {{/times}}
+
+            default: { }
+        }
     }
 
     var alpha: f32 = col.a;
