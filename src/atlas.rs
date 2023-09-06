@@ -149,7 +149,10 @@ impl TextureAtlas {
             &image_data,
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: (image_width * self.atlas_type.num_channels()).into(),
+                bytes_per_row: (image_width
+                    * self.atlas_type.num_channels()
+                    * self.atlas_type.bytes_per_channel())
+                .into(),
                 rows_per_image: None,
             },
             wgpu::Extent3d {

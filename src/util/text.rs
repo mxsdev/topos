@@ -27,9 +27,16 @@ pub enum AtlasContentType {
 }
 
 impl AtlasContentType {
-    pub fn num_channels(&self) -> u32 {
+    pub const fn num_channels(&self) -> u32 {
         match self {
             AtlasContentType::Color => 4,
+            AtlasContentType::Mask => 1,
+        }
+    }
+
+    pub const fn bytes_per_channel(&self) -> u32 {
+        match self {
+            AtlasContentType::Color => 1,
             AtlasContentType::Mask => 1,
         }
     }

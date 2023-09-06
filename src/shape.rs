@@ -344,7 +344,7 @@ pub struct BoxShaderVertex {
     dims: [f32; 2],
     origin: [f32; 2],
 
-    uv: [u32; 2],
+    uv: [f32; 2],
     atlas_idx: u32,
 
     color: [f32; 4],
@@ -377,7 +377,7 @@ impl WgpuDescriptor<14> for BoxShaderVertex {
         5 => Float32x2,
 
         // uv
-        6 => Uint32x2,
+        6 => Float32x2,
         // atlas_idx
         7 => Uint32,
 
@@ -469,6 +469,8 @@ impl BoxShaderVertex {
             AtlasContentType::Mask => FillMode::TextureMaskColor,
         };
 
+        let uv = uv.map(|x| x as f32);
+
         return (
             [
                 Self {
@@ -547,30 +549,18 @@ impl BoxShaderVertex {
 
                 let alloc_rect = alloc.rect;
 
-                let mut uv_rect = alloc_rect;
+                let mut uv_rect = alloc_rect.map(|x| x as f32);
 
                 if let Some(uv) = uv {
-                    println!(
-                        "original: {:?},\n\tprovided: {:?}\n\ttranslated: {:?}\n\tintersection: {:?}",
-                        uv_rect,
-                        uv,
-                        uv.translate(uv_rect.min.to_vector()),
-                        uv_rect.intersection(&uv.translate(uv_rect.min.to_vector()))
-                    );
-
-                    uv_rect = uv_rect
-                        .intersection(&(uv.translate(uv_rect.min.to_vector())))
-                        .unwrap_or_default();
+                    uv_rect =
+                        uv_rect.intersection_unchecked(&(uv.translate(uv_rect.min.to_vector())))
                 }
-
-                // let uv_rect = PhysicalRect::new(Pos::new(0, 0), Pos::new(4096, 4096));
-                println!("stroked rect uv: {:?}", uv_rect);
 
                 (
                     ColorRgba::default(),
                     binding_idx,
                     FillMode::Texture,
-                    uv_rect.map(|x| x as u32),
+                    uv_rect,
                 )
             }
         };
@@ -783,14 +773,14 @@ impl<T: Copy + Mul, U1, U2> Mul<ScaleFactor<T, U1, U2>> for PaintBlur<T, U1> {
 #[derive(Clone, Debug)]
 pub struct TextureFill {
     binding_idx: u32,
-    uv: PhysicalRect<u32>,
+    uv: PhysicalRect<f32>,
 }
 
 #[derive(Clone, Debug)]
 pub enum PaintFill {
     Color(ColorRgba),
     Texture(TextureFill),
-    TextureAtlas(AtlasAllocationId, Option<PhysicalRect<i32>>),
+    TextureAtlas(AtlasAllocationId, Option<PhysicalRect<f32>>),
 }
 
 impl From<ColorRgba> for PaintFill {
@@ -806,12 +796,12 @@ impl PaintFill {
     }
 
     #[inline(always)]
-    pub fn from_atlas_allocation_uv(alloc: &AtlasAllocation, uv: PhysicalRect<i32>) -> Self {
+    pub fn from_atlas_allocation_uv(alloc: &AtlasAllocation, uv: PhysicalRect<f32>) -> Self {
         Self::TextureAtlas(alloc.get_id(), uv.into())
     }
 
     #[inline(always)]
-    pub fn from_texture(texture: &TextureRef, uv: PhysicalRect<u32>) -> Self {
+    pub fn from_texture(texture: &TextureRef, uv: PhysicalRect<f32>) -> Self {
         Self::Texture(TextureFill {
             binding_idx: texture.get_binding_idx(),
             uv,
@@ -824,7 +814,7 @@ impl PaintFill {
             binding_idx: texture.get_binding_idx(),
             uv: PhysicalRect::new(
                 Pos::zero(),
-                Pos::new(texture.texture.width(), texture.texture.height()),
+                Pos::new(texture.texture.width(), texture.texture.height()).map(|x| x as f32),
             ),
         })
     }

@@ -182,6 +182,7 @@ impl RenderSurface {
             .filter(|f| f.is_srgb())
             .next()
             .unwrap_or(surface_caps.formats[0]);
+
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: texture_format,

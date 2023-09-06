@@ -20,6 +20,7 @@ etagere = "0.2.7"
 euclid = "0.22.9"
 float_next_after = "1.0.0"
 futures = "0.3.28"
+half = { version = "2.3.1", features = [ "bytemuck" ] }
 handlebars = "4.3.7"
 instant = "0.1"
 itertools = "0.10.5"

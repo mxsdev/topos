@@ -66,7 +66,7 @@ impl TestRect {
         let image_allocation = {
             let mut atlas_manager = resources.texture_atlas_manager().write().unwrap();
 
-            let s = PhysicalSize::new(4, 3);
+            let s = PhysicalSize::new(2, 1);
 
             let image_allocation = atlas_manager
                 .allocate(resources.texture_manager(), AtlasContentType::Color, s)
@@ -75,12 +75,20 @@ impl TestRect {
             atlas_manager.get_atlas(&image_allocation).write_texture(
                 &resources.rendering_context_ref(),
                 &image_allocation,
-                &vec![
-                    //
-                    255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, //
-                    255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, //
-                    255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0,
-                ],
+                (&vec![
+                    // 255u8, 255, 255, 255, 0, 0, 0,
+                    // 255,
+                    0xFF, 0xEC, 0xD2, 0xFF, 0xFC, 0xB6, 0x9F,
+                    0xFF,
+                    // half::f16::from_f32(1.),
+                    // half::f16::from_f32(1.),
+                    // half::f16::from_f32(1.),
+                    // half::f16::from_f32(1.),
+                    // half::f16::from_f32(0.),
+                    // half::f16::from_f32(0.),
+                    // half::f16::from_f32(0.),
+                    // half::f16::from_f32(1.),
+                ]),
             );
 
             image_allocation
@@ -117,8 +125,8 @@ impl Element for TestRect {
             PaintRectangle::from_rect(self.response.boundary)
                 .with_fill(PaintFill::from_atlas_allocation_uv(
                     &self.image_allocation,
-                    Rect::new(Pos::new(1, 1), Pos::new(2, 1)),
-                    // Rect::new(Pos::new(1, 1), Pos::new(2, 1)),
+                    // Rect::new(Pos::new(2. - 0.5, 1.), Pos::new(3. - 0.5, 2.)),
+                    Rect::new(Pos::new(0.5, 0.5), Pos::new(1.5, 0.5)),
                 ))
                 .with_stroke(ColorRgba::new(0., 0., 0., 1.), 1.)
                 .with_blur(30., ColorRgba::new(0., 0., 0., 0.75)),
