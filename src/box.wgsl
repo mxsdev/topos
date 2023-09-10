@@ -129,6 +129,76 @@ fn roundedBoxShadow(halfSize: vec2<f32>, _pt: vec2<f32>, sigma: f32, corner: f32
     return value;
 }
 
+// color space transformations
+
+// Constants
+var<private> HCV_EPSILON: f32 = 1e-10;
+var<private> HSL_EPSILON: f32 = 1e-10;
+var<private> HCY_EPSILON: f32 = 1e-10;
+
+// var<private> SRGB_GAMMA: f32 = 1.0 / 2.2;
+var<private> SRGB_GAMMA: f32 = 0.45454545454;
+var<private> SRGB_INVERSE_GAMMA: f32 = 2.2;
+var<private> SRGB_ALPHA: f32 = 0.055;
+
+// Converts from pure Hue to linear RGB
+fn hue_to_rgb(hue: f32) -> vec3<f32>
+{
+    var R = abs(hue * 6.0 - 3.0) - 1.0;
+    var G = 2.0 - abs(hue * 6.0 - 2.0);
+    var B = 2.0 - abs(hue * 6.0 - 4.0);
+    return clamp(vec3(R,G,B), vec3<f32>(0.), vec3<f32>(1.));
+}
+
+// Converts a value from linear RGB to HCV (Hue, Chroma, Value)
+fn rgb_to_hcv(rgb: vec3<f32>) -> vec3<f32>
+{
+    // Based on work by Sam Hocevar and Emil Persson
+    var P = select(vec4(rgb.gb, 0.0, -1.0/3.0), vec4(rgb.bg, -1.0, 2.0/3.0), rgb.g < rgb.b);
+    // vec4 Q = (rgb.r < P.x) ? vec4(P.xyw, rgb.r) : vec4(rgb.r, P.yzx);
+    var Q = select(vec4(rgb.r, P.yzx), vec4(P.xyw, rgb.r), rgb.r < P.x);
+    var C = Q.x - min(Q.w, Q.y);
+    var H = abs((Q.w - Q.y) / (6.0 * C + HCV_EPSILON) + Q.z);
+    return vec3<f32>(H, C, Q.x);
+}
+
+// Converts from linear RGB to HSV
+fn rgb_to_hsv(rgb: vec3<f32>) -> vec3<f32>
+{
+    var HCV = rgb_to_hcv(rgb);
+    var S = HCV.y / (HCV.z + HCV_EPSILON);
+    return vec3<f32>(HCV.x, S, HCV.z);
+}
+
+// Converts from HSV to linear RGB
+fn hsv_to_rgb(hsv: vec3<f32>) -> vec3<f32>
+{
+    var rgb = hue_to_rgb(hsv.x);
+    return ((rgb - vec3<f32>(1.0)) * hsv.y + vec3<f32>(1.0)) * hsv.z;
+}
+
+// Converts from linear rgb to HSL
+fn rgb_to_hsl(rgb: vec3<f32>) -> vec3<f32>
+{
+    // vec3 HCV = rgb_to_hcv(rgb);
+    var HCV = rgb_to_hcv(rgb);
+    // float L = HCV.z - HCV.y * 0.5;
+    var L = HCV.z - HCV.y * 0.5;
+    // float S = HCV.y / (1.0 - abs(L * 2.0 - 1.0) + HSL_EPSILON);
+    var S = HCV.y / (1.0 - abs(L * 2.0 - 1.0) + HSL_EPSILON);
+    // return vec3(HCV.x, S, L);
+    return vec3<f32>(HCV.x, S, L);
+}
+
+// Converts a single srgb channel to rgb
+fn srgb_to_linear(channel: f32) -> f32 {
+    if (channel <= 0.04045) {
+        return channel / 12.92;
+    } else {
+        return pow((channel + SRGB_ALPHA) / (1.0 + SRGB_ALPHA), 2.4);
+    }
+}
+
 @group(0) @binding(0)
 var<uniform> params: Params;
 
@@ -180,11 +250,11 @@ fn vs_main(
 
     var out_pos = vertex_in.pos;
 
-    vertex_out.atlas_idx = vertex_in.atlas_idx & u32(0xFFFF);
-    vertex_out.atlas_idx_alt = vertex_in.atlas_idx >> 16u;
+    vertex_out.atlas_idx = vertex_in.atlas_idx >> 16u;
+    vertex_out.atlas_idx_alt = vertex_in.atlas_idx & u32(0xFFFF);
 
     var tex_dims: vec2<u32>;
-    switch (vertex_in.atlas_idx) {
+    switch (vertex_out.atlas_idx) {
         {{#times num_atlas_textures}}
         case {{index}}u: {
             tex_dims = textureDimensions(atlas_texture_{{index}});
@@ -194,9 +264,9 @@ fn vs_main(
         default: { }
     }
 
-    let scale_fac = determinant(transformation);
-
     vertex_out.uv = vertex_in.uv / vec2<f32>(tex_dims);
+
+    let scale_fac = determinant(transformation);
 
     switch (vertex_in.shapeType) {
         case 0u: { // shapeRect
@@ -309,8 +379,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         switch (color_atlas) {
             {{#times num_atlas_textures}}
             case {{index}}u: {
-                col = textureSampleLevel(atlas_texture_{{index}}, atlas_sampler, in.uv, 0.0);
-                col = toLinear(col);
+                var sampled_col = textureSampleLevel(atlas_texture_{{index}}, atlas_sampler, in.uv, 0.0);
+
+                // for some reason, the hue/saturation are linear, but the value is sRGB
+                // so we need to convert it to linear like so
+                var sampled_hsv = rgb_to_hsv(sampled_col.rgb);
+                var col_fixed = hsv_to_rgb(vec3<f32>(sampled_hsv.x, sampled_hsv.y, srgb_to_linear(sampled_hsv.z)));
+
+                col = vec4<f32>(col_fixed, sampled_col.a);
             }
             {{/times}}
 
@@ -319,8 +395,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     if do_mask_texture {
-        // return vec4<f32>(1., 1., 0., 1.);
-        
         switch (mask_atlas) {
             {{#times num_atlas_textures}}
             case {{index}}u: {
@@ -393,6 +467,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     var res = vec4<f32>(col.rgb, alpha);
 
-    // return res;
-    return toSrgb(res);
+    return res;
 }
+
+// 24 x 16
