@@ -22,9 +22,11 @@
  - [x] Include clip rectangle in shader vertex data
  - [x] Affine transformations
  - [x] Move all device pixel ratio logic to the shader
+ - [ ] Text rendering alignment & edge clipping
  - [ ] Text culling w/ clip rects
- - [ ] Image fill textures with `TextureRef`
+ - [x] Image fill textures with `TextureRef`
  - [ ] Text resolution
+ - [ ] Text render-ahead
  - [ ] Support multiple rounded clip rects / clip rect intersection
  - [ ] Render engine throughput optimizations (store & diff buffers by widget)
  - [ ] Sharp box strokes
@@ -40,14 +42,14 @@
 
 ## not priority 
 
- - [ ] Image support
- - [ ] Rounded clip rects
+ - [x] Image support
+ - [x] Rounded clip rects
  - [ ] Move away from MSAA
  - [ ] Move away from Tessellation for glyphs/strokes
  - [ ] Improve framepacing (better statistical determination of render times)
  - [ ] WASM
  - [ ] Rewrite layout logic (without taffy)
- - [ ] Border color macos
+ - [x] Border color macos
 
 ## Components
  - [ ] Scrolling
