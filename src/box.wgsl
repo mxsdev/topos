@@ -336,29 +336,6 @@ fn sdSmoothStep(dist: f32) -> f32 {
 //     return min(max(q, vec<f32>(0.)))
 // }
 
-// Converts a color from sRGB gamma to linear light gamma
-fn toLinear(sRGB: vec4<f32>) -> vec4<f32>
-{
-    return vec4<f32>(pow(sRGB.rgb, vec3<f32>(2.2)), sRGB.a);
-    
-    // var cutoff = sRGB < vec3<f32>(0.04045);
-    // var higher = pow((sRGB + vec3<f32>(0.055))/vec3<f32>(1.055), vec3<f32>(2.4));
-    // var lower = sRGB/vec3<f32>(12.92);
-
-    // return mix(higher, lower, cutoff);
-}
-
-fn toSrgb(linear: vec4<f32>) -> vec4<f32>
-{
-    return vec4<f32>(pow(linear.rgb, vec3<f32>(1.0/2.2)), linear.a);
-    
-    // var cutoff = linear < vec3<f32>(0.0031308);
-    // var higher = vec3<f32>(1.055) * pow(linear, vec3<f32>(1.0/2.4)) - vec3<f32>(0.055);
-    // var lower = linear * vec3<f32>(12.92);
-
-    // return mix(higher, lower, cutoff);
-}
-
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var col = in.color;
