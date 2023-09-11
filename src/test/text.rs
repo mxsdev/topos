@@ -5,10 +5,12 @@ use std::{
 
 use crate::{
     accessibility::{AccessNodeBuilder, AccessRole},
+    atlas::AtlasAllocation,
     color::ColorRgba,
-    math::Pos,
+    math::{PhysicalSize, Pos},
     scene::layout::{measure_func_boxed, AvailableSpace, FlexBox, LayoutPassResult, Measurable},
-    util::text::{FontSystemRef, TextBox},
+    shape::PaintFill,
+    util::text::{AtlasContentType, FontSystemRef, TextBox},
 };
 
 use crate::util::text::{Attrs, Metrics};
@@ -50,6 +52,8 @@ pub struct TextBoxElement {
 
     text: String,
     attrs: Attrs<'static>,
+
+    image: AtlasAllocation,
 }
 
 struct TextBoxMeasureFunc {
@@ -123,6 +127,29 @@ impl TextBoxElement {
         text: String,
         attrs: Attrs<'static>,
     ) -> Self {
+        let image_allocation = {
+            let mut atlas_manager = scene_resources.texture_atlas_manager().write().unwrap();
+
+            let s = PhysicalSize::new(2, 1);
+
+            let image_allocation = atlas_manager
+                .allocate(
+                    scene_resources.texture_manager(),
+                    AtlasContentType::Color,
+                    s,
+                )
+                .unwrap();
+
+            atlas_manager.get_atlas(&image_allocation).write_texture(
+                &scene_resources.rendering_context_ref(),
+                &image_allocation,
+                &[0xFF, 0xEC, 0xD2, 0xFF, 0xFC, 0xB6, 0x9F, 0xFF],
+                // &[0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
+            );
+
+            image_allocation
+        };
+
         let buffer = {
             let mut font_system = scene_resources.font_system();
 
@@ -130,7 +157,10 @@ impl TextBoxElement {
                 &mut font_system,
                 metrics.font_size,
                 metrics.line_height,
-                color,
+                PaintFill::from_atlas_allocation_uv(
+                    &image_allocation,
+                    Rect::new(Pos::new(0.5, 0.5), Pos::new(1.5, 0.5)),
+                ),
             );
 
             buffer.set_text(&mut font_system, &text, attrs);
@@ -161,6 +191,7 @@ impl TextBoxElement {
             buffer,
             logical_metrics: metrics,
             layout_node,
+            image: image_allocation,
         }
     }
 }

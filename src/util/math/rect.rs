@@ -422,6 +422,12 @@ where
     }
 
     #[inline]
+    #[must_use]
+    pub fn map_points<R, UP>(self, f: impl Fn(Pos<T, U>) -> Pos<R, UP>) -> Rect<R, UP> {
+        Rect::new(f(self.min), f(self.max))
+    }
+
+    #[inline]
     pub fn scale<S: Copy>(&self, x: S, y: S) -> Self
     where
         T: Mul<S, Output = T>,

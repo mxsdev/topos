@@ -47,6 +47,8 @@ struct VertexInput {
     @location(12) clip_rect_idx: u32,
 
     @location(13) transformation_idx: u32,
+
+    @location(14) uv_alt: vec2<f32>,
 }
 
 struct VertexOutput {
@@ -76,6 +78,8 @@ struct VertexOutput {
     @location(15) original_pos: vec2<f32>,
 
     @location(16) scale_factor: f32,
+
+    @location(17) uv_alt: vec2<f32>,
 };
 
 var<private> pi: f32 = 3.141592653589793;
@@ -266,6 +270,19 @@ fn vs_main(
 
     vertex_out.uv = vertex_in.uv / vec2<f32>(tex_dims);
 
+    var tex_dims_alt: vec2<u32>;
+    switch (vertex_out.atlas_idx_alt) {
+        {{#times num_atlas_textures}}
+        case {{index}}u: {
+            tex_dims_alt = textureDimensions(atlas_texture_{{index}});
+        }
+        {{/times}}
+
+        default: { }
+    }
+
+    vertex_out.uv_alt = vertex_in.uv_alt / vec2<f32>(tex_dims_alt);
+
     let scale_fac = determinant(transformation);
 
     switch (vertex_in.shapeType) {
@@ -347,9 +364,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var col = in.color;
 
     var mask_atlas = in.atlas_idx;
+    var mask_uv = in.uv;
     var do_mask_texture = false;
 
     var color_atlas = in.atlas_idx;
+    var color_uv = in.uv;
     var do_color_texture = false;
 
     switch (in.fillMode) {
@@ -370,6 +389,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             do_mask_texture = true;
 
             color_atlas = in.atlas_idx_alt;
+            color_uv = in.uv_alt;
         }
 
         default: { }
@@ -379,7 +399,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         switch (color_atlas) {
             {{#times num_atlas_textures}}
             case {{index}}u: {
-                var sampled_col = textureSampleLevel(atlas_texture_{{index}}, atlas_sampler, in.uv, 0.0);
+                var sampled_col = textureSampleLevel(atlas_texture_{{index}}, atlas_sampler, color_uv, 0.0);
 
                 // for some reason, the hue/saturation are linear, but the value is sRGB
                 // so we need to convert it to linear like so
@@ -398,8 +418,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         switch (mask_atlas) {
             {{#times num_atlas_textures}}
             case {{index}}u: {
-                var alpha = textureSampleLevel(atlas_texture_{{index}}, atlas_sampler, in.uv, 0.0).x;
-                col = vec4<f32>(col.rgb, in.color.a * alpha);
+                var alpha = textureSampleLevel(atlas_texture_{{index}}, atlas_sampler, mask_uv, 0.0).x;
+                col = vec4<f32>(col.rgb, col.a * alpha);
             }
             {{/times}}
 

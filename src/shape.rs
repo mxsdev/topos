@@ -2,18 +2,19 @@ use serde::Serialize;
 
 use crate::{
     atlas::{
-        AtlasAllocation, AtlasAllocationId, HasAtlasAllocationId, TextureAtlasManager,
-        TextureAtlasManagerRef,
+        AtlasAllocation, AtlasAllocationId, HasAtlasAllocationId, TextureAtlas,
+        TextureAtlasManager, TextureAtlasManagerRef,
     },
     color::{ColorRgba, ColorSrgba},
     graphics::{DynamicGPUBuffer, DynamicGPUMeshTriBuffer, Mesh, PushVertices, VertexBuffers},
     math::{
         CoordinateTransform, PhysicalPos, PhysicalRect, PhysicalSize, Pos, RoundedRect,
-        ScaleFactor, WindowScaleFactor,
+        ScaleFactor, Size, Vector, WindowScaleFactor,
     },
     surface::ParamsBuffer,
     texture::{TextureManagerRef, TextureRef},
     util::{
+        guard::ReadLockable,
         svg::PosVertexBuffers,
         template::{HandlebarsTemplater, Templater},
         text::{AtlasContentType, PlacedTextBox},
@@ -26,7 +27,7 @@ use std::{
     fmt::Debug,
     marker::PhantomData,
     num::NonZeroU64,
-    ops::{Mul, Range},
+    ops::{Deref, Mul, Range},
     sync::{atomic::Ordering, Arc, RwLock},
 };
 
@@ -325,7 +326,7 @@ pub enum FillMode {
     Color,
     Texture,
     TextureMaskColor,
-    // TODO: allow specifying two textures: one for color, one for mask
+    TextureMaskTexture,
 }
 
 unsafe impl bytemuck::Zeroable for FillMode {}
@@ -357,10 +358,12 @@ pub struct BoxShaderVertex {
     clip_rect_idx: u32,
 
     transform_idx: u32,
+
+    uv_alt: [f32; 2],
 }
 
-impl WgpuDescriptor<14> for BoxShaderVertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 14] = wgpu::vertex_attr_array![
+impl WgpuDescriptor<15> for BoxShaderVertex {
+    const ATTRIBS: [wgpu::VertexAttribute; 15] = wgpu::vertex_attr_array![
         // shape_type
         0 => Uint32,
         // fill_mode
@@ -397,10 +400,158 @@ impl WgpuDescriptor<14> for BoxShaderVertex {
 
         // transform_idx
         13 => Uint32,
+
+        // uv_alt
+        14 => Float32x2,
     ];
 }
 
+#[derive(Default)]
+struct BoxShaderVertexFill {
+    color: [f32; 4],
+    atlas_idx: u16,
+    atlas_idx_alt: u16,
+    uv: PhysicalRect,
+    uv_alt: PhysicalRect,
+    fill_mode: FillMode,
+}
+
+impl BoxShaderVertexFill {
+    #[inline]
+    fn new(
+        atlas_manager: impl ReadLockable<TextureAtlasManager>,
+        fill: PaintFill,
+        main_texture: Option<(&TextureRef, PhysicalRect, AtlasContentType)>,
+        uv_mask: Option<Rect>,
+    ) -> Self {
+        let mut res = Self::default();
+
+        let main_texture = main_texture.map(|(tex, uv, ty)| (tex.get_binding_idx() as u16, uv, ty));
+
+        let mut atlas_idx_target = &mut res.atlas_idx;
+        let mut uv_target = &mut res.uv;
+
+        if let Some((binding_idx, uv, _)) = main_texture {
+            *atlas_idx_target = binding_idx;
+            atlas_idx_target = &mut res.atlas_idx_alt;
+
+            *uv_target = uv.into();
+            uv_target = &mut res.uv_alt;
+        }
+
+        match fill {
+            PaintFill::Color(color) => {
+                res.color = color.into();
+                res.fill_mode = FillMode::Color;
+            }
+            PaintFill::Texture(_) => todo!(),
+            PaintFill::TextureAtlas(alloc, uv) => {
+                let binding_idx = atlas_manager
+                    .borrow()
+                    .read_lock()
+                    .get_atlas_by_id(&alloc.atlas_id)
+                    .unwrap()
+                    .get_texture_ref()
+                    .get_binding_idx();
+
+                let alloc_rect = alloc.rect;
+
+                let mut uv_rect = alloc_rect.map(|x| x as f32);
+
+                if let Some(uv) = uv {
+                    uv_rect =
+                        uv_rect.intersection_unchecked(&(uv.translate(uv_rect.min.to_vector())))
+                }
+
+                if let Some(uv_mask) = uv_mask {
+                    let uv_rect_size = uv_rect.size();
+
+                    uv_rect = Rect::new(
+                        Pos::new(
+                            uv_rect.min.x + uv_rect_size.width * uv_mask.min.x,
+                            uv_rect.min.y + uv_rect_size.height * uv_mask.min.y,
+                        ),
+                        Pos::new(
+                            uv_rect.min.x + uv_rect_size.width * uv_mask.max.x,
+                            uv_rect.min.y + uv_rect_size.height * uv_mask.max.y,
+                        ),
+                    );
+                }
+
+                *atlas_idx_target = binding_idx as u16;
+                res.fill_mode = FillMode::Texture;
+                *uv_target = uv_rect.into();
+            }
+        };
+
+        res.fill_mode = match (main_texture, res.fill_mode) {
+            (Some((_, _, AtlasContentType::Mask)), FillMode::Color) => FillMode::TextureMaskColor,
+            (Some((_, _, AtlasContentType::Mask)), FillMode::Texture) => {
+                FillMode::TextureMaskTexture
+            }
+
+            (Some((_, _, AtlasContentType::Color)), FillMode::Color) => FillMode::Texture,
+            (Some((_, _, AtlasContentType::Color)), FillMode::Texture) => {
+                FillMode::TextureMaskTexture
+            }
+
+            (Some(_), _) => panic!("Invalid texture type"),
+
+            (None, _) => res.fill_mode,
+        };
+
+        res
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum RectPosition {
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
+const RECT_POSITIONS: [RectPosition; 4] = [
+    RectPosition::TopLeft,
+    RectPosition::TopRight,
+    RectPosition::BottomLeft,
+    RectPosition::BottomRight,
+];
+
+const RECT_INDICES: [u16; 6] = [0, 1, 2, 1, 2, 3];
+
+#[inline(always)]
+fn rect_vertex<T: Copy, U>(rect: &Rect<T, U>, pos: RectPosition) -> [T; 2] {
+    match pos {
+        RectPosition::TopLeft => [rect.min.x, rect.min.y],
+        RectPosition::TopRight => [rect.max.x, rect.min.y],
+        RectPosition::BottomLeft => [rect.min.x, rect.max.y],
+        RectPosition::BottomRight => [rect.max.x, rect.max.y],
+    }
+}
+
 impl BoxShaderVertex {
+    #[inline]
+    fn with_fill(mut self, fill: &BoxShaderVertexFill, idx: RectPosition) -> Self {
+        self.color = fill.color;
+        self.atlas_idx = fill.atlas_idx;
+        self.atlas_idx_alt = fill.atlas_idx_alt;
+        self.fill_mode = fill.fill_mode;
+
+        self.uv = rect_vertex(&fill.uv, idx);
+        self.uv_alt = rect_vertex(&fill.uv_alt, idx);
+
+        self
+    }
+
+    #[inline]
+    fn with_position(mut self, pos: &Rect, idx: RectPosition) -> Self {
+        self.pos = rect_vertex(pos, idx);
+
+        self
+    }
+
     pub(crate) fn from_paint_rect(
         atlas_manager: &TextureAtlasManagerRef,
         paint_rect: PaintRectangle,
@@ -455,70 +606,45 @@ impl BoxShaderVertex {
     }
 
     pub(crate) fn glyph_rect(
+        atlas_manager: impl ReadLockable<TextureAtlasManager>,
         rect: Rect<f32>,
         uv: Rect<u32, PhysicalUnit>,
         glyph_type: AtlasContentType, // TODO: texture id
-        color: ColorRgba,
+        fill: impl Into<PaintFill>,
         texture_ref: &TextureRef,
+        box_rect: Rect<f32>,
     ) -> ([Self; 4], [u16; 6]) {
-        let color: [f32; 4] = color.into();
+        let uv_mask = box_rect.intersection(&rect).map(|r| {
+            r.map_points(|x| {
+                let v = x - box_rect.min.to_vector();
+                Pos::new(v.x / box_rect.width(), v.y / box_rect.height())
+            })
+        });
 
-        let binding_idx = texture_ref.get_binding_idx() as u16;
-
-        let fill_mode = match glyph_type {
-            AtlasContentType::Color => FillMode::Texture,
-            AtlasContentType::Mask => FillMode::TextureMaskColor,
-        };
-
-        let uv = uv.map(|x| x as f32);
+        let fill = BoxShaderVertexFill::new(
+            atlas_manager,
+            fill.into(),
+            Some((texture_ref, uv.map(|x| x as f32), glyph_type)),
+            uv_mask,
+        );
 
         return (
-            [
+            RECT_POSITIONS.map(|idx| {
                 Self {
                     shape_type: ShapeType::Mesh,
-                    fill_mode,
-                    pos: [rect.min.x, rect.min.y],
-                    uv: [uv.min.x, uv.min.y],
-                    color,
-                    atlas_idx: binding_idx,
                     ..Default::default()
-                },
-                Self {
-                    shape_type: ShapeType::Mesh,
-                    fill_mode,
-                    pos: [rect.max.x, rect.min.y],
-                    uv: [uv.max.x, uv.min.y],
-                    color,
-                    atlas_idx: binding_idx,
-                    ..Default::default()
-                },
-                Self {
-                    shape_type: ShapeType::Mesh,
-                    fill_mode,
-                    pos: [rect.min.x, rect.max.y],
-                    uv: [uv.min.x, uv.max.y],
-                    color,
-                    atlas_idx: binding_idx,
-                    ..Default::default()
-                },
-                Self {
-                    shape_type: ShapeType::Mesh,
-                    fill_mode,
-                    pos: [rect.max.x, rect.max.y],
-                    uv: [uv.max.x, uv.max.y],
-                    color,
-                    atlas_idx: binding_idx,
-                    ..Default::default()
-                },
-            ],
-            [0, 1, 2, 1, 2, 3],
+                }
+                .with_fill(&fill, idx)
+                .with_position(&rect, idx)
+            }),
+            RECT_INDICES,
         );
     }
 
     fn from_rect_stroked(
         atlas_manager: &TextureAtlasManagerRef,
         rounded_rect: RoundedRect<f32>,
-        color: PaintFill,
+        color: impl Into<PaintFill>,
         stroke_width: Option<f32>,
         blur_radius: Option<f32>,
     ) -> [Self; 4] {
@@ -527,116 +653,32 @@ impl BoxShaderVertex {
             radius,
         } = rounded_rect;
 
+        let rounding = radius.unwrap_or(0.);
+
         let origin = rect.center();
 
         let dims = rect.max - origin;
-
-        let (color, binding_idx, fill_mode, uv) = match color {
-            PaintFill::Color(color) => (
-                color,
-                Default::default(),
-                FillMode::Color,
-                Default::default(),
-            ),
-            PaintFill::Texture(_) => todo!(),
-            PaintFill::TextureAtlas(alloc, uv) => {
-                let binding_idx = atlas_manager
-                    .read()
-                    .unwrap()
-                    .get_atlas_by_id(&alloc.atlas_id)
-                    .unwrap()
-                    .get_texture_ref()
-                    .get_binding_idx();
-
-                let alloc_rect = alloc.rect;
-
-                let mut uv_rect = alloc_rect.map(|x| x as f32);
-
-                if let Some(uv) = uv {
-                    uv_rect =
-                        uv_rect.intersection_unchecked(&(uv.translate(uv_rect.min.to_vector())))
-                }
-
-                (
-                    ColorRgba::default(),
-                    binding_idx,
-                    FillMode::Texture,
-                    uv_rect,
-                )
-            }
-        };
-
-        let color = color.into();
 
         let stroke_width = stroke_width.unwrap_or(0.);
         let blur_radius = blur_radius.unwrap_or(0.);
 
         let origin = origin.into();
 
-        let atlas_idx = binding_idx as u16;
+        let fill = BoxShaderVertexFill::new(atlas_manager, color.into(), None, None);
 
-        return [
+        return RECT_POSITIONS.map(|idx| {
             Self {
                 shape_type: ShapeType::Rectangle,
-                fill_mode,
                 origin,
-                pos: [rect.min.x, rect.min.y],
-                uv: [uv.min.x, uv.min.y],
                 dims: [dims.x, dims.y],
-                color,
-                depth: 0.,
-                rounding: radius.unwrap_or(0.),
+                rounding,
                 stroke_width,
                 blur_radius,
-                atlas_idx,
                 ..Default::default()
-            },
-            Self {
-                shape_type: ShapeType::Rectangle,
-                fill_mode,
-                origin,
-                pos: [rect.max.x, rect.min.y],
-                uv: [uv.max.x, uv.min.y],
-                dims: [dims.x, dims.y],
-                color,
-                depth: 0.,
-                rounding: radius.unwrap_or(0.),
-                stroke_width,
-                blur_radius,
-                atlas_idx,
-                ..Default::default()
-            },
-            Self {
-                shape_type: ShapeType::Rectangle,
-                fill_mode,
-                origin,
-                pos: [rect.min.x, rect.max.y],
-                uv: [uv.min.x, uv.max.y],
-                dims: [dims.x, dims.y],
-                color,
-                depth: 0.,
-                rounding: radius.unwrap_or(0.),
-                stroke_width,
-                blur_radius,
-                atlas_idx,
-                ..Default::default()
-            },
-            Self {
-                shape_type: ShapeType::Rectangle,
-                fill_mode,
-                origin,
-                pos: [rect.max.x, rect.max.y],
-                uv: [uv.max.x, uv.max.y],
-                dims: [dims.x, dims.y],
-                color,
-                depth: 0.,
-                rounding: radius.unwrap_or(0.),
-                stroke_width,
-                blur_radius,
-                atlas_idx,
-                ..Default::default()
-            },
-        ];
+            }
+            .with_fill(&fill, idx)
+            .with_position(&rect, idx)
+        });
     }
 }
 
@@ -771,13 +813,13 @@ impl<T: Copy + Mul, U1, U2> Mul<ScaleFactor<T, U1, U2>> for PaintBlur<T, U1> {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct TextureFill {
     binding_idx: u32,
     uv: PhysicalRect<f32>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum PaintFill {
     Color(ColorRgba),
     Texture(TextureFill),

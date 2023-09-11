@@ -4,6 +4,7 @@ pub use markers::*;
 mod traits;
 pub use traits::*;
 
+pub mod guard;
 pub mod layout;
 pub mod math;
 pub mod svg;

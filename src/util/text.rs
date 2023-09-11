@@ -15,6 +15,7 @@ pub use cosmic_text::{
 use crate::{
     color::{ColorRgba, FromCosmicTextColor},
     math::{Pos, Rect, RoundedRect, ScaleFactor, Size, Vector},
+    shape::PaintFill,
 };
 
 use super::LogicalUnit;
@@ -81,7 +82,7 @@ pub struct PlacedGlyph<U = LogicalUnit> {
     pub line_offset: f32,
     pub cache_key: GlyphCacheKey,
     pub depth: f32,
-    pub color: ColorRgba,
+    pub color: PaintFill,
     _unit: PhantomData<U>,
 }
 
@@ -110,7 +111,7 @@ impl<U> PlacedGlyph<U> {
     fn from_layout_glyph(
         glyph: &cosmic_text::LayoutGlyph,
         line_offset: f32,
-        default_color: ColorRgba,
+        default_color: impl Into<PaintFill>,
     ) -> Self {
         Self {
             x_int: glyph.x_int as f32,
@@ -121,7 +122,8 @@ impl<U> PlacedGlyph<U> {
             color: glyph
                 .color_opt
                 .map(ColorRgba::from_cosmic)
-                .unwrap_or(default_color),
+                .map(Into::into)
+                .unwrap_or_else(|| default_color.into()),
             _unit: PhantomData,
         }
     }
@@ -166,7 +168,7 @@ pub struct PlacedTextBox<U = LogicalUnit> {
     pub glyphs: Vec<PlacedGlyph<U>>,
     pub clip_rect: Option<RoundedRect<f32, U>>,
     pub pos: Pos<f32, U>,
-    pub color: ColorRgba,
+    pub color: PaintFill,
     pub scale_fac: f32,
     pub bounding_size: Size<f32, U>,
 }
@@ -175,7 +177,7 @@ impl<U> PlacedTextBox<U> {
     pub fn new(
         glyphs: Vec<PlacedGlyph<U>>,
         pos: Pos<f32, U>,
-        color: ColorRgba,
+        color: impl Into<PaintFill>,
         clip_rect: Option<RoundedRect<f32, U>>,
         scale_fac: f32,
         bounding_size: Size<f32, U>,
@@ -184,7 +186,7 @@ impl<U> PlacedTextBox<U> {
             glyphs,
             clip_rect,
             pos,
-            color,
+            color: color.into(),
             scale_fac,
             bounding_size,
         }
@@ -208,7 +210,7 @@ impl<U> PlacedTextBox<U> {
 pub struct TextBox<U = LogicalUnit> {
     #[shrinkwrap(main_field)]
     pub buffer: cosmic_text::Buffer,
-    pub color: ColorRgba,
+    pub color: PaintFill,
     _unit: PhantomData<U>,
 }
 
@@ -217,14 +219,14 @@ impl<U> TextBox<U> {
         font_system: &mut FontSystem,
         font_size: f32,
         line_height: f32,
-        color: ColorRgba,
+        color: impl Into<PaintFill>,
     ) -> Self {
         Self {
             buffer: cosmic_text::Buffer::new(
                 font_system,
                 cosmic_text::Metrics::new(font_size, line_height),
             ),
-            color,
+            color: color.into(),
             _unit: PhantomData,
         }
     }

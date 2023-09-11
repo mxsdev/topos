@@ -4,13 +4,19 @@ use crate::{
     math::{PhysicalPos, PhysicalRect, PhysicalSize, Pos, Rect, Size},
     shape::BoxShaderVertex,
     texture::{TextureManagerError, TextureManagerRef, TextureRef, TextureWeakRef},
-    util::text::{AtlasContentType, FontSystem, FontSystemRef, PlacedTextBox},
+    util::{
+        guard::{ReadLockable, WritableLock, WriteLockable},
+        text::{AtlasContentType, FontSystem, FontSystemRef, PlacedTextBox},
+    },
 };
 
 use std::{
+    borrow::{Borrow, BorrowMut},
     cell::RefCell,
     collections::{HashMap, HashSet, VecDeque},
     hash::Hash,
+    ops::Deref,
+    ops::DerefMut,
     sync::{Arc, Mutex, RwLock, Weak},
 };
 
@@ -319,6 +325,18 @@ impl From<TextureAtlasManager> for TextureAtlasManagerRef {
     }
 }
 
+impl ReadLockable<TextureAtlasManager> for &TextureAtlasManagerRef {
+    fn read_lock(&self) -> crate::util::guard::ReadableLock<'_, TextureAtlasManager> {
+        self.0.deref().read_lock()
+    }
+}
+
+impl WriteLockable<TextureAtlasManager> for &TextureAtlasManagerRef {
+    fn write_lock(&mut self) -> crate::util::guard::WritableLock<'_, TextureAtlasManager> {
+        WritableLock::Rw(self.0.deref().write().unwrap())
+    }
+}
+
 pub struct TextureAtlasManager {
     atlases: FontAtlasCollection,
 
@@ -356,12 +374,17 @@ impl TextureAtlasManager {
         boxes
             .into_iter()
             .flat_map(move |text_box| {
-                text_box
-                    .glyphs
-                    .into_iter()
-                    .map(move |g| (g, text_box.clip_rect, text_box.pos, text_box.scale_fac))
+                text_box.glyphs.into_iter().map(move |g| {
+                    (
+                        g,
+                        text_box.clip_rect,
+                        text_box.pos,
+                        text_box.scale_fac,
+                        text_box.bounding_size,
+                    )
+                })
             })
-            .filter_map(|(g, clip_rect, pos, scale_fac)| {
+            .filter_map(|(g, clip_rect, pos, scale_fac, bounding_size)| {
                 let alloc = self.glyphs.get(&g.cache_key);
 
                 match alloc {
@@ -396,14 +419,15 @@ impl TextureAtlasManager {
 
                             let alloc_pos = Pos::new(uv.min.x as u32, uv.min.y as u32);
                             let uv = PhysicalRect::new(alloc_pos, alloc_pos + *size);
-                            let color = color.into();
 
                             let (vertices, indices) = BoxShaderVertex::glyph_rect(
+                                self as &TextureAtlasManager,
                                 draw_rect,
                                 uv,
                                 allocation.atlas_id().0,
                                 color,
                                 &atlas.texture_ref,
+                                Rect::from_min_size(pos, bounding_size),
                             );
 
                             output.push_vertices(vertices, indices);
@@ -650,7 +674,7 @@ impl FontManager {
 
     fn generate_textures_worker(
         mut glyphs: HashSet<GlyphCacheKey>,
-        atlas_manager: TextureAtlasManagerRef,
+        mut atlas_manager: impl WriteLockable<TextureAtlasManager> + Sync,
         font_system: FontSystemRef,
         texture_manager: TextureManagerRef,
     ) {
@@ -663,7 +687,7 @@ impl FontManager {
 
         let results: Vec<(GlyphCacheKey, cosmic_text::SwashImage)> = drain_iter
             .map(|cache_key| {
-                if atlas_manager.read().unwrap().has_glyph(&cache_key) {
+                if atlas_manager.read_lock().has_glyph(&cache_key) {
                     return None;
                 }
 
@@ -691,12 +715,9 @@ impl FontManager {
                     None
                 }
             } {
-                atlas_manager.write().unwrap().allocate_glyph(
-                    &texture_manager,
-                    kind,
-                    image,
-                    cache_key,
-                );
+                atlas_manager
+                    .write_lock()
+                    .allocate_glyph(&texture_manager, kind, image, cache_key);
             }
         }
     }
@@ -715,7 +736,12 @@ impl FontManager {
         #[cfg(not(target_arch = "wasm32"))]
         {
             std::thread::spawn(move || {
-                Self::generate_textures_worker(glyphs, atlas_manager, font_system, texture_manager);
+                Self::generate_textures_worker(
+                    glyphs,
+                    &atlas_manager,
+                    font_system,
+                    texture_manager,
+                );
             });
         }
     }
