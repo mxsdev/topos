@@ -91,9 +91,13 @@ impl<U> PlacedGlyph<U> {
         scale_fac: ScaleFactor<f32, UnitFrom, U>,
         text_box_pos: Pos<f32, UnitFrom>,
         default_color: impl Into<PaintFill>,
+        line_y: f32,
     ) -> Self {
         Self {
-            glyph: glyph.physical((text_box_pos * scale_fac).into(), scale_fac.get()),
+            glyph: glyph.physical(
+                ((text_box_pos + Vector::new(0., line_y)) * scale_fac).into(),
+                scale_fac.get(),
+            ),
             depth: 0.,
             color: glyph
                 .color_opt
@@ -309,10 +313,8 @@ impl<U> TextBox<U> {
             .buffer
             .layout_runs()
             .flat_map(|r| {
-                let line_y = r.line_y;
-
                 r.glyphs.iter().map(move |g| {
-                    PlacedGlyph::from_layout_glyph(g, scale_factor, self.pos, self.color)
+                    PlacedGlyph::from_layout_glyph(g, scale_factor, self.pos, self.color, r.line_y)
                 })
             })
             .collect();
