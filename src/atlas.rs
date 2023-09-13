@@ -1,7 +1,7 @@
 use crate::{
     color::{ColorRgb, ColorRgba},
     graphics::PushVertices,
-    math::{PhysicalPos, PhysicalRect, PhysicalSize, Pos, Rect, Size},
+    math::{PhysicalPos, PhysicalRect, PhysicalSize, Pos, Rect, Size, WindowScaleFactor},
     shape::BoxShaderVertex,
     texture::{TextureManagerError, TextureManagerRef, TextureRef, TextureWeakRef},
     util::{
@@ -385,7 +385,7 @@ impl TextureAtlasManager {
                 })
             })
             .filter_map(|(g, clip_rect, pos, scale_fac, bounding_size)| {
-                let alloc = self.glyphs.get(&g.cache_key);
+                let alloc = self.glyphs.get(&g.glyph.cache_key);
 
                 match alloc {
                     Some(GlyphCacheEntry::GlyphAllocation(GlyphAllocation {
@@ -397,16 +397,8 @@ impl TextureAtlasManager {
                         if let Some(atlas) = self.get_atlas_by_id(&allocation.atlas_id()) {
                             let color = g.color;
 
-                            // FIXME: scale this properly
-                            let draw_rect = g.to_draw_glyph(
-                                pos,
-                                ((*size).map(|x| x as f32) / scale_fac)
-                                    .map(|x| x.round() as u32)
-                                    .cast_unit(),
-                                ((*placement).map(|x| x as f32) / scale_fac)
-                                    .map(|x| x.round() as i32)
-                                    .cast_unit(),
-                            );
+                            let draw_rect =
+                                g.to_draw_glyph(pos, *size, *placement, scale_fac.inverse());
 
                             if clip_rect
                                 .map(|clip_rect| clip_rect.inner.intersection(&draw_rect).is_none())
@@ -432,10 +424,10 @@ impl TextureAtlasManager {
 
                             output.push_vertices(vertices, indices);
 
-                            return Some(g.cache_key);
+                            return Some(g.glyph.cache_key);
                         }
                     }
-                    None => log::trace!("Glyph {} not cached", g.cache_key.glyph_id),
+                    None => log::trace!("Glyph {} not cached", g.glyph.cache_key.glyph_id),
                     Some(GlyphCacheEntry::Noop) => {}
                 };
 
@@ -632,7 +624,8 @@ impl FontManager {
         //     return;
         // }
 
-        let glyph_cache_keys: HashSet<_> = text_box.glyphs.iter().map(|g| g.cache_key).collect();
+        let glyph_cache_keys: HashSet<_> =
+            text_box.glyphs.iter().map(|g| g.glyph.cache_key).collect();
 
         self.atlas_manager
             .write()

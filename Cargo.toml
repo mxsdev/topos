@@ -10,7 +10,7 @@ accesskit = "0.11.0"
 accesskit_winit = "0.14.0"
 bitflags = "2.3.1"
 bytemuck = { version = "1.13.1", features = [ "derive" ] }
-cosmic-text = "0.8.0"
+cosmic-text = "0.9.0"
 custom_derive = "0.1.7"
 drain_filter_polyfill = "0.1.3"
 enum-as-inner = "0.6.0"

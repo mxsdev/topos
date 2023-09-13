@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use itertools::Itertools;
+use cosmic_text::{PhysicalGlyph, Shaping};
 use shrinkwraprs::Shrinkwrap;
 
 pub use cosmic_text::{
@@ -14,11 +14,14 @@ pub use cosmic_text::{
 
 use crate::{
     color::{ColorRgba, FromCosmicTextColor},
-    math::{Pos, Rect, RoundedRect, ScaleFactor, Size, Vector},
+    math::{
+        PhysicalPos, PhysicalSize, PhysicalVector, Pos, Rect, RoundedRect, ScaleFactor, Size,
+        Vector, WindowScaleFactor,
+    },
     shape::PaintFill,
 };
 
-use super::LogicalUnit;
+use super::{LogicalUnit, PhysicalUnit};
 
 #[repr(u32)]
 #[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
@@ -75,49 +78,22 @@ impl FontSystem {
     }
 }
 
-#[derive(Debug)]
-pub struct PlacedGlyph<U = LogicalUnit> {
-    pub x_int: f32,
-    pub y_int: f32,
-    pub line_offset: f32,
-    pub cache_key: GlyphCacheKey,
+pub struct PlacedGlyph<U = PhysicalUnit> {
+    pub glyph: PhysicalGlyph,
     pub depth: f32,
     pub color: PaintFill,
     _unit: PhantomData<U>,
 }
 
-impl<U1, U2> Mul<ScaleFactor<f32, U1, U2>> for PlacedGlyph<U1> {
-    type Output = PlacedGlyph<U2>;
-
-    #[inline]
-    fn mul(mut self, scale: ScaleFactor<f32, U1, U2>) -> Self::Output {
-        self.cache_key.font_size_bits =
-            (f32::from_bits(self.cache_key.font_size_bits) * scale.get()).to_bits();
-
-        Self::Output {
-            line_offset: self.line_offset * scale.get(),
-            x_int: self.x_int * scale.get(),
-            y_int: self.y_int * scale.get(),
-
-            cache_key: self.cache_key,
-            depth: self.depth,
-            color: self.color,
-            _unit: PhantomData,
-        }
-    }
-}
-
 impl<U> PlacedGlyph<U> {
-    fn from_layout_glyph(
+    fn from_layout_glyph<UnitFrom>(
         glyph: &cosmic_text::LayoutGlyph,
-        line_offset: f32,
+        scale_fac: ScaleFactor<f32, UnitFrom, U>,
+        text_box_pos: Pos<f32, UnitFrom>,
         default_color: impl Into<PaintFill>,
     ) -> Self {
         Self {
-            x_int: glyph.x_int as f32,
-            y_int: glyph.y_int as f32,
-            cache_key: glyph.cache_key,
-            line_offset,
+            glyph: glyph.physical((text_box_pos * scale_fac).into(), scale_fac.get()),
             depth: 0.,
             color: glyph
                 .color_opt
@@ -128,58 +104,39 @@ impl<U> PlacedGlyph<U> {
         }
     }
 
-    pub fn recalculate_subpixel_offsets(&mut self, pos: &Pos<f32, U>) {
-        let x = pos.x + self.x_int + self.cache_key.x_bin.as_float();
-        let y = pos.y + self.line_offset + self.cache_key.y_bin.as_float();
-
-        let (_, x_bin) = cosmic_text::SubpixelBin::new(x);
-        let (_, y_bin) = cosmic_text::SubpixelBin::new(y);
-
-        self.cache_key.x_bin = x_bin;
-        self.cache_key.y_bin = y_bin;
-    }
-
-    pub fn to_draw_glyph(
+    pub fn to_draw_glyph<TargetUnit>(
         &self,
-        pos: Pos<f32, U>,
-        size: Size<u32, U>,
-        placement: Pos<i32, U>,
-    ) -> Rect<f32, U> {
-        let glyph_pos = pos
-            + Vector::new(
-                self.x_int + placement.x as f32,
-                (self.y_int - placement.y as f32) + self.line_offset,
-            );
+        pos: Pos<f32, TargetUnit>,
+        size: PhysicalSize<u32>,
+        mut placement: PhysicalPos<i32>,
+        scale_fac: ScaleFactor<f32, PhysicalUnit, TargetUnit>,
+    ) -> Rect<f32, TargetUnit> {
+        placement.y *= -1;
 
-        let (x_pos, _) = cosmic_text::SubpixelBin::new(glyph_pos.x);
-        let (y_pos, _) = cosmic_text::SubpixelBin::new(glyph_pos.y);
-
-        let glyph_pos = Pos::new(x_pos as f32, y_pos as f32);
-
-        let rect_size = Size::new(size.width as f32, size.height as f32);
-        let draw_rect = Rect::new(glyph_pos, glyph_pos + rect_size);
-
-        draw_rect
+        Rect::from_min_size(
+            pos + (placement.map(|x| x as f32) * scale_fac).to_vector()
+                + (PhysicalVector::new(self.glyph.x as f32, self.glyph.y as f32) * scale_fac),
+            size.map(|x| x as f32) * scale_fac,
+        )
     }
 }
 
-#[derive(Debug)]
 pub struct PlacedTextBox<U = LogicalUnit> {
-    pub glyphs: Vec<PlacedGlyph<U>>,
+    pub glyphs: Vec<PlacedGlyph>,
     pub clip_rect: Option<RoundedRect<f32, U>>,
     pub pos: Pos<f32, U>,
     pub color: PaintFill,
-    pub scale_fac: f32,
+    pub scale_fac: ScaleFactor<f32, U, PhysicalUnit>,
     pub bounding_size: Size<f32, U>,
 }
 
 impl<U> PlacedTextBox<U> {
     pub fn new(
-        glyphs: Vec<PlacedGlyph<U>>,
+        glyphs: Vec<PlacedGlyph>,
         pos: Pos<f32, U>,
         color: impl Into<PaintFill>,
         clip_rect: Option<RoundedRect<f32, U>>,
-        scale_fac: f32,
+        scale_fac: ScaleFactor<f32, U, PhysicalUnit>,
         bounding_size: Size<f32, U>,
     ) -> Self {
         Self {
@@ -193,7 +150,7 @@ impl<U> PlacedTextBox<U> {
     }
 
     pub fn glyph_cache_keys(&self) -> impl Iterator<Item = GlyphCacheKey> + '_ {
-        self.glyphs.iter().map(|glyph| glyph.cache_key)
+        self.glyphs.iter().map(|glyph| glyph.glyph.cache_key)
     }
 
     #[inline]
@@ -211,6 +168,7 @@ pub struct TextBox<U = LogicalUnit> {
     #[shrinkwrap(main_field)]
     pub buffer: cosmic_text::Buffer,
     pub color: PaintFill,
+    pub pos: Pos<f32, U>,
     _unit: PhantomData<U>,
 }
 
@@ -220,6 +178,7 @@ impl<U> TextBox<U> {
         font_size: f32,
         line_height: f32,
         color: impl Into<PaintFill>,
+        pos: Pos<f32, U>,
     ) -> Self {
         Self {
             buffer: cosmic_text::Buffer::new(
@@ -227,6 +186,7 @@ impl<U> TextBox<U> {
                 cosmic_text::Metrics::new(font_size, line_height),
             ),
             color: color.into(),
+            pos,
             _unit: PhantomData,
         }
     }
@@ -338,10 +298,10 @@ impl<U> TextBox<U> {
         self.buffer.set_size(font_system, width, height)
     }
 
-    pub fn calculate_placed_text_box(
+    pub(crate) fn calculate_placed_text_box(
         &self,
-        pos: Pos<f32, U>,
         clip_rect: impl Into<Option<RoundedRect<f32, U>>>,
+        scale_factor: ScaleFactor<f32, U, PhysicalUnit>,
     ) -> PlacedTextBox<U> {
         let bounding_size = self.computed_size();
 
@@ -351,18 +311,18 @@ impl<U> TextBox<U> {
             .flat_map(|r| {
                 let line_y = r.line_y;
 
-                r.glyphs
-                    .iter()
-                    .map(move |g| PlacedGlyph::from_layout_glyph(g, line_y.clone(), self.color))
+                r.glyphs.iter().map(move |g| {
+                    PlacedGlyph::from_layout_glyph(g, scale_factor, self.pos, self.color)
+                })
             })
             .collect();
 
         PlacedTextBox {
             glyphs: glyphs,
             clip_rect: clip_rect.into(),
-            pos,
+            pos: self.pos,
             color: self.color,
-            scale_fac: 1.,
+            scale_fac: scale_factor,
             bounding_size,
         }
     }
@@ -405,7 +365,8 @@ impl<U> TextBox<U> {
     /// Set text of buffer, using provided attributes for each line by default
     #[inline(always)]
     pub fn set_text(&mut self, font_system: &mut FontSystem, text: &str, attrs: Attrs) {
-        self.buffer.set_text(font_system, text, attrs)
+        self.buffer
+            .set_text(font_system, text, attrs, Shaping::Basic)
     }
 
     /// True if a redraw is needed

@@ -161,6 +161,7 @@ impl TextBoxElement {
                     &image_allocation,
                     Rect::new(Pos::new(0.5, 0.5), Pos::new(1.5, 0.5)),
                 ),
+                Pos::default(),
             );
 
             buffer.set_text(&mut font_system, &text, attrs);
@@ -210,15 +211,7 @@ impl Element for TextBoxElement {
     }
 
     fn ui(&mut self, ctx: &mut SceneContext, rect: Rect) {
-        // ctx.push_clip_rect(Rect::new(Pos::zero(), Pos::new(30., 1000.)));
-
-        ctx.add_shape(
-            self.buffer
-                .lock()
-                .unwrap()
-                .buffer
-                .calculate_placed_text_box(rect.min, None),
-        )
+        ctx.add_shape(&self.buffer.lock().unwrap().buffer)
     }
 
     fn ui_post(&mut self, ctx: &mut SceneContext, _rect: Rect) {

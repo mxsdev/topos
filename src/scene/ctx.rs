@@ -4,13 +4,13 @@ use crate::{
     atlas::TextureAtlasManagerRef,
     input::output::{CursorIcon, PlatformOutput},
     math::{CoordinateTransform, Pos, Rect, Size, TransformationList, WindowScaleFactor},
-    shape::{ClipRect, ClipRectList, PaintShape, ShaderClipRect},
+    shape::{ClipRect, ClipRectList, ComputedPaintShape, PaintShape, ShaderClipRect},
 };
 
 use super::scene::SceneResources;
 
 pub(super) struct PaintShapeWithContext {
-    pub shape: PaintShape,
+    pub shape: ComputedPaintShape,
     pub clip_rect_idx: Option<u32>,
     pub transformation_idx: Option<u32>,
 }
@@ -49,30 +49,19 @@ impl<'a> SceneContext<'a> {
         }
     }
 
-    pub fn add_shape(&mut self, shape: impl Into<PaintShape>) {
-        let mut shape = shape.into();
+    pub fn add_shape<'b, T: Into<PaintShape<'b>>>(&mut self, shape: T) {
+        let scale_fac = self
+            .active_transformation_idx
+            // TODO: cache computation
+            .map(|idx| {
+                let (sx, sy) = self.transformations.get(idx).scale_factor();
+                sx.max(sy)
+            })
+            .unwrap_or(1.)
+            * self.scale_factor.get();
 
-        match &mut shape {
-            PaintShape::Text(text) => {
-                text.clip_rect = self.current_clip_rect();
-
-                text.scale_fac = self
-                    .active_transformation_idx
-                    // TODO: cache computation
-                    .map(|idx| {
-                        let (sx, sy) = self.transformations.get(idx).scale_factor();
-                        sx.max(sy)
-                    })
-                    .unwrap_or(1.)
-                    * self.scale_factor.get();
-
-                for glyph in text.glyphs.iter_mut() {
-                    glyph.cache_key.font_size_bits =
-                        (f32::from_bits(glyph.cache_key.font_size_bits) * text.scale_fac).to_bits();
-                }
-            }
-            _ => {}
-        }
+        let mut shape = Into::<PaintShape<'b>>::into(shape)
+            .compute_paint_shape(self.current_clip_rect(), WindowScaleFactor::new(scale_fac));
 
         self.shapes.push(PaintShapeWithContext {
             shape,

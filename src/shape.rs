@@ -17,7 +17,7 @@ use crate::{
         guard::ReadLockable,
         svg::PosVertexBuffers,
         template::{HandlebarsTemplater, Templater},
-        text::{AtlasContentType, PlacedTextBox},
+        text::{AtlasContentType, PlacedTextBox, TextBox},
         PhysicalUnit,
     },
 };
@@ -1020,13 +1020,50 @@ impl PaintMesh {
     }
 }
 
-custom_derive! {
-    #[derive(EnumFromInner, Debug)]
-    pub enum PaintShape {
-        Rectangle(PaintRectangle),
-        Text(PlacedTextBox),
-        Mesh(PaintMesh),
+pub enum PaintShape<'a> {
+    Rectangle(PaintRectangle),
+    Text(&'a TextBox),
+    Mesh(PaintMesh),
+}
+
+impl<'a> Into<PaintShape<'a>> for &'a TextBox {
+    fn into(self) -> PaintShape<'a> {
+        PaintShape::Text(self)
     }
+}
+
+impl<'a> Into<PaintShape<'a>> for PaintMesh {
+    fn into(self) -> PaintShape<'a> {
+        PaintShape::Mesh(self)
+    }
+}
+
+impl<'a> Into<PaintShape<'a>> for PaintRectangle {
+    fn into(self) -> PaintShape<'a> {
+        PaintShape::Rectangle(self)
+    }
+}
+
+impl<'a> PaintShape<'a> {
+    pub(crate) fn compute_paint_shape(
+        self,
+        clip_rect: impl Into<Option<RoundedRect>>,
+        scale_factor: WindowScaleFactor,
+    ) -> ComputedPaintShape {
+        match self {
+            Self::Rectangle(rect) => ComputedPaintShape::Rectangle(rect),
+            Self::Text(text) => {
+                ComputedPaintShape::Text(text.calculate_placed_text_box(clip_rect, scale_factor))
+            }
+            Self::Mesh(mesh) => ComputedPaintShape::Mesh(mesh),
+        }
+    }
+}
+
+pub(crate) enum ComputedPaintShape {
+    Rectangle(PaintRectangle),
+    Text(PlacedTextBox),
+    Mesh(PaintMesh),
 }
 
 // impl PaintShape {

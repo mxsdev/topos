@@ -14,7 +14,8 @@ use crate::{
     input::{input_state::InputState, output::PlatformOutput},
     math::{PhysicalSize, Pos, Rect, WindowScaleFactor},
     shape::{
-        self, BoxShaderVertex, PaintMeshVertex, PaintShape, ShaderClipRect, ShapeBufferWithContext,
+        self, BoxShaderVertex, ComputedPaintShape, PaintMeshVertex, PaintShape, ShaderClipRect,
+        ShapeBufferWithContext,
     },
     surface::{RenderAttachment, RenderSurface, RenderingContext},
     texture::TextureManagerRef,
@@ -245,17 +246,17 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
             shape_buffer_local.transformation_idx = transformation_idx.unwrap_or_default();
 
             match shape {
-                PaintShape::Rectangle(paint_rect) => {
+                ComputedPaintShape::Rectangle(paint_rect) => {
                     shape_buffer_local.push_quads(
                         BoxShaderVertex::from_paint_rect(&self.atlas_manager, paint_rect).0,
                     );
                 }
 
-                PaintShape::Text(text_box) => {
+                ComputedPaintShape::Text(text_box) => {
                     self.font_manager.prepare(text_box, &mut shape_buffer_local);
                 }
 
-                PaintShape::Mesh(mesh) => shape_buffer_local.push_vertices(
+                ComputedPaintShape::Mesh(mesh) => shape_buffer_local.push_vertices(
                     mesh.vertices
                         .into_iter()
                         .map(|PaintMeshVertex { color, pos }| {
