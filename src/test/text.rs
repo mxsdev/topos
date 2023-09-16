@@ -157,10 +157,11 @@ impl TextBoxElement {
                 &mut font_system,
                 metrics.font_size,
                 metrics.line_height,
-                PaintFill::from_atlas_allocation_uv(
-                    &image_allocation,
-                    Rect::new(Pos::new(0.5, 0.5), Pos::new(1.5, 0.5)),
-                ),
+                PaintFill::Color(ColorRgba::new(1., 1., 1., 1.)),
+                // PaintFill::from_atlas_allocation_uv(
+                //     &image_allocation,
+                //     Rect::new(Pos::new(0.5, 0.5), Pos::new(1.5, 0.5)),
+                // ),
                 Pos::default(),
             );
 

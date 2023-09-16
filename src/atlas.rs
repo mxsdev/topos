@@ -1,7 +1,7 @@
 use crate::{
     color::{ColorRgb, ColorRgba},
     graphics::PushVertices,
-    math::{PhysicalPos, PhysicalRect, PhysicalSize, Pos, Rect, Size, WindowScaleFactor},
+    math::{PhysicalPos, PhysicalRect, PhysicalSize, Pos, Rect, Sides, Size, WindowScaleFactor},
     shape::BoxShaderVertex,
     texture::{TextureManagerError, TextureManagerRef, TextureRef, TextureWeakRef},
     util::{
@@ -63,6 +63,8 @@ pub struct TextureAtlas {
 }
 
 impl TextureAtlas {
+    const TEXTURE_PADDING: u32 = 1;
+
     fn new(
         context: &RenderingContext,
         texture_manager: &TextureManagerRef,
@@ -110,7 +112,9 @@ impl TextureAtlas {
     }
 
     fn try_allocate_space(&mut self, space: &PhysicalSize<u32>) -> Option<EtagereAllocation> {
-        let space = PhysicalSize::new(space.width as i32, space.height as i32);
+        let padded_space = *space + PhysicalSize::splat(Self::TEXTURE_PADDING * 2);
+
+        let space = PhysicalSize::new(padded_space.width as i32, padded_space.height as i32);
 
         if !self.can_fit(space) {
             return None;
@@ -136,7 +140,11 @@ impl TextureAtlas {
         image_data: &[u8],
         // image_size: PhysicalSize<u32>,
     ) {
-        let rect = alloc.get_id().rect;
+        let bytes_per_pixel = self.atlas_type.num_channels() * self.atlas_type.bytes_per_channel();
+
+        let alloc_id = alloc.get_id();
+
+        let rect = alloc_id.draw_rect();
 
         let image_width = rect.width() as u32;
         let image_height = rect.height() as u32;
@@ -155,10 +163,7 @@ impl TextureAtlas {
             &image_data,
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: (image_width
-                    * self.atlas_type.num_channels()
-                    * self.atlas_type.bytes_per_channel())
-                .into(),
+                bytes_per_row: (image_width * bytes_per_pixel).into(),
                 rows_per_image: None,
             },
             wgpu::Extent3d {
@@ -167,6 +172,95 @@ impl TextureAtlas {
                 depth_or_array_layers: 1,
             },
         );
+
+        enum Sides {
+            HorizontalTop,
+            HorizontalBottom,
+            VerticalLeft,
+            VerticalRight,
+        }
+
+        impl Sides {
+            fn origin(&self, rect: &PhysicalRect<u32>, padding: u32) -> wgpu::Origin3d {
+                match self {
+                    Self::HorizontalTop => wgpu::Origin3d {
+                        x: rect.min.x,
+                        y: rect.min.y,
+                        z: 0,
+                    },
+                    Self::HorizontalBottom => wgpu::Origin3d {
+                        x: rect.min.x,
+                        y: rect.max.y - padding,
+                        z: 0,
+                    },
+                    Self::VerticalLeft => wgpu::Origin3d {
+                        x: rect.min.x,
+                        y: rect.min.y,
+                        z: 0,
+                    },
+                    Self::VerticalRight => wgpu::Origin3d {
+                        x: rect.max.x - padding,
+                        y: rect.min.y,
+                        z: 0,
+                    },
+                }
+            }
+
+            fn extend_3d(&self, rect: &PhysicalRect<u32>, padding: u32) -> wgpu::Extent3d {
+                match self {
+                    Self::HorizontalTop | Self::HorizontalBottom => wgpu::Extent3d {
+                        width: rect.width(),
+                        height: padding,
+                        depth_or_array_layers: 1,
+                    },
+                    Self::VerticalLeft | Self::VerticalRight => wgpu::Extent3d {
+                        width: padding,
+                        height: rect.height(),
+                        depth_or_array_layers: 1,
+                    },
+                }
+            }
+
+            fn pixels_per_row(&self, rect: &PhysicalRect<u32>) -> u32 {
+                match self {
+                    Self::HorizontalTop | Self::HorizontalBottom => rect.width(),
+                    Self::VerticalLeft | Self::VerticalRight => 1,
+                }
+            }
+        }
+
+        if alloc_id.padding != 0 {
+            let rect = alloc_id.atlas_rect.map(|x| x as u32);
+
+            let image_width = rect.width() as u32;
+            let image_height = rect.height() as u32;
+
+            let image_pixels = image_width.max(image_height);
+            let zeroed = vec![0u8; image_pixels as usize * bytes_per_pixel as usize];
+
+            for side in [
+                Sides::HorizontalTop,
+                Sides::HorizontalBottom,
+                Sides::VerticalLeft,
+                Sides::VerticalRight,
+            ] {
+                rendering_context.queue.write_texture(
+                    wgpu::ImageCopyTexture {
+                        texture: &self.texture_ref.texture,
+                        mip_level: 0,
+                        origin: side.origin(&rect, alloc_id.padding),
+                        aspect: wgpu::TextureAspect::default(),
+                    },
+                    &bytemuck::cast_slice(&zeroed),
+                    wgpu::ImageDataLayout {
+                        offset: 0,
+                        bytes_per_row: (side.pixels_per_row(&rect) * bytes_per_pixel).into(),
+                        rows_per_image: None,
+                    },
+                    side.extend_3d(&rect, alloc_id.padding),
+                )
+            }
+        }
     }
 
     fn deallocate_glyph(&mut self, alloc: EtagereAllocId) {
@@ -224,7 +318,14 @@ pub trait HasAtlasAllocationId {
 pub struct AtlasAllocationId {
     pub(crate) atlas_id: AtlasId,
     pub(crate) allocation: EtagereAllocation,
-    pub(crate) rect: PhysicalRect<i32>,
+    pub(crate) atlas_rect: PhysicalRect<i32>,
+    pub(crate) padding: u32,
+}
+
+impl AtlasAllocationId {
+    pub(crate) fn draw_rect(&self) -> PhysicalRect<i32> {
+        return self.atlas_rect.inner_box(Sides::splat(self.padding as i32));
+    }
 }
 
 impl HasAtlasAllocationId for AtlasAllocationId {
@@ -237,24 +338,24 @@ impl HasAtlasAllocationId for AtlasAllocationId {
 pub struct AtlasAllocation {
     pub(crate) alloc_id: AtlasAllocationId,
     deallocation_queue_sender: DeallocationQueueSender,
-    rect: PhysicalRect<i32>,
 }
 
 impl AtlasAllocation {
     fn new(
         atlas_id: AtlasId,
         allocation: EtagereAllocation,
-        rect: PhysicalRect<i32>,
+        atlas_rect: PhysicalRect<i32>,
         deallocation_queue_sender: DeallocationQueueSender,
+        padding: u32,
     ) -> Self {
         Self {
             deallocation_queue_sender,
             alloc_id: AtlasAllocationId {
                 atlas_id,
                 allocation,
-                rect,
+                atlas_rect,
+                padding,
             },
-            rect,
         }
     }
 
@@ -269,8 +370,8 @@ impl AtlasAllocation {
     }
 
     #[inline(always)]
-    pub fn rect(&self) -> PhysicalRect<i32> {
-        self.rect
+    pub fn draw_rect(&self) -> PhysicalRect<i32> {
+        self.alloc_id.draw_rect()
     }
 
     // // FIXME: make this return a reference
@@ -407,7 +508,7 @@ impl TextureAtlasManager {
                                 return None;
                             }
 
-                            let uv = allocation.rect();
+                            let uv = allocation.draw_rect();
 
                             let alloc_pos = Pos::new(uv.min.x as u32, uv.min.y as u32);
                             let uv = PhysicalRect::new(alloc_pos, alloc_pos + *size);
@@ -512,11 +613,13 @@ impl TextureAtlasManager {
                 AtlasAllocation::new(
                     atlas_id,
                     alloc,
+                    // TODO: impl Into for euclid
                     Rect::from_min_size(
                         Pos::new(alloc.rectangle.min.x, alloc.rectangle.min.y),
-                        size.map(|x| x as i32),
+                        size.map(|x| x as i32 + 2 * TextureAtlas::TEXTURE_PADDING as i32),
                     ),
                     self.deallocation_queue.get_ref(),
+                    TextureAtlas::TEXTURE_PADDING,
                 )
             })
     }

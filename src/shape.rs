@@ -454,7 +454,7 @@ impl BoxShaderVertexFill {
                     .get_texture_ref()
                     .get_binding_idx();
 
-                let alloc_rect = alloc.rect;
+                let alloc_rect = alloc.draw_rect();
 
                 let mut uv_rect = alloc_rect.map(|x| x as f32);
 

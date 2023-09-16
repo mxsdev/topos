@@ -41,7 +41,8 @@ impl MainElement {
             Metrics::new(20., 20.),
             color,
             "Hello world".into(),
-            Attrs::new().family(Family::Name("Test Calibre")),
+            // Attrs::new().family(Family::Name("Test Calibre")),
+            Attrs::new(),
         );
 
         Self {
