@@ -1,4 +1,4 @@
-use cosmic_text::{Attrs, Metrics};
+use topos::cosmic_text::{Attrs, Metrics};
 
 use topos::{
     accessibility::{AccessNodeBuilder, AccessRole},

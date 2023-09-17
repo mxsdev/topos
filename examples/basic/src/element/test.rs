@@ -1,5 +1,6 @@
-use keyframe::{functions::BezierCurve, mint::Vector2};
-use lyon::{
+use topos::keyframe::{functions::BezierCurve, mint::Vector2};
+use topos::lyon::{
+    self,
     lyon_tessellation::StrokeOptions,
     path::{LineCap, LineJoin},
 };

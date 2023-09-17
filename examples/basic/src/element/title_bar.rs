@@ -1,5 +1,5 @@
-use keyframe::{functions::BezierCurve, mint::Vector2};
-use palette::{Darken, Desaturate, FromColor, Hsva, IntoColor, WithAlpha};
+use topos::keyframe::{functions::BezierCurve, mint::Vector2};
+use topos::palette::{Darken, Desaturate, FromColor, Hsva, IntoColor, WithAlpha};
 
 use topos::{
     accessibility::{AccessNodeBuilder, AccessRole},

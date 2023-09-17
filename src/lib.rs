@@ -28,6 +28,12 @@ pub mod texture;
 pub mod time;
 pub mod util;
 
+pub use accesskit;
+pub use cosmic_text;
+pub use keyframe;
+pub use lyon;
+pub use palette;
+
 pub mod math {
     pub use crate::util::math::*;
 }
