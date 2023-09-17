@@ -22,11 +22,11 @@
  - [x] Include clip rectangle in shader vertex data
  - [x] Affine transformations
  - [x] Move all device pixel ratio logic to the shader
- - [ ] Text rendering alignment & edge clipping
+ - [x] Text rendering alignment & edge clipping
  - [ ] Text culling w/ clip rects
  - [x] Image fill textures with `TextureRef`
- - [ ] Text resolution
- - [ ] Text render-ahead
+ - [x] Text resolution
+ - [x] Text render-ahead
  - [ ] Support multiple rounded clip rects / clip rect intersection
  - [ ] Render engine throughput optimizations (store & diff buffers by widget)
  - [ ] Sharp box strokes
