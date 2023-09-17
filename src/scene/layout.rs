@@ -6,9 +6,9 @@ use winit::window;
 use crate::{
     element::{Element, ElementRef, ElementWeakref},
     input::input_state::InputState,
-    math::{Pos, Rect, Size, TransformationList, WindowScaleFactor},
+    math::{DeviceScaleFactor, Pos, Rect, Size, TransformationList},
     shape::{ClipRect, ClipRectList, ShaderClipRect},
-    util::text::{FontSystem, FontSystemRef},
+    util::text::{FontSystem, FontSystemRef, TextBox},
 };
 
 use super::{ctx::SceneContext, scene::SceneResources};
@@ -114,12 +114,35 @@ impl ElementTreeNode {
         }
     }
 
-    pub(super) fn do_layout_post_pass(&mut self, resources: &mut SceneResources) {
+    pub(super) fn do_layout_post_pass(
+        &mut self,
+        resources: &mut SceneResources,
+        transformations: &TransformationList,
+        parent_transformation_idx: Option<usize>,
+        clip_rects: &ClipRectList,
+        parent_clip_rect_idx: Option<usize>,
+    ) {
         if let Some(mut element) = self.element.try_get() {
+            let transform_idx = self.transformation_idx.or(parent_transformation_idx);
+            let clip_rect_idx = self.clip_rect_idx.or(parent_clip_rect_idx);
+
+            // TODO: include clip_rect (need to do transformation on rect...)
+            // resources.clip_rect = clip_rect_idx.map(|idx| clip_rects.get(idx));
+
+            resources.element_transformation_scale_factor = transform_idx
+                .map(|idx| transformations.get_scale_factor(idx))
+                .map(|(sx, sy)| sx.max(sy));
+
             element.layout_post(resources, self.rect);
 
             for child in self.children.iter_mut() {
-                child.do_layout_post_pass(resources);
+                child.do_layout_post_pass(
+                    resources,
+                    transformations,
+                    parent_transformation_idx,
+                    clip_rects,
+                    parent_clip_rect_idx,
+                );
             }
         }
     }
@@ -190,7 +213,6 @@ impl<'a, 'b: 'a> LayoutPass<'a, 'b> {
     pub(super) fn do_layout_pass(
         mut self,
         screen_size: Size,
-        window_scale_factor: WindowScaleFactor,
         root: &mut ElementRef<impl Element>,
     ) -> ElementTree {
         let root_layout_node = root.get().layout(&mut self);
@@ -206,7 +228,6 @@ impl<'a, 'b: 'a> LayoutPass<'a, 'b> {
         let mut clip_rects = Default::default();
 
         let mut root = node.finish_rec(
-            window_scale_factor,
             layout_engine,
             Pos::zero(),
             &mut transformations,
@@ -214,7 +235,11 @@ impl<'a, 'b: 'a> LayoutPass<'a, 'b> {
             &mut clip_rects,
             None,
         );
-        root.do_layout_post_pass(resources);
+
+        root.do_layout_post_pass(resources, &transformations, None, &clip_rects, None);
+
+        resources.element_clip_rect = None;
+        resources.element_transformation_scale_factor = None;
 
         ElementTree {
             root,
@@ -223,8 +248,8 @@ impl<'a, 'b: 'a> LayoutPass<'a, 'b> {
         }
     }
 
-    pub fn scale_factor(&self) -> WindowScaleFactor {
-        self.resources.scale_factor()
+    pub fn scale_factor(&self) -> DeviceScaleFactor {
+        self.resources.device_scale_factor()
     }
 
     pub fn font_system(&mut self) -> impl DerefMut<Target = FontSystem> + '_ {
@@ -243,7 +268,6 @@ impl<'a, 'b: 'a> LayoutPass<'a, 'b> {
 impl LayoutNode {
     fn finish_rec(
         mut self,
-        window_scale_factor: WindowScaleFactor,
         layout_engine: &mut LayoutEngine,
         parent_pos: Pos,
         transformations: &mut TransformationList,
@@ -286,7 +310,6 @@ impl LayoutNode {
 
         for child in self.children.into_iter() {
             scene_layout.children.push(child.finish_rec(
-                window_scale_factor,
                 layout_engine,
                 scene_layout.rect.min,
                 transformations,

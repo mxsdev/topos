@@ -21,7 +21,7 @@ use palette::num::Powu;
 use crate::num::{One, Zero};
 use crate::util::LogicalUnit;
 
-use super::{Angle, Pos, Rect, Trig, Vector};
+use super::{Angle, Pos, Rect, TransformationScaleFactor, Trig, Vector};
 
 /// A 2d transform represented by a column-major 3 by 3 matrix, compressed down to 3 by 2.
 ///
@@ -471,10 +471,10 @@ impl<Src, Dst> CoordinateTransform<f32, Src, Dst> {
         }
     }
 
-    pub fn scale_factor(&self) -> (f32, f32) {
+    pub fn scale_factor(&self) -> (TransformationScaleFactor, TransformationScaleFactor) {
         (
-            (self.m11.powu(2) + self.m12.powu(2)).sqrt(),
-            (self.m21.powu(2) + self.m22.powu(2)).sqrt(),
+            TransformationScaleFactor::from_float((self.m11.powu(2) + self.m12.powu(2)).sqrt()),
+            TransformationScaleFactor::from_float((self.m21.powu(2) + self.m22.powu(2)).sqrt()),
         )
     }
 }
@@ -607,6 +607,13 @@ impl TransformationList {
     pub fn get_determinant(&mut self, idx: usize) -> f32 {
         self.determinants[idx]
     }
+
+    pub fn get_scale_factor(
+        &self,
+        idx: usize,
+    ) -> (TransformationScaleFactor, TransformationScaleFactor) {
+        self.transformations[idx].scale_factor()
+    }
 }
 
 #[cfg(test)]
@@ -619,7 +626,7 @@ mod tests {
             .then_rotate(Angle::degrees(90.))
             .scale_factor();
 
-        assert_eq!(sx, 5.);
-        assert_eq!(sy, 1.);
+        assert_eq!(sx.get(), 5.);
+        assert_eq!(sy.get(), 1.);
     }
 }

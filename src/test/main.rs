@@ -87,7 +87,7 @@ impl Element for MainElement {
         }
     }
 
-    fn input(&mut self, input: &mut InputState, rect: Rect) {
+    fn input(&mut self, input: &mut InputState, _rect: Rect) {
         if let Some(pos) = input.pointer.latest_pos() {
             let scroll_del = (input.scroll_delta.y * 0.01).exp();
 

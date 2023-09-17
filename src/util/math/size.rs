@@ -277,18 +277,18 @@ impl<T: Copy + MulAssign, U> MulAssign<T> for Size<T, U> {
     }
 }
 
-impl<T: Copy + Mul, U1, U2> Mul<ScaleFactor<T, U1, U2>> for Size<T, U1> {
+impl<T: Copy + Mul, U1, U2> Mul<ScaleFactor<U1, U2, T>> for Size<T, U1> {
     type Output = Size<T::Output, U2>;
 
     #[inline]
-    fn mul(self, scale: ScaleFactor<T, U1, U2>) -> Self::Output {
+    fn mul(self, scale: ScaleFactor<U1, U2, T>) -> Self::Output {
         Size::new(self.width * scale.0, self.height * scale.0)
     }
 }
 
-impl<T: Copy + MulAssign, U> MulAssign<ScaleFactor<T, U, U>> for Size<T, U> {
+impl<T: Copy + MulAssign, U> MulAssign<ScaleFactor<U, U, T>> for Size<T, U> {
     #[inline]
-    fn mul_assign(&mut self, other: ScaleFactor<T, U, U>) {
+    fn mul_assign(&mut self, other: ScaleFactor<U, U, T>) {
         *self *= other.0;
     }
 }
@@ -310,18 +310,18 @@ impl<T: Copy + DivAssign, U> DivAssign<T> for Size<T, U> {
     }
 }
 
-impl<T: Copy + Div, U1, U2> Div<ScaleFactor<T, U1, U2>> for Size<T, U2> {
+impl<T: Copy + Div, U1, U2> Div<ScaleFactor<U1, U2, T>> for Size<T, U2> {
     type Output = Size<T::Output, U1>;
 
     #[inline]
-    fn div(self, scale: ScaleFactor<T, U1, U2>) -> Self::Output {
+    fn div(self, scale: ScaleFactor<U1, U2, T>) -> Self::Output {
         Size::new(self.width / scale.0, self.height / scale.0)
     }
 }
 
-impl<T: Copy + DivAssign, U> DivAssign<ScaleFactor<T, U, U>> for Size<T, U> {
+impl<T: Copy + DivAssign, U> DivAssign<ScaleFactor<U, U, T>> for Size<T, U> {
     #[inline]
-    fn div_assign(&mut self, other: ScaleFactor<T, U, U>) {
+    fn div_assign(&mut self, other: ScaleFactor<U, U, T>) {
         *self /= other.0;
     }
 }

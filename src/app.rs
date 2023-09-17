@@ -1,5 +1,6 @@
 use crate::{
     math::{Pos, Rect},
+    scene::layout::{self, ElementTree},
     surface::RenderTarget,
     texture::TextureManagerRef,
     util::{min, PhysicalUnit},
@@ -21,7 +22,7 @@ use crate::{
 };
 
 pub struct App<Root: RootConstructor + 'static> {
-    swap_chain: Option<RenderAttachment>,
+    swap_chain: Option<(RenderAttachment, ElementTree)>,
 
     render_surface: RenderSurface,
     scene: Scene<Root>,
@@ -93,7 +94,7 @@ impl<Root: RootConstructor + 'static> App<Root> {
                 Event::RedrawRequested(window_id) if window_id == self.window.id() => {
                     self.try_create_new_output();
 
-                    let output = match self.swap_chain.take() {
+                    let (output, element_tree) = match self.swap_chain.take() {
                         Some(output) => output,
                         None => return,
                     };
@@ -101,7 +102,7 @@ impl<Root: RootConstructor + 'static> App<Root> {
                     let (should_render, render_start_time) = self.framepacer.should_render();
 
                     if !should_render {
-                        self.swap_chain = Some(output);
+                        self.swap_chain = Some((output, element_tree));
                         return;
                     }
 
@@ -110,12 +111,9 @@ impl<Root: RootConstructor + 'static> App<Root> {
                     let input_state =
                         std::mem::take(&mut self.input_state).begin_frame(raw_input, true);
 
-                    let (mut result_input, result_output) = self.scene.render(
-                        &self.render_surface,
-                        &self.texture_manager,
-                        output,
-                        input_state,
-                    );
+                    let (mut result_input, result_output) =
+                        self.scene
+                            .render(&self.render_surface, output, element_tree, input_state);
 
                     let render_finish_time = crate::time::Instant::now();
                     let render_time = render_finish_time.duration_since(render_start_time);
@@ -178,7 +176,9 @@ impl<Root: RootConstructor + 'static> App<Root> {
                     get_window_frame_time(&self.window),
                 );
 
-                self.swap_chain = output.into();
+                let layout_result = self.scene.do_layout(&self.render_surface);
+
+                self.swap_chain = (output, layout_result).into();
             }
             // Reconfigure the surface if lost
             Err(wgpu::SurfaceError::Lost) => self.render_surface.reconfigure(),
@@ -316,7 +316,12 @@ impl<Root: RootConstructor + 'static> App<Root> {
 
         let texture_manager = TextureManagerRef::new(max_textures, &rendering_context);
 
-        let mut scene = Scene::new(rendering_context, &texture_manager, window.scale_factor());
+        let mut scene = Scene::new(
+            rendering_context,
+            &render_surface,
+            &texture_manager,
+            window.scale_factor(),
+        );
 
         let winit_state_proxy = event_loop.create_proxy();
 

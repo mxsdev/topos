@@ -8,7 +8,7 @@ use wgpu::util::DeviceExt;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
-use crate::math::WindowScaleFactor;
+use crate::math::DeviceScaleFactor;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -37,7 +37,7 @@ unsafe impl HasRawWindowHandle for RenderTarget {
 
 struct ScreenDescriptor {
     size: PhysicalSize<u32>,
-    scale_factor: WindowScaleFactor,
+    scale_factor: DeviceScaleFactor,
 }
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
@@ -122,7 +122,7 @@ impl RenderSurface {
         let size = window.inner_size();
 
         let screen_descriptor = ScreenDescriptor {
-            scale_factor: WindowScaleFactor::new(window.scale_factor() as f32),
+            scale_factor: DeviceScaleFactor::from_float(window.scale_factor() as f32),
             size,
         };
 
@@ -277,7 +277,8 @@ impl RenderSurface {
             self.configure_multisampled_framebuffer();
 
             if let Some(scale_factor) = scale_factor {
-                self.screen_descriptor.scale_factor = WindowScaleFactor::new(scale_factor as f32);
+                self.screen_descriptor.scale_factor =
+                    DeviceScaleFactor::from_float(scale_factor as f32);
             }
 
             self.rendering_context.queue.write_buffer(
@@ -314,7 +315,7 @@ impl RenderSurface {
         &self.rendering_context
     }
 
-    pub fn scale_factor(&self) -> WindowScaleFactor {
+    pub fn device_scale_factor(&self) -> DeviceScaleFactor {
         self.screen_descriptor.scale_factor
     }
 

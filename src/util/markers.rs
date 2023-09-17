@@ -4,6 +4,9 @@ use bytemuck::Zeroable;
 pub struct LogicalUnit;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Zeroable)]
+pub struct DeviceUnit;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Zeroable)]
 pub struct PhysicalUnit;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Zeroable)]

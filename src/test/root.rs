@@ -1,10 +1,9 @@
 use crate::{
     accessibility::{AccessNodeBuilder, AccessRole},
-    color::ColorSrgba,
     element::{Element, ElementRef, RootConstructor},
     input::input_state::InputState,
     lib::Response,
-    math::{Angle, CoordinateTransform, Pos, Rect, Size, WindowScaleFactor},
+    math::{DeviceScaleFactor, Rect, Size},
     scene::{
         ctx::SceneContext,
         layout::{ColumnReverse, FlexBox, LayoutPass, LayoutPassResult, Percent},
@@ -16,7 +15,7 @@ use crate::{
 use super::{MainElement, TitleBar};
 
 pub struct TestRoot {
-    scale_factor: WindowScaleFactor,
+    scale_factor: DeviceScaleFactor,
 
     main: ElementRef<MainElement>,
     title_bar: ElementRef<TitleBar>,
@@ -27,7 +26,7 @@ pub struct TestRoot {
 impl RootConstructor for TestRoot {
     fn new(resources: &mut SceneResources) -> Self {
         Self {
-            scale_factor: resources.scale_factor(),
+            scale_factor: resources.device_scale_factor(),
 
             main: MainElement::new(resources).into(),
             title_bar: TitleBar::new(resources, 27.).into(),
@@ -86,7 +85,10 @@ impl Element for TestRoot {
 
     fn node(&self) -> AccessNodeBuilder {
         let mut builder = AccessNodeBuilder::new(AccessRole::Window);
-        builder.set_transform(accesskit::Affine::scale(self.scale_factor.get() as f64));
+        // TODO: make this part of topos
+        builder.set_transform(accesskit::Affine::scale(
+            self.scale_factor.get().into_inner() as f64,
+        ));
         builder
     }
 

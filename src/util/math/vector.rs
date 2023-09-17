@@ -438,18 +438,18 @@ impl<T: Copy + Mul<T, Output = T>, U> MulAssign<T> for Vector<T, U> {
     }
 }
 
-impl<T: Copy + Mul, U1, U2> Mul<ScaleFactor<T, U1, U2>> for Vector<T, U1> {
+impl<T: Copy + Mul, U1, U2> Mul<ScaleFactor<U1, U2, T>> for Vector<T, U1> {
     type Output = Vector<T::Output, U2>;
 
     #[inline]
-    fn mul(self, scale: ScaleFactor<T, U1, U2>) -> Self::Output {
+    fn mul(self, scale: ScaleFactor<U1, U2, T>) -> Self::Output {
         vector(self.x * scale.0, self.y * scale.0)
     }
 }
 
-impl<T: Copy + MulAssign, U> MulAssign<ScaleFactor<T, U, U>> for Vector<T, U> {
+impl<T: Copy + MulAssign, U> MulAssign<ScaleFactor<U, U, T>> for Vector<T, U> {
     #[inline]
-    fn mul_assign(&mut self, scale: ScaleFactor<T, U, U>) {
+    fn mul_assign(&mut self, scale: ScaleFactor<U, U, T>) {
         self.x *= scale.0;
         self.y *= scale.0;
     }
@@ -471,18 +471,18 @@ impl<T: Copy + Div<T, Output = T>, U> DivAssign<T> for Vector<T, U> {
     }
 }
 
-impl<T: Copy + Div, U1, U2> Div<ScaleFactor<T, U1, U2>> for Vector<T, U2> {
+impl<T: Copy + Div, U1, U2> Div<ScaleFactor<U1, U2, T>> for Vector<T, U2> {
     type Output = Vector<T::Output, U1>;
 
     #[inline]
-    fn div(self, scale: ScaleFactor<T, U1, U2>) -> Self::Output {
+    fn div(self, scale: ScaleFactor<U1, U2, T>) -> Self::Output {
         vector(self.x / scale.0, self.y / scale.0)
     }
 }
 
-impl<T: Copy + DivAssign, U> DivAssign<ScaleFactor<T, U, U>> for Vector<T, U> {
+impl<T: Copy + DivAssign, U> DivAssign<ScaleFactor<U, U, T>> for Vector<T, U> {
     #[inline]
-    fn div_assign(&mut self, scale: ScaleFactor<T, U, U>) {
+    fn div_assign(&mut self, scale: ScaleFactor<U, U, T>) {
         self.x /= scale.0;
         self.y /= scale.0;
     }

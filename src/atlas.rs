@@ -1,7 +1,7 @@
 use crate::{
     color::{ColorRgb, ColorRgba},
     graphics::PushVertices,
-    math::{PhysicalPos, PhysicalRect, PhysicalSize, Pos, Rect, Sides, Size, WindowScaleFactor},
+    math::{PhysicalPos, PhysicalRect, PhysicalSize, Pos, Rect, Sides, Size},
     shape::BoxShaderVertex,
     texture::{TextureManagerError, TextureManagerRef, TextureRef, TextureWeakRef},
     util::{
@@ -718,15 +718,7 @@ impl FontManager {
         };
     }
 
-    pub fn prepare<'a>(
-        &mut self,
-        text_box: PlacedTextBox,
-        output: &mut impl PushVertices<BoxShaderVertex>,
-    ) {
-        // if (text_box.clip_rect.map(|x| x.is_empty()).unwrap_or_default()) {
-        //     return;
-        // }
-
+    pub fn process_glyphs(&mut self, text_box: &PlacedTextBox) {
         let glyph_cache_keys: HashSet<_> =
             text_box.glyphs.iter().map(|g| g.glyph.cache_key).collect();
 
@@ -737,6 +729,18 @@ impl FontManager {
             .extend(glyph_cache_keys.iter());
 
         self.generate_textures(glyph_cache_keys);
+    }
+
+    pub fn prepare<'a>(
+        &mut self,
+        text_box: PlacedTextBox,
+        output: &mut impl PushVertices<BoxShaderVertex>,
+    ) {
+        // if (text_box.clip_rect.map(|x| x.is_empty()).unwrap_or_default()) {
+        //     return;
+        // }
+
+        self.process_glyphs(&text_box);
 
         self.atlas_manager
             .write()

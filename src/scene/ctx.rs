@@ -3,7 +3,10 @@ use std::borrow::Cow;
 use crate::{
     atlas::TextureAtlasManagerRef,
     input::output::{CursorIcon, PlatformOutput},
-    math::{CoordinateTransform, Pos, Rect, Size, TransformationList, WindowScaleFactor},
+    math::{
+        CoordinateTransform, DeviceScaleFactor, Pos, Rect, Size, TransformationList,
+        TransformationScaleFactor,
+    },
     shape::{ClipRect, ClipRectList, ComputedPaintShape, PaintShape, ShaderClipRect},
 };
 
@@ -27,12 +30,12 @@ pub struct SceneContext<'a> {
 
     scene_resources: SceneResources<'a>,
 
-    scale_factor: WindowScaleFactor,
+    scale_factor: DeviceScaleFactor,
 }
 
 impl<'a> SceneContext<'a> {
     pub(super) fn new(
-        scale_factor: WindowScaleFactor,
+        scale_factor: DeviceScaleFactor,
         transformations: TransformationList,
         clip_rects: ClipRectList,
         scene_resources: SceneResources<'a>,
@@ -50,18 +53,16 @@ impl<'a> SceneContext<'a> {
     }
 
     pub fn add_shape<'b, T: Into<PaintShape<'b>>>(&mut self, shape: T) {
-        let scale_fac = self
-            .active_transformation_idx
-            // TODO: cache computation
-            .map(|idx| {
-                let (sx, sy) = self.transformations.get(idx).scale_factor();
-                sx.max(sy)
-            })
-            .unwrap_or(1.)
-            * self.scale_factor.get();
+        let scale_fac = self.scale_factor
+            * self
+                .active_transformation_idx
+                // TODO: cache computation
+                .map(|idx| self.transformations.get_scale_factor(idx))
+                .map(|(sx, sy)| sx.max(sy))
+                .unwrap_or_default();
 
-        let mut shape = Into::<PaintShape<'b>>::into(shape)
-            .compute_paint_shape(self.current_clip_rect(), WindowScaleFactor::new(scale_fac));
+        let shape = Into::<PaintShape<'b>>::into(shape)
+            .compute_paint_shape(self.current_clip_rect(), scale_fac);
 
         self.shapes.push(PaintShapeWithContext {
             shape,

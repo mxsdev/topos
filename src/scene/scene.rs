@@ -8,18 +8,21 @@ use itertools::Itertools;
 
 use crate::{
     accessibility::AccessNode,
-    atlas::{self, TextureAtlasManager, TextureAtlasManagerRef},
+    atlas::{self, FontManager, TextureAtlasManager, TextureAtlasManagerRef},
     element::{Element, ElementId, ElementRef, RootConstructor},
     graphics::{DynamicGPUMeshTriBuffer, PushVertices, VertexBuffers},
     input::{input_state::InputState, output::PlatformOutput},
-    math::{PhysicalSize, Pos, Rect, WindowScaleFactor},
+    math::{DeviceScaleFactor, PhysicalSize, Pos, Rect, TransformationScaleFactor},
     shape::{
-        self, BoxShaderVertex, ComputedPaintShape, PaintMeshVertex, PaintShape, ShaderClipRect,
-        ShapeBufferWithContext,
+        self, BoxShaderVertex, ClipRect, ComputedPaintShape, PaintMeshVertex, PaintShape,
+        ShaderClipRect, ShapeBufferWithContext,
     },
     surface::{RenderAttachment, RenderSurface, RenderingContext},
     texture::TextureManagerRef,
-    util::text::{FontSystem, FontSystemRef},
+    util::{
+        guard::ReadLockable,
+        text::{FontSystem, FontSystemRef, TextBox},
+    },
 };
 
 use super::{
@@ -33,7 +36,11 @@ pub struct SceneResources<'a> {
     font_system: FontSystemRef,
     rendering_context: Arc<RenderingContext>,
     layout_engine: &'a mut LayoutEngine,
-    scale_factor: WindowScaleFactor,
+    font_manager: &'a mut FontManager,
+    device_scale_factor: DeviceScaleFactor,
+
+    pub(crate) element_clip_rect: Option<ClipRect>,
+    pub(crate) element_transformation_scale_factor: Option<TransformationScaleFactor>,
 }
 
 impl<'a> SceneResources<'a> {
@@ -42,21 +49,26 @@ impl<'a> SceneResources<'a> {
         texture_manager: TextureManagerRef,
         font_system: FontSystemRef,
         rendering_context: Arc<RenderingContext>,
-        scale_factor: WindowScaleFactor,
+        device_scale_factor: DeviceScaleFactor,
         layout_engine: &'a mut LayoutEngine,
+        font_manager: &'a mut FontManager,
     ) -> Self {
         Self {
             texture_atlas_manager,
             texture_manager,
             font_system,
             rendering_context,
-            scale_factor,
+            device_scale_factor,
             layout_engine,
+            font_manager,
+
+            element_clip_rect: Default::default(),
+            element_transformation_scale_factor: Default::default(),
         }
     }
 
-    pub(super) fn set_scale_factor(&mut self, fac: WindowScaleFactor) {
-        self.scale_factor = fac;
+    pub(super) fn set_scale_factor(&mut self, fac: DeviceScaleFactor) {
+        self.device_scale_factor = fac;
     }
 
     pub fn font_system(&self) -> impl DerefMut<Target = FontSystem> + '_ {
@@ -71,8 +83,8 @@ impl<'a> SceneResources<'a> {
         self.rendering_context.clone()
     }
 
-    pub fn scale_factor(&self) -> WindowScaleFactor {
-        self.scale_factor
+    pub fn device_scale_factor(&self) -> DeviceScaleFactor {
+        self.device_scale_factor
     }
 
     pub fn layout_engine(&mut self) -> &mut LayoutEngine {
@@ -86,6 +98,15 @@ impl<'a> SceneResources<'a> {
     pub fn texture_manager(&self) -> &TextureManagerRef {
         &self.texture_manager
     }
+
+    pub(crate) fn prepare_text(&mut self, text: &TextBox) {
+        self.font_manager
+            .process_glyphs(&text.calculate_placed_text_box(
+                self.element_clip_rect,
+                self.device_scale_factor
+                    * self.element_transformation_scale_factor.unwrap_or_default(),
+            ));
+    }
 }
 
 pub struct Scene<Root: RootConstructor + 'static> {
@@ -97,11 +118,14 @@ pub struct Scene<Root: RootConstructor + 'static> {
     root: ElementRef<Root>,
 
     layout_engine: LayoutEngine,
+
+    layout_result: Option<ElementTree>,
 }
 
 impl<Root: RootConstructor + 'static> Scene<Root> {
     pub fn new(
         rendering_context: Arc<RenderingContext>,
+        render_surface: &RenderSurface,
         texture_manager: &TextureManagerRef,
         scale_fac: f64,
     ) -> Self {
@@ -125,12 +149,11 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         let atlas_manager = font_manager.atlas_manager_ref();
         let texture_manager = texture_manager.clone();
 
-        let mut scene_resources = SceneResources::new(
-            atlas_manager.clone(),
-            texture_manager.clone(),
-            font_manager.get_font_system_ref(),
-            rendering_context,
-            WindowScaleFactor::new(scale_fac as f32),
+        let mut scene_resources = Self::get_scene_resources(
+            &atlas_manager,
+            &texture_manager,
+            &mut font_manager,
+            render_surface,
             &mut layout_engine,
         );
 
@@ -143,18 +166,62 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
             root,
             layout_engine,
             texture_manager,
+            layout_result: None,
         }
+    }
+
+    fn get_scene_resources<'a>(
+        atlas_manager: &TextureAtlasManagerRef,
+        texture_manager: &TextureManagerRef,
+        font_manager: &'a mut FontManager,
+        render_surface: &RenderSurface,
+        layout_engine: &'a mut LayoutEngine,
+    ) -> SceneResources<'a> {
+        SceneResources::new(
+            atlas_manager.clone(),
+            texture_manager.clone(),
+            font_manager.get_font_system_ref(),
+            render_surface.clone_rendering_context(),
+            render_surface.device_scale_factor(),
+            layout_engine,
+            font_manager,
+        )
+    }
+
+    pub fn do_layout(&mut self, render_surface: &RenderSurface) -> ElementTree {
+        let scale_fac = render_surface.device_scale_factor();
+
+        let physical_screen_size: PhysicalSize<u32> = render_surface.get_size().into();
+
+        let screen_size =
+            physical_screen_size.cast_unit().map(|x| x as f32) * scale_fac.inverse().as_float();
+
+        let mut scene_resources = Self::get_scene_resources(
+            &self.atlas_manager,
+            &self.texture_manager,
+            &mut self.font_manager,
+            render_surface,
+            &mut self.layout_engine,
+        );
+
+        let layout_pass = LayoutPass::new(&mut self.root, &mut scene_resources);
+
+        layout_pass.do_layout_pass(screen_size, &mut self.root)
     }
 
     pub fn render(
         &mut self,
         render_surface: &RenderSurface,
-        texture_manager: &TextureManagerRef,
         RenderAttachment {
             window_texture,
             msaa_view,
             ..
         }: RenderAttachment,
+        ElementTree {
+            root: mut scene_layout,
+            transformations,
+            mut clip_rects,
+        }: ElementTree,
         mut input: InputState,
     ) -> (InputState, PlatformOutput) {
         let window_view = window_texture
@@ -165,7 +232,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
         let RenderingContext { device, queue, .. } = render_ctx;
 
-        let scale_fac = render_surface.scale_factor();
+        let scale_fac = render_surface.device_scale_factor();
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
@@ -173,25 +240,18 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
         let physical_screen_size: PhysicalSize<u32> = render_surface.get_size().into();
 
-        let screen_size = physical_screen_size.map(|x| x as f32) * scale_fac.inverse();
+        // TODO: find better solution than casting unit here...
+        let screen_size =
+            physical_screen_size.cast_unit().map(|x| x as f32) * scale_fac.inverse().as_float();
 
         // layout pass
-        let mut scene_resources = SceneResources::new(
-            self.atlas_manager.clone(),
-            self.texture_manager.clone(),
-            self.font_manager.get_font_system_ref(),
-            render_surface.clone_rendering_context(),
-            scale_fac,
+        let mut scene_resources = Self::get_scene_resources(
+            &self.atlas_manager,
+            &self.texture_manager,
+            &mut self.font_manager,
+            render_surface,
             &mut self.layout_engine,
         );
-
-        let layout_pass = LayoutPass::new(&mut self.root, &mut scene_resources);
-
-        let ElementTree {
-            root: mut scene_layout,
-            transformations,
-            mut clip_rects,
-        } = layout_pass.do_layout_pass(screen_size, scale_fac, &mut self.root);
 
         input.insert_transformations(transformations);
         scene_layout.do_input_pass(&mut input, None, &mut clip_rects, None);
@@ -215,7 +275,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
 
         let mut shape_buffer_local = ShapeBufferWithContext::new();
 
-        let clip_rects = scene_clip_rects.finish(scale_fac).collect_vec();
+        let clip_rects = scene_clip_rects.finish().collect_vec();
 
         self.shape_renderer
             .write_all_clip_rects(render_ctx, &clip_rects);
@@ -226,7 +286,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
             &scene_transformations.transformation_inverses,
         );
 
-        let mut texture_manager_lock = texture_manager.write().unwrap();
+        let mut texture_manager_lock = self.texture_manager.write().unwrap();
 
         let (texture_bind_group, sampler_bind_group) = {
             (

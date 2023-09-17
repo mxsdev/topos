@@ -5,6 +5,7 @@ use std::{
 };
 
 use cosmic_text::{PhysicalGlyph, Shaping};
+use ordered_float::NotNan;
 use shrinkwraprs::Shrinkwrap;
 
 pub use cosmic_text::{
@@ -16,7 +17,7 @@ use crate::{
     color::{ColorRgba, FromCosmicTextColor},
     math::{
         PhysicalPos, PhysicalSize, PhysicalVector, Pos, Rect, RoundedRect, ScaleFactor, Size,
-        Vector, WindowScaleFactor,
+        Vector,
     },
     shape::PaintFill,
 };
@@ -88,15 +89,15 @@ pub struct PlacedGlyph<U = PhysicalUnit> {
 impl<U> PlacedGlyph<U> {
     fn from_layout_glyph<UnitFrom>(
         glyph: &cosmic_text::LayoutGlyph,
-        scale_fac: ScaleFactor<f32, UnitFrom, U>,
+        scale_fac: ScaleFactor<UnitFrom, U>,
         text_box_pos: Pos<f32, UnitFrom>,
         default_color: impl Into<PaintFill>,
         line_y: f32,
     ) -> Self {
         Self {
             glyph: glyph.physical(
-                ((text_box_pos + Vector::new(0., line_y)) * scale_fac).into(),
-                scale_fac.get(),
+                ((text_box_pos + Vector::new(0., line_y)) * scale_fac.as_float()).into(),
+                scale_fac.get().into(),
             ),
             depth: 0.,
             color: glyph
@@ -113,9 +114,11 @@ impl<U> PlacedGlyph<U> {
         pos: Pos<f32, TargetUnit>,
         size: PhysicalSize<u32>,
         mut placement: PhysicalPos<i32>,
-        scale_fac: ScaleFactor<f32, PhysicalUnit, TargetUnit>,
+        scale_fac: ScaleFactor<PhysicalUnit, TargetUnit>,
     ) -> Rect<f32, TargetUnit> {
         placement.y *= -1;
+
+        let scale_fac = scale_fac.as_float();
 
         Rect::from_min_size(
             pos + (placement.map(|x| x as f32) * scale_fac).to_vector()
@@ -130,7 +133,7 @@ pub struct PlacedTextBox<U = LogicalUnit> {
     pub clip_rect: Option<RoundedRect<f32, U>>,
     pub pos: Pos<f32, U>,
     pub color: PaintFill,
-    pub scale_fac: ScaleFactor<f32, U, PhysicalUnit>,
+    pub scale_fac: ScaleFactor<U, PhysicalUnit>,
     pub bounding_size: Size<f32, U>,
 }
 
@@ -140,7 +143,7 @@ impl<U> PlacedTextBox<U> {
         pos: Pos<f32, U>,
         color: impl Into<PaintFill>,
         clip_rect: Option<RoundedRect<f32, U>>,
-        scale_fac: ScaleFactor<f32, U, PhysicalUnit>,
+        scale_fac: ScaleFactor<U, PhysicalUnit>,
         bounding_size: Size<f32, U>,
     ) -> Self {
         Self {
@@ -305,7 +308,7 @@ impl<U> TextBox<U> {
     pub(crate) fn calculate_placed_text_box(
         &self,
         clip_rect: impl Into<Option<RoundedRect<f32, U>>>,
-        scale_factor: ScaleFactor<f32, U, PhysicalUnit>,
+        scale_factor: ScaleFactor<U, PhysicalUnit>,
     ) -> PlacedTextBox<U> {
         let bounding_size = self.computed_size();
 

@@ -8,8 +8,8 @@ use crate::{
     color::{ColorRgba, ColorSrgba},
     graphics::{DynamicGPUBuffer, DynamicGPUMeshTriBuffer, Mesh, PushVertices, VertexBuffers},
     math::{
-        CoordinateTransform, PhysicalPos, PhysicalRect, PhysicalSize, Pos, RoundedRect,
-        ScaleFactor, Size, Vector, WindowScaleFactor,
+        CompleteScaleFactor, CoordinateTransform, PhysicalPos, PhysicalRect, PhysicalSize, Pos,
+        RoundedRect, ScaleFactor, Size, Vector,
     },
     surface::ParamsBuffer,
     texture::{TextureManagerRef, TextureRef},
@@ -753,10 +753,7 @@ impl Default for ClipRectList {
 }
 
 impl ClipRectList {
-    pub fn finish(
-        self,
-        window_scale_fac: WindowScaleFactor,
-    ) -> impl Iterator<Item = ShaderClipRect> {
+    pub fn finish(self) -> impl Iterator<Item = ShaderClipRect> {
         self.rects.into_iter().map(move |(r, idx)| {
             ShaderClipRect::from_clip_rect(r, idx.map(|x| x as u32).unwrap_or_default())
         })
@@ -800,11 +797,11 @@ impl<F: Float, U> PaintBlur<F, U> {
     }
 }
 
-impl<T: Copy + Mul, U1, U2> Mul<ScaleFactor<T, U1, U2>> for PaintBlur<T, U1> {
+impl<T: Copy + Mul, U1, U2> Mul<ScaleFactor<U1, U2, T>> for PaintBlur<T, U1> {
     type Output = PaintBlur<T::Output, U2>;
 
     #[inline]
-    fn mul(self, scale: ScaleFactor<T, U1, U2>) -> Self::Output {
+    fn mul(self, scale: ScaleFactor<U1, U2, T>) -> Self::Output {
         Self::Output {
             blur_radius: self.blur_radius * scale.get(),
             color: self.color,
@@ -1048,7 +1045,7 @@ impl<'a> PaintShape<'a> {
     pub(crate) fn compute_paint_shape(
         self,
         clip_rect: impl Into<Option<RoundedRect>>,
-        scale_factor: WindowScaleFactor,
+        scale_factor: CompleteScaleFactor,
     ) -> ComputedPaintShape {
         match self {
             Self::Rectangle(rect) => ComputedPaintShape::Rectangle(rect),
@@ -1092,11 +1089,11 @@ impl<F: Num + Copy + Default + Two + MaxNum, U> PaintRectangle<F, U> {
     }
 }
 
-impl<T: Copy + Mul, U1, U2> Mul<ScaleFactor<T, U1, U2>> for PaintRectangle<T, U1> {
+impl<T: Copy + Mul, U1, U2> Mul<ScaleFactor<U1, U2, T>> for PaintRectangle<T, U1> {
     type Output = PaintRectangle<T::Output, U2>;
 
     #[inline]
-    fn mul(self, scale: ScaleFactor<T, U1, U2>) -> Self::Output {
+    fn mul(self, scale: ScaleFactor<U1, U2, T>) -> Self::Output {
         Self::Output {
             blur: self.blur.map(|x| x * scale),
             fill: self.fill,

@@ -357,39 +357,39 @@ impl<T: Copy + Div, U> Div<T> for Rect<T, U> {
 impl<T: Copy + DivAssign, U> DivAssign<T> for Rect<T, U> {
     #[inline]
     fn div_assign(&mut self, scale: T) {
-        *self /= ScaleFactor::new(scale);
+        *self /= ScaleFactor::<U, U, T>::new(scale);
     }
 }
 
-impl<T: Copy + Mul, U1, U2> Mul<ScaleFactor<T, U1, U2>> for Rect<T, U1> {
+impl<T: Copy + Mul, U1, U2> Mul<ScaleFactor<U1, U2, T>> for Rect<T, U1> {
     type Output = Rect<T::Output, U2>;
 
     #[inline]
-    fn mul(self, scale: ScaleFactor<T, U1, U2>) -> Self::Output {
+    fn mul(self, scale: ScaleFactor<U1, U2, T>) -> Self::Output {
         Rect::new(self.min * scale, self.max * scale)
     }
 }
 
-impl<T: Copy + MulAssign, U> MulAssign<ScaleFactor<T, U, U>> for Rect<T, U> {
+impl<T: Copy + MulAssign, U> MulAssign<ScaleFactor<U, U, T>> for Rect<T, U> {
     #[inline]
-    fn mul_assign(&mut self, scale: ScaleFactor<T, U, U>) {
+    fn mul_assign(&mut self, scale: ScaleFactor<U, U, T>) {
         self.min *= scale;
         self.max *= scale;
     }
 }
 
-impl<T: Copy + Div, U1, U2> Div<ScaleFactor<T, U1, U2>> for Rect<T, U2> {
+impl<T: Copy + Div, U1, U2> Div<ScaleFactor<U1, U2, T>> for Rect<T, U2> {
     type Output = Rect<T::Output, U1>;
 
     #[inline]
-    fn div(self, scale: ScaleFactor<T, U1, U2>) -> Self::Output {
+    fn div(self, scale: ScaleFactor<U1, U2, T>) -> Self::Output {
         Rect::new(self.min / scale, self.max / scale)
     }
 }
 
-impl<T: Copy + DivAssign, U> DivAssign<ScaleFactor<T, U, U>> for Rect<T, U> {
+impl<T: Copy + DivAssign, U> DivAssign<ScaleFactor<U, U, T>> for Rect<T, U> {
     #[inline]
-    fn div_assign(&mut self, scale: ScaleFactor<T, U, U>) {
+    fn div_assign(&mut self, scale: ScaleFactor<U, U, T>) {
         self.min /= scale;
         self.max /= scale;
     }
@@ -567,11 +567,11 @@ impl<F, U> From<Rect<F, U>> for RoundedRect<F, U> {
     }
 }
 
-impl<T: Copy + Mul, U1, U2> Mul<ScaleFactor<T, U1, U2>> for RoundedRect<T, U1> {
+impl<T: Copy + Mul, U1, U2> Mul<ScaleFactor<U1, U2, T>> for RoundedRect<T, U1> {
     type Output = RoundedRect<T::Output, U2>;
 
     #[inline]
-    fn mul(self, scale: ScaleFactor<T, U1, U2>) -> Self::Output {
+    fn mul(self, scale: ScaleFactor<U1, U2, T>) -> Self::Output {
         RoundedRect {
             inner: self.inner * scale,
             radius: self.radius.map(|r| r * scale.0),
@@ -579,9 +579,9 @@ impl<T: Copy + Mul, U1, U2> Mul<ScaleFactor<T, U1, U2>> for RoundedRect<T, U1> {
     }
 }
 
-impl<T: Copy + MulAssign, U> MulAssign<ScaleFactor<T, U, U>> for RoundedRect<T, U> {
+impl<T: Copy + MulAssign, U> MulAssign<ScaleFactor<U, U, T>> for RoundedRect<T, U> {
     #[inline]
-    fn mul_assign(&mut self, scale: ScaleFactor<T, U, U>) {
+    fn mul_assign(&mut self, scale: ScaleFactor<U, U, T>) {
         self.inner *= scale;
 
         if let Some(radius) = &mut self.radius {
@@ -592,17 +592,19 @@ impl<T: Copy + MulAssign, U> MulAssign<ScaleFactor<T, U, U>> for RoundedRect<T, 
 
 #[cfg(test)]
 mod tests {
+    use ordered_float::NotNan;
+
     use super::*;
 
     #[test]
     fn test_rect_sdf() {
         let rect = Rect::<f32, LogicalUnit>::new(pos(0., 0.), pos(4., 4.));
 
-        use crate::util::math::WindowScaleFactor;
+        use crate::util::math::CompleteScaleFactor;
 
-        let scale_factor = WindowScaleFactor::new(2.);
+        let scale_factor = CompleteScaleFactor::from_float(2.);
 
-        let physical_rect: PhysicalRect = rect * scale_factor;
+        let physical_rect: PhysicalRect = rect * scale_factor.as_float();
 
         assert_eq!(physical_rect, Rect::new(pos(0., 0.), pos(8., 8.)))
     }

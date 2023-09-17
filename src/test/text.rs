@@ -10,7 +10,10 @@ use crate::{
     math::{PhysicalSize, Pos},
     scene::layout::{measure_func_boxed, AvailableSpace, FlexBox, LayoutPassResult, Measurable},
     shape::PaintFill,
-    util::text::{AtlasContentType, FontSystemRef, TextBox},
+    util::{
+        guard::ReadLockable,
+        text::{AtlasContentType, FontSystemRef, TextBox},
+    },
 };
 
 use crate::util::text::{Attrs, Metrics};
@@ -199,7 +202,7 @@ impl TextBoxElement {
 }
 
 impl Element for TextBoxElement {
-    fn layout(&mut self, _layout_pass: &mut LayoutPass) -> LayoutPassResult {
+    fn layout(&mut self, layout_pass: &mut LayoutPass) -> LayoutPassResult {
         self.layout_node.clone()
     }
 
@@ -209,6 +212,8 @@ impl Element for TextBoxElement {
             rect.width(),
             rect.height(),
         );
+
+        resources.prepare_text(&self.buffer.lock().unwrap().buffer);
     }
 
     fn ui(&mut self, ctx: &mut SceneContext, rect: Rect) {
