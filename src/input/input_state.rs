@@ -1056,7 +1056,7 @@ impl PointerState {
     /// Latest reported pointer position.
     /// When tapping a touch screen, this will be `None`.
     #[inline(always)]
-    pub(crate) fn latest_pos(&mut self) -> Option<Pos> {
+    pub fn latest_pos(&mut self) -> Option<Pos> {
         self.transformable_pointer_cache
             .get_latest_pos_at(self.active_transformation_idx, self.latest_pos)
     }

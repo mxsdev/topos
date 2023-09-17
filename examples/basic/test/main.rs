@@ -1,12 +1,13 @@
-use cosmic_text::{Attrs, Family, Metrics};
+use cosmic_text::{Attrs, Metrics};
 
-use crate::{
+use topos::{
     accessibility::{AccessNodeBuilder, AccessRole},
     atlas::AtlasAllocation,
     color::{ColorRgba, ColorSrgba, FromNSColor},
-    element::{Element, ElementRef},
+    element::{Element, ElementRef, TextBoxElement},
     input::input_state::InputState,
     math::{CoordinateTransform, Pos, Rect, Size, Vector},
+    scene::ctx::SceneContext,
     scene::{
         layout::{FlexBox, LayoutPass, LayoutPassResult, Percent},
         scene::SceneResources,
@@ -14,7 +15,7 @@ use crate::{
     util::text::AtlasContentType,
 };
 
-use super::{TestRect, TextBoxElement};
+use super::TestRect;
 
 pub struct MainElement {
     rects: Vec<ElementRef<TestRect>>,
@@ -72,7 +73,7 @@ impl Element for MainElement {
             .unwrap()
     }
 
-    fn ui(&mut self, ctx: &mut crate::scene::ctx::SceneContext, rect: Rect) {
+    fn ui(&mut self, ctx: &mut SceneContext, rect: Rect) {
         let mut send_to_back = None::<usize>;
 
         for (i, rect) in self.rects.iter_mut().enumerate() {

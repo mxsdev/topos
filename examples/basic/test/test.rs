@@ -4,18 +4,18 @@ use lyon::{
     path::{LineCap, LineJoin},
 };
 
-use crate::{
+use topos::{
     accessibility::{AccessNodeBuilder, AccessRole, AsAccessRect},
     atlas::AtlasAllocation,
     color::ColorRgba,
-    element::transition::Transition,
+    element::Element,
+    element::{transition::Transition, Response},
     graphics::VertexBuffers,
     input::input_state::InputState,
-    lib::Response,
     math::{PhysicalSize, Pos, Rect, RoundedRect, Size, Vector},
     scene::{
         ctx::SceneContext,
-        layout::{LayoutPassResult, Manual},
+        layout::{LayoutPass, LayoutPassResult, Manual},
         scene::SceneResources,
     },
     shape::{PaintFill, PaintMesh, PaintRectangle},
@@ -24,8 +24,6 @@ use crate::{
         text::AtlasContentType,
     },
 };
-
-use crate::element::Element;
 
 pub struct TestRect {
     size: Size,
@@ -148,7 +146,7 @@ impl Element for TestRect {
         self.transition.update(input);
     }
 
-    fn layout(&mut self, layout_pass: &mut crate::scene::layout::LayoutPass) -> LayoutPassResult {
+    fn layout(&mut self, layout_pass: &mut LayoutPass) -> LayoutPassResult {
         layout_pass
             .engine()
             .new_leaf(Manual::builder())

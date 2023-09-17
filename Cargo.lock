@@ -2984,6 +2984,7 @@ dependencies = [
  "svg",
  "swash",
  "taffy",
+ "topos",
  "uuid",
  "wasm-bindgen",
  "wasm-bindgen-futures",

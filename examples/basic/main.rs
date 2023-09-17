@@ -1,46 +1,12 @@
-#![feature(return_position_impl_trait_in_trait)]
-#![feature(adt_const_params)]
-#![feature(unboxed_closures)]
-#![feature(fn_traits)]
-
-#[macro_use]
-extern crate custom_derive;
-#[macro_use]
-extern crate enum_derive;
-
-mod accessibility;
-mod app;
-mod atlas;
-mod buffer;
-mod color;
-mod debug;
-mod element;
-mod graphics;
-mod hash;
-mod history;
-mod input;
-mod lib;
-mod math;
-mod num;
-mod scene;
-mod shape;
-mod surface;
-mod test;
-mod text;
-mod texture;
-mod time;
-mod util;
-
-use app::ToposEvent;
-pub use refbox;
-
-use test::TestRoot;
+use topos::app::ToposEvent;
 use winit::event_loop::EventLoopBuilder;
+
+mod test;
 
 pub async fn run() {
     let event_loop = EventLoopBuilder::<ToposEvent>::with_user_event().build();
 
-    let app = app::App::<TestRoot>::new(&event_loop).await;
+    let app = topos::app::App::<test::TestRoot>::new(&event_loop).await;
     app.run(event_loop)
 }
 
