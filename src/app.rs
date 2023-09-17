@@ -200,6 +200,7 @@ impl<Root: RootConstructor + 'static> App<Root> {
 
             builder = builder
                 // .with_title_hidden(true)
+                .with_title("topos")
                 .with_titlebar_transparent(true)
                 .with_fullsize_content_view(true)
                 .with_transparent(true);
