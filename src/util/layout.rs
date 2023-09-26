@@ -421,6 +421,14 @@ impl CSSLayoutBuilder {
         self
     }
 
+    pub fn max_size(mut self, size: Size<impl Into<Dimension>>) -> Self {
+        self.style.max_size = taffy::geometry::Size::<TaffyDimension> {
+            width: size.width.into().into(),
+            height: size.height.into().into(),
+        };
+        self
+    }
+
     pub fn flex_grow(mut self, grow: f32) -> Self {
         self.style.flex_grow = grow;
         self
@@ -438,6 +446,16 @@ impl CSSLayoutBuilder {
 
     pub fn height(mut self, height: impl Into<Dimension>) -> Self {
         self.style.size.height = height.into().into();
+        self
+    }
+
+    pub fn max_width(mut self, width: impl Into<Dimension>) -> Self {
+        self.style.max_size.width = width.into().into();
+        self
+    }
+
+    pub fn max_height(mut self, height: impl Into<Dimension>) -> Self {
+        self.style.max_size.height = height.into().into();
         self
     }
 

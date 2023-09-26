@@ -321,4 +321,9 @@ impl<B: Boundary, const NUM_POINTER_BUTTONS: usize> Response<B, NUM_POINTER_BUTT
         self.boundary.set_rect(rect);
         self.update(input)
     }
+
+    pub fn update_boundary<U>(&mut self, input: &mut InputState, boundary: B) {
+        self.boundary = boundary;
+        self.update(input)
+    }
 }

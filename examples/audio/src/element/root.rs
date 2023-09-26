@@ -1,6 +1,6 @@
 use topos::{
     accessibility::{AccessNodeBuilder, AccessRole},
-    element::{Element, Response, RootConstructor},
+    element::{Element, ElementRef, Response, RootConstructor},
     input::input_state::InputState,
     math::{DeviceScaleFactor, Rect},
     scene::{
@@ -9,12 +9,16 @@ use topos::{
         scene::SceneResources,
     },
     shape::ClipRect,
+    util::layout::Center,
 };
+
+use super::wave::Wave;
 
 pub struct TestRoot {
     scale_factor: DeviceScaleFactor,
-
     response: Response<Rect>,
+
+    wave: ElementRef<Wave>,
 }
 
 impl RootConstructor for TestRoot {
@@ -23,19 +27,23 @@ impl RootConstructor for TestRoot {
             scale_factor: resources.device_scale_factor(),
 
             response: Default::default(),
+            wave: super::wave::Wave::new().into(),
         }
     }
 }
 
 impl Element for TestRoot {
     fn layout(&mut self, layout_pass: &mut LayoutPass) -> LayoutPassResult {
+        layout_pass.layout_child(&mut self.wave);
+
         let result = layout_pass
             .engine()
             .new_leaf(
                 FlexBox::builder()
-                    .direction(ColumnReverse)
                     .width(Percent(1.))
-                    .height(Percent(1.)),
+                    .height(Percent(1.))
+                    .justify_content(Center)
+                    .align_items(Center),
             )
             .unwrap();
 

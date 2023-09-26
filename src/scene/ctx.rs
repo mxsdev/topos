@@ -4,8 +4,8 @@ use crate::{
     atlas::TextureAtlasManagerRef,
     input::output::{CursorIcon, PlatformOutput},
     math::{
-        CoordinateTransform, DeviceScaleFactor, Pos, Rect, Size, TransformationList,
-        TransformationScaleFactor,
+        CompleteScaleFactor, CoordinateTransform, DeviceScaleFactor, Pos, Rect, Size,
+        TransformationList, TransformationScaleFactor,
     },
     shape::{ClipRect, ClipRectList, ComputedPaintShape, PaintShape, ShaderClipRect},
 };
@@ -111,5 +111,16 @@ impl<'a> SceneContext<'a> {
 
     pub fn resources(&mut self) -> &mut SceneResources<'a> {
         &mut self.scene_resources
+    }
+
+    pub fn transformation_scale_factor(&self) -> TransformationScaleFactor {
+        self.active_transformation_idx
+            .map(|idx| self.transformations.get_scale_factor(idx))
+            .map(|(sx, sy)| sx.max(sy))
+            .unwrap_or_default()
+    }
+
+    pub fn scale_factor(&self) -> CompleteScaleFactor {
+        self.scene_resources.device_scale_factor() * self.transformation_scale_factor()
     }
 }

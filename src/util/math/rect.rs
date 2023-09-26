@@ -214,7 +214,7 @@ where
         }
     }
 
-    /// Inflates the box by the specified sizes on each side respectively.
+    /// Deflates the box by the specified sizes on each side respectively.
     #[inline]
     #[must_use]
     pub fn deflate(&self, width: T, height: T) -> Self

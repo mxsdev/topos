@@ -12,7 +12,9 @@ use crate::{
     element::{Element, ElementId, ElementRef, RootConstructor},
     graphics::{DynamicGPUMeshTriBuffer, PushVertices, VertexBuffers},
     input::{input_state::InputState, output::PlatformOutput},
-    math::{DeviceScaleFactor, PhysicalSize, Pos, Rect, TransformationScaleFactor},
+    math::{
+        CompleteScaleFactor, DeviceScaleFactor, PhysicalSize, Pos, Rect, TransformationScaleFactor,
+    },
     shape::{
         self, BoxShaderVertex, ClipRect, ComputedPaintShape, PaintMeshVertex, PaintShape,
         ShaderClipRect, ShapeBufferWithContext,
@@ -87,6 +89,10 @@ impl<'a> SceneResources<'a> {
         self.device_scale_factor
     }
 
+    pub fn scale_factor(&self) -> CompleteScaleFactor {
+        self.device_scale_factor * self.element_transformation_scale_factor.unwrap_or_default()
+    }
+
     pub fn layout_engine(&mut self) -> &mut LayoutEngine {
         self.layout_engine
     }
@@ -100,12 +106,9 @@ impl<'a> SceneResources<'a> {
     }
 
     pub(crate) fn prepare_text(&mut self, text: &TextBox) {
-        self.font_manager
-            .process_glyphs(&text.calculate_placed_text_box(
-                self.element_clip_rect,
-                self.device_scale_factor
-                    * self.element_transformation_scale_factor.unwrap_or_default(),
-            ));
+        self.font_manager.process_glyphs(
+            &text.calculate_placed_text_box(self.element_clip_rect, self.scale_factor()),
+        );
     }
 }
 

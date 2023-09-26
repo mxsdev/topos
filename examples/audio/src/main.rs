@@ -1,7 +1,10 @@
 use topos::app::ToposEvent;
 use winit::event_loop::EventLoopBuilder;
 
+pub mod audio;
 mod element;
+
+pub mod cache;
 
 pub async fn run() {
     let event_loop = EventLoopBuilder::<ToposEvent>::with_user_event().build();
