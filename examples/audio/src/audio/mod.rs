@@ -2,6 +2,7 @@ extern crate ffmpeg_next as ffmpeg;
 
 use std::{ops::Range, path::Path};
 
+use ffmpeg::{codec::context, ffi::AVCodecParameters, ChannelLayout};
 use get_size::GetSize;
 use rayon::{
     prelude::{
@@ -131,8 +132,8 @@ pub fn get_audio(stream_config: &cpal::StreamConfig) -> AudioSegment<f32, 2> {
         &Path::new(std::file!())
             .parent()
             .unwrap()
+            // .join("Ante_Meridiam.mp3"),
             .join("alarm_beeps.wav"),
-        // .join("Ante_Meridiam.mp3"),
     )
     .unwrap();
 
@@ -143,15 +144,23 @@ pub fn get_audio(stream_config: &cpal::StreamConfig) -> AudioSegment<f32, 2> {
         ffmpeg::codec::context::Context::from_parameters(audio.parameters()).unwrap();
 
     let mut audio_decoder = context_decoder.decoder().audio().unwrap();
+    let num_channels = audio_decoder.channels();
+
+    unsafe {
+        let channel_layout_ref = &mut (*audio_decoder.as_mut_ptr()).channel_layout;
+
+        *channel_layout_ref = match channel_layout_ref {
+            0 => ChannelLayout::default(num_channels as i32).bits(),
+            _ => *channel_layout_ref,
+        };
+    }
 
     let mut resampler = ffmpeg::software::resampling::context::Context::get(
         audio_decoder.format(),
         audio_decoder.channel_layout(),
         audio_decoder.rate(),
-        // stream_config.sample_format().as_ffmpeg_sample(),
         ffmpeg::format::Sample::F32(ffmpeg::format::sample::Type::Planar),
         audio_decoder.channel_layout(),
-        // stream_config.sample_rate().0,
         stream_config.sample_rate.0,
     )
     .unwrap();

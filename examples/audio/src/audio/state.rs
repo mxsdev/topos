@@ -1,5 +1,9 @@
 use std::sync::mpsc;
 
+use cpal::StreamInstant;
+
+use super::{Stream, StreamInstantCopy, StreamInstantTrait, StreamTime, StreamTimeStamp};
+
 // trait AudioPosUnit {
 //     type Time: Copy + Clone;
 // }
@@ -8,7 +12,7 @@ use std::sync::mpsc;
 // struct Duration;
 
 // impl AudioPosUnit for Duration {
-//     type Time = std::time::Duration;
+//     type Time = StreamTimeStamp;
 // }
 
 // #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
@@ -24,8 +28,8 @@ pub struct SampleTime {
 //     type Time = SampleTime;
 // }
 
-#[derive(Clone, Copy, Default)]
-pub struct AudioPos<TimeUnit = std::time::Duration> {
+#[derive(Clone, Copy, Default, Debug)]
+pub struct AudioPos<TimeUnit = StreamTimeStamp> {
     pub inner: TimeUnit,
 }
 
@@ -35,7 +39,7 @@ impl<TimeUnit> From<TimeUnit> for AudioPos<TimeUnit> {
     }
 }
 
-impl AudioPos<std::time::Duration> {
+impl AudioPos<StreamTimeStamp> {
     pub fn to_sample_time(&self, sample_rate: u32) -> AudioPos<SampleTime> {
         AudioPos {
             inner: SampleTime {
@@ -47,41 +51,41 @@ impl AudioPos<std::time::Duration> {
 }
 
 impl AudioPos<SampleTime> {
-    pub fn to_duration(&self) -> AudioPos<std::time::Duration> {
+    pub fn to_duration(&self) -> AudioPos<StreamTimeStamp> {
         AudioPos {
-            inner: std::time::Duration::from_secs_f64(
+            inner: StreamTimeStamp::from_secs_f64(
                 self.inner.sample_idx as f64 / self.inner.sample_rate as f64,
             ),
         }
     }
 }
 
-// pub type AudioPos = std::time::Duration;
+// pub type AudioPos = StreamTimeStamp;
 
 #[derive(Clone, Copy)]
 pub struct AudioPlayStatePlaying {
-    pub started_at: std::time::Instant,
+    pub started_at: StreamTimeStamp,
     pub pos: AudioPos,
 }
 
 impl AudioPlayStatePlaying {
-    pub fn new(started_at: std::time::Instant, pos: impl Into<AudioPos>) -> Self {
+    pub fn new(started_at: StreamTimeStamp, pos: impl Into<AudioPos>) -> Self {
         Self {
             started_at,
             pos: pos.into(),
         }
     }
 
-    pub fn new_now(pos: impl Into<AudioPos>) -> Self {
-        Self::new(std::time::Instant::now(), pos)
+    pub fn new_now(pos: impl Into<AudioPos>, stream: &StreamTime) -> Self {
+        Self::new(stream.now(), pos)
     }
 
-    pub fn pos_at(&self, t: std::time::Instant) -> AudioPos {
+    pub fn pos_at(&self, t: StreamTimeStamp) -> AudioPos {
         return (self.pos.inner + (t - self.started_at)).into();
     }
 
-    pub fn pos_now(&self) -> AudioPos {
-        return self.pos_at(std::time::Instant::now());
+    pub fn pos_now(&self, stream_time: &StreamTime) -> AudioPos {
+        return self.pos_at(stream_time.now());
     }
 }
 
@@ -104,9 +108,9 @@ pub enum AudioPlayState {
 }
 
 impl AudioPlayState {
-    pub fn pos_now(&self) -> Option<AudioPos> {
+    pub fn pos_now(&self, stream_time: &StreamTime) -> Option<AudioPos> {
         match self {
-            AudioPlayState::Playing(play_state) => play_state.pos_now().into(),
+            AudioPlayState::Playing(play_state) => play_state.pos_now(stream_time).into(),
             AudioPlayState::Paused(pause_state) => pause_state.pos.into(),
             AudioPlayState::Stopped => None,
         }

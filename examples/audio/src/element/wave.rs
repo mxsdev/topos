@@ -18,13 +18,14 @@ use topos::{
 use crate::{
     audio::{
         self, new_state_bidi, AudioPlayState, AudioPlayStatePaused, AudioPlayStatePlaying,
-        AudioSample, AudioSampleAverage, AudioSegment, AudioState, AudioStateProducer,
+        AudioSample, AudioSampleAverage, AudioSegment, AudioState, AudioStateProducer, Stream,
+        StreamTime,
     },
     cache::CachedValue,
 };
 
 pub struct Wave {
-    stream: cpal::Stream,
+    stream: Stream,
     response: Response<Rect>,
     audio_file: Arc<AudioSegment>,
     samples_averaged_cache: CachedValue<Vec<AudioSampleAverage<f32, 2>>, usize>,
@@ -36,12 +37,12 @@ type StreamBuffer = HeapRb<f32>;
 
 impl Wave {
     pub fn new() -> Self {
-        let buffer = StreamBuffer::new(8192);
+        let buffer = StreamBuffer::new(1024);
         let (mut producer, consumer) = buffer.split();
 
-        let (stream, stream_config) = audio::init_audio_buffer(consumer);
+        let stream = audio::init_audio_buffer(consumer);
 
-        let audio_file: Arc<_> = audio::get_audio(&stream_config).into();
+        let audio_file: Arc<_> = audio::get_audio(stream.stream_config()).into();
         println!("audio sample_rate: {:?}", audio_file.sample_rate);
 
         let initial_audio_state = AudioState {
@@ -52,18 +53,20 @@ impl Wave {
 
         {
             let audio_file = audio_file.clone();
+            let stream_time = stream.stream_time();
 
             std::thread::spawn(move || {
                 let mut last_sample: Option<usize> = None;
 
                 loop {
                     let audio_state = audio_state_consumer.get_state();
+                    let nc = audio_file.num_channels();
 
                     match audio_state.play_state {
                         AudioPlayState::Playing(play_state) => {
                             let last_sample_ref = last_sample.get_or_insert_with(|| {
                                 play_state
-                                    .pos_now()
+                                    .pos_now(&stream_time)
                                     .to_sample_time(audio_file.sample_rate)
                                     .inner
                                     .sample_idx
@@ -72,12 +75,8 @@ impl Wave {
                             let samples_to_write = producer.free_len() / audio_file.num_channels();
 
                             if samples_to_write > 0 {
-                                let samples = unsafe {
-                                    std::mem::transmute::<_, &[f32]>(
-                                        &audio_file.samples_packed()
-                                            [*last_sample_ref..*last_sample_ref + samples_to_write],
-                                    )
-                                };
+                                let samples = &audio_file.samples_packed()[(*last_sample_ref * nc)
+                                    ..(*last_sample_ref + samples_to_write) * nc];
 
                                 // turn down volume
                                 let samples = samples
@@ -118,7 +117,7 @@ impl Wave {
 
         let pixel_size = 1. / sf;
         let samples_per_pixel = self.audio_file.samples.len() / (rect.width() * sf).ceil() as usize;
-        let samples_per_pixel_f = samples_per_pixel as f32;
+        // let samples_per_pixel_f = samples_per_pixel as f32;
 
         let samples_averaged = self
             .samples_averaged_cache
@@ -157,14 +156,22 @@ impl Element for Wave {
             self.audio_state.modify_state(|mut state| {
                 state.play_state = match state.play_state {
                     AudioPlayState::Playing(state_playing) => {
-                        AudioPlayState::Paused(AudioPlayStatePaused::new(state_playing.pos_now()))
+                        AudioPlayState::Paused(AudioPlayStatePaused::new(
+                            state_playing.pos_now(&self.stream.stream_time_ref()),
+                        ))
                     }
                     AudioPlayState::Paused(state_paused) => {
-                        AudioPlayState::Playing(AudioPlayStatePlaying::new_now(state_paused.pos))
+                        AudioPlayState::Playing(AudioPlayStatePlaying::new_now(
+                            state_paused.pos,
+                            &self.stream.stream_time_ref(),
+                        ))
                     }
-                    AudioPlayState::Stopped => AudioPlayState::Playing(
-                        AudioPlayStatePlaying::new_now(std::time::Duration::default()),
-                    ),
+                    AudioPlayState::Stopped => {
+                        AudioPlayState::Playing(AudioPlayStatePlaying::new_now(
+                            std::time::Duration::default(),
+                            &self.stream.stream_time_ref(),
+                        ))
+                    }
                 };
 
                 state
@@ -193,7 +200,7 @@ impl Element for Wave {
             .audio_state
             .get_state()
             .play_state
-            .pos_now()
+            .pos_now(&self.stream.stream_time_ref())
             .unwrap_or_default()
             .to_sample_time(self.audio_file.sample_rate)
             .inner
