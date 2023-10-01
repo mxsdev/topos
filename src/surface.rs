@@ -104,6 +104,7 @@ pub struct RenderingContext {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub texture_format: wgpu::TextureFormat,
+    pub adapter: wgpu::Adapter,
 
     pub texture_info: TextureInfo,
 }
@@ -131,6 +132,7 @@ impl RenderSurface {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             dx12_shader_compiler: Default::default(),
+            gles_minor_version: Default::default(),
         });
 
         // # Safety
@@ -196,6 +198,7 @@ impl RenderSurface {
             //     .unwrap_or(wgpu::PresentMode::Fifo),
             alpha_mode: wgpu::CompositeAlphaMode::PostMultiplied,
             view_formats: vec![],
+            swap_chain_size: Some(2),
         };
         surface.configure(&device, &config);
 
@@ -219,6 +222,7 @@ impl RenderSurface {
             queue,
             texture_format,
             texture_info: TextureInfo::new(multisample_mode.num_samples()),
+            adapter,
         }
         .into();
 

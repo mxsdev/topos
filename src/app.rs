@@ -1,7 +1,10 @@
 use crate::{
     math::{Pos, Rect},
-    scene::layout::{self, ElementTree},
-    surface::RenderTarget,
+    scene::{
+        framepacer::TimeWithAdapter,
+        layout::{self, ElementTree},
+    },
+    surface::{RenderTarget, RenderingContext},
     texture::TextureManagerRef,
     util::{min, PhysicalUnit},
 };
@@ -35,6 +38,8 @@ pub struct App<Root: RootConstructor + 'static> {
     window: winit::window::Window,
 
     texture_manager: TextureManagerRef,
+
+    last_presentation_time: Option<wgpu::PresentationTimestamp>,
 
     framepacer: Framepacer,
 }
@@ -92,14 +97,19 @@ impl<Root: RootConstructor + 'static> App<Root> {
                 }
 
                 Event::RedrawRequested(window_id) if window_id == self.window.id() => {
-                    self.try_create_new_output();
+                    self.try_create_new_output(None);
 
                     let (output, element_tree) = match self.swap_chain.take() {
                         Some(output) => output,
                         None => return,
                     };
 
-                    let (should_render, render_start_time) = self.framepacer.should_render();
+                    let (should_render, render_start_time) = self.framepacer.should_render(
+                        self.render_surface
+                            .rendering_context()
+                            .adapter
+                            .get_presentation_timestamp(),
+                    );
 
                     if !should_render {
                         self.swap_chain = Some((output, element_tree));
@@ -111,20 +121,23 @@ impl<Root: RootConstructor + 'static> App<Root> {
                     let input_state =
                         std::mem::take(&mut self.input_state).begin_frame(raw_input, true);
 
-                    let (mut result_input, result_output) =
-                        self.scene
-                            .render(&self.render_surface, output, element_tree, input_state);
+                    let (mut result_input, result_output, render_time, approx_present_time) =
+                        self.scene.render(
+                            &self.render_surface,
+                            output,
+                            element_tree,
+                            input_state,
+                            render_start_time.into(),
+                            &mut self.framepacer,
+                        );
 
-                    let render_finish_time = crate::time::Instant::now();
-                    let render_time = render_finish_time.duration_since(render_start_time);
-
-                    if self.framepacer.check_missed_deadline(render_finish_time) {
-                        log::debug!("  missed deadline render time: {:?}", render_time);
-                    }
+                    // if self.framepacer.check_missed_deadline(render_finish_time) {
+                    //     log::debug!("  missed deadline render time: {:?}", render_time);
+                    // }
 
                     result_input.end_frame();
 
-                    self.try_create_new_output();
+                    self.try_create_new_output(approx_present_time.into());
 
                     self.framepacer.push_frametime(render_time);
 
@@ -158,7 +171,10 @@ impl<Root: RootConstructor + 'static> App<Root> {
         });
     }
 
-    fn try_create_new_output(&mut self) {
+    fn try_create_new_output(
+        &mut self,
+        approx_presentation_start: Option<wgpu::PresentationTimestamp>,
+    ) {
         if self.swap_chain.is_some() {
             return;
         }
@@ -171,9 +187,66 @@ impl<Root: RootConstructor + 'static> App<Root> {
 
         match self.render_surface.get_output() {
             Ok(output) => {
+                let RenderingContext { adapter, .. } = self.render_surface.rendering_context();
+
+                // let presentation_start = match self.last_presentation_time {
+                //     Some(_) => {
+                //         let presentation_stats = loop {
+                //             let presentation_stats = self
+                //                 .render_surface
+                //                 .surface()
+                //                 .query_presentation_statistics();
+
+                //             if presentation_stats.len() == 0 {
+                //                 std::thread::sleep(std::time::Duration::from_micros(1));
+
+                //                 continue;
+                //             }
+
+                //             break presentation_stats;
+                //         };
+
+                //         if presentation_stats.len() != 1 {
+                //             log::warn!(
+                //                 "unexpected number of frames drawn: {:?}",
+                //                 presentation_stats.len()
+                //             )
+                //         }
+
+                //         presentation_stats.last().unwrap().presentation_start
+                //     }
+
+                //     None => {
+                //         log::warn!("unable to retrieve presentation stats");
+
+                //         self.render_surface
+                //             .rendering_context()
+                //             .adapter
+                //             .get_presentation_timestamp()
+                //     }
+                // };
+
+                let presentation_stats = self
+                    .render_surface
+                    .surface()
+                    .query_presentation_statistics();
+
+                let presentation_start = match presentation_stats.last() {
+                    Some(stats) => stats.presentation_start,
+
+                    None => {
+                        log::warn!("unable to retrieve presentation stats");
+
+                        approx_presentation_start
+                            .unwrap_or_else(|| wgpu::PresentationTimestamp::now(adapter))
+                    }
+                };
+
+                self.last_presentation_time = Some(presentation_start);
+
                 self.framepacer.start_window(
-                    crate::time::Instant::now(),
-                    get_window_frame_time(&self.window),
+                    presentation_start,
+                    get_window_frame_time_nanos(&self.window),
                 );
 
                 let layout_result = self.scene.do_layout(&self.render_surface);
@@ -357,6 +430,8 @@ impl<Root: RootConstructor + 'static> App<Root> {
 
             framepacer: Default::default(),
 
+            last_presentation_time: Default::default(),
+
             texture_manager,
         }
     }
@@ -374,12 +449,10 @@ impl<Root: RootConstructor + 'static> App<Root> {
     }
 }
 
-fn get_window_frame_time(window: &winit::window::Window) -> Option<f64> {
+fn get_window_frame_time_nanos(window: &winit::window::Window) -> Option<u128> {
     let monitor = window.current_monitor()?;
 
-    let frame_rate = monitor.refresh_rate_millihertz()? as f64 / 1000.;
-
-    return Some(1. / frame_rate);
-
-    // return Some(Duration::from_secs_f64());
+    return std::time::Duration::from_secs_f64(1000. / monitor.refresh_rate_millihertz()? as f64)
+        .as_nanos()
+        .into();
 }

@@ -29,6 +29,7 @@ use crate::{
 
 use super::{
     ctx::{PaintShapeWithContext, SceneContext},
+    framepacer::{Framepacer, TimeWithAdapter},
     layout::{ElementTree, LayoutEngine, LayoutPass},
 };
 
@@ -226,14 +227,26 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
             mut clip_rects,
         }: ElementTree,
         mut input: InputState,
-    ) -> (InputState, PlatformOutput) {
+        start_time: wgpu::PresentationTimestamp,
+        fp: &mut Framepacer,
+    ) -> (
+        InputState,
+        PlatformOutput,
+        std::time::Duration,
+        wgpu::PresentationTimestamp,
+    ) {
+        let render_ctx = render_surface.rendering_context();
+
+        let RenderingContext {
+            device,
+            queue,
+            adapter,
+            ..
+        } = render_ctx;
+
         let window_view = window_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-
-        let render_ctx = render_surface.rendering_context();
-
-        let RenderingContext { device, queue, .. } = render_ctx;
 
         let scale_fac = render_surface.device_scale_factor();
 
@@ -241,14 +254,8 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
             label: Some("Render Encoder"),
         });
 
-        let physical_screen_size: PhysicalSize<u32> = render_surface.get_size().into();
-
-        // TODO: find better solution than casting unit here...
-        let screen_size =
-            physical_screen_size.cast_unit().map(|x| x as f32) * scale_fac.inverse().as_float();
-
         // layout pass
-        let mut scene_resources = Self::get_scene_resources(
+        let scene_resources = Self::get_scene_resources(
             &self.atlas_manager,
             &self.texture_manager,
             &mut self.font_manager,
@@ -349,7 +356,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: load_op,
-                            store: true,
+                            store: wgpu::StoreOp::Store,
                         },
                     },
                     Some(msaa_view) => wgpu::RenderPassColorAttachment {
@@ -357,11 +364,13 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
                         resolve_target: Some(&window_view),
                         ops: wgpu::Operations {
                             load: load_op,
-                            store: false,
+                            store: wgpu::StoreOp::Discard,
                         },
                     },
                 })],
                 depth_stencil_attachment: None,
+                timestamp_writes: Default::default(),
+                occlusion_query_set: Default::default(),
             });
 
             render_pass.set_pipeline(&self.shape_renderer.shape_render_pipeline);
@@ -378,11 +387,31 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         // TODO: for multiple render passes, submit multiple encoders as
         // iterator (??? might work, test performance)
         queue.submit(std::iter::once(encoder.finish()));
-        window_texture.present();
+
+        fp.check_missed_deadline(
+            adapter.get_presentation_timestamp(),
+            start_time.elapsed(adapter).into(),
+        );
+
+        // window_texture.present(&wgpu::PresentationDescriptor {
+        //     presentation_delay: wgpu::PresentationDelay::ScheduleTime(
+        //         fp.get_deadline().expect("Deadline has not been set!"),
+        //     ),
+        // });
+
+        let approx_present_time = wgpu::PresentationTimestamp::now(adapter);
+
+        window_texture.present(&wgpu::PresentationDescriptor {
+            presentation_delay: wgpu::PresentationDelay::ScheduleMinimumDuration(
+                std::time::Duration::from_nanos(fp.refresh_rate_nanos().try_into().unwrap()),
+            ),
+        });
 
         self.font_manager.collect_garbage();
 
-        (input, platform_output)
+        let render_time = start_time.elapsed(adapter);
+
+        (input, platform_output, render_time, approx_present_time)
     }
 
     pub fn root_id(&self) -> ElementId {

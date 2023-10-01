@@ -4,6 +4,35 @@ use num_traits::Pow;
 
 const FRAMEPACER_NUM_SAMPLES: usize = 120;
 
+pub type FramepacerInstant = wgpu::PresentationTimestamp;
+
+pub trait TimeWithAdapter: RelativeDuration {
+    fn now(adapter: &wgpu::Adapter) -> Self;
+
+    fn elapsed(&self, adapter: &wgpu::Adapter) -> std::time::Duration
+    where
+        Self: Sized,
+    {
+        Self::now(adapter).duration_since(self)
+    }
+}
+
+impl TimeWithAdapter for FramepacerInstant {
+    fn now(adapter: &wgpu::Adapter) -> Self {
+        adapter.get_presentation_timestamp()
+    }
+}
+
+pub trait RelativeDuration {
+    fn duration_since(&self, earlier: &Self) -> std::time::Duration;
+}
+
+impl RelativeDuration for FramepacerInstant {
+    fn duration_since(&self, earlier: &Self) -> std::time::Duration {
+        std::time::Duration::from_nanos((self.0 - earlier.0).try_into().unwrap())
+    }
+}
+
 #[derive(Default)]
 pub struct Framepacer {
     // time in seconds
@@ -12,49 +41,103 @@ pub struct Framepacer {
 
     worst_frametime_secs: f64,
 
-    deadline: Option<crate::time::Instant>,
+    deadline: Option<FramepacerInstant>,
+
+    last_refresh_rate_nanos: Option<u128>,
+    last_presentation_start: Option<FramepacerInstant>,
 }
 
-const DEFAULT_FRAME_TIME: f64 = 1. / 60.;
+const DEFAULT_FRAME_TIME_SECS: f64 = 1. / 60.;
+
+const DEVIATION_BUFFER_MICROS: u64 = 30;
 
 impl Framepacer {
     pub fn new() {
         Default::default()
     }
 
-    pub fn start_window(&mut self, start: crate::time::Instant, frame_time_secs: Option<f64>) {
-        let frame_time =
-            crate::time::Duration::from_secs_f64(frame_time_secs.unwrap_or(DEFAULT_FRAME_TIME));
+    pub fn start_window(
+        &mut self,
+        presentation_start: FramepacerInstant,
+        frame_time_nanos: Option<u128>,
+    ) {
+        // if let Some((last_presentation_start, frame_time_nanos)) =
+        //     Option::zip(self.last_presentation_start.take(), frame_time_nanos)
+        // {
+        //     let del = presentation_start
+        //         .0
+        //         .saturating_sub(last_presentation_start.0);
 
-        self.deadline = (start + frame_time).into();
+        //     let diff = del as i128 - frame_time_nanos as i128;
+
+        //     // let diff = u128::max(
+        //     //     del.saturating_sub(frame_time_nanos),
+        //     //     frame_time_nanos.saturating_sub(del),
+        //     // );
+
+        //     println!("off by {}ns", diff);
+        // }
+
+        // self.last_presentation_start = Some(presentation_start);
+
+        let frame_time_nanos = frame_time_nanos.unwrap_or_else(|| {
+            std::time::Duration::from_secs_f64(DEFAULT_FRAME_TIME_SECS).as_nanos()
+        });
+
+        self.last_refresh_rate_nanos = frame_time_nanos.into();
+
+        self.deadline = wgpu::PresentationTimestamp(presentation_start.0 + frame_time_nanos).into();
     }
 
-    pub fn check_missed_deadline(&mut self, now: crate::time::Instant) -> bool {
-        let missed = if let Some(deadline) = self.deadline {
+    pub fn check_missed_deadline(
+        &mut self,
+        now: FramepacerInstant,
+        render_time: Option<std::time::Duration>,
+    ) -> bool {
+        if let Some(deadline) = self.deadline {
             let missed = now > deadline;
 
             if missed {
-                log::debug!("missed deadline by {:?}!", now - deadline);
+                log::debug!(
+                    "missed deadline by {:?}!",
+                    std::time::Duration::from_nanos((now.0 - deadline.0).try_into().unwrap())
+                );
+
+                let predicted_frametime =
+                    crate::time::Duration::from_secs_f64(self.worst_frametime_secs)
+                        + crate::time::Duration::from_micros(DEVIATION_BUFFER_MICROS);
+
+                if let Some(render_time) = render_time {
+                    log::debug!(
+                        "\trender time: {:?}, anticipated: {:?}",
+                        render_time,
+                        predicted_frametime
+                    );
+                }
             }
 
             missed
         } else {
             false
-        };
-
-        missed
+        }
     }
 
-    pub fn should_render(&mut self) -> (bool, crate::time::Instant) {
-        let start_time = crate::time::Instant::now();
+    pub fn get_deadline(&self) -> Option<FramepacerInstant> {
+        self.deadline
+    }
 
+    pub fn should_render(&mut self, start_time: FramepacerInstant) -> (bool, FramepacerInstant) {
         let should_render = match self.deadline {
             Some(deadline) => {
+                let predicted_finish_time = wgpu::PresentationTimestamp(
+                    start_time.0
+                        + (crate::time::Duration::from_secs_f64(self.worst_frametime_secs)
+                            + crate::time::Duration::from_micros(DEVIATION_BUFFER_MICROS))
+                        .as_nanos(),
+                );
+
                 // TODO: add buffer here for input/parsing time...
-                start_time
-                    + crate::time::Duration::from_secs_f64(self.worst_frametime_secs)
-                    + crate::time::Duration::from_micros(700)
-                    >= deadline
+                predicted_finish_time >= deadline
             }
 
             None => true,
@@ -92,18 +175,6 @@ impl Framepacer {
 
         self.worst_frametime_secs = mu + 3. * sigma;
 
-        // crate::time::Duration::as_secs_f64();
-
-        // crate::time::Duration
-
-        // let mut total = crate::time::Duration::default();
-
-        // for duration in self.last_30.iter() {
-        //     total += *duration;
-        // }
-
-        // let mu = total / self.last_30.len() as u32;
-
         if self.i >= 30 {
             log::trace!(
                 "worst case: {:?}, mu: {:?}, sigma: {:?}",
@@ -113,5 +184,11 @@ impl Framepacer {
             );
             self.i = 0;
         }
+    }
+
+    pub fn refresh_rate_nanos(&self) -> u128 {
+        self.last_refresh_rate_nanos.unwrap_or_else(|| {
+            std::time::Duration::from_secs_f64(DEFAULT_FRAME_TIME_SECS).as_nanos()
+        })
     }
 }

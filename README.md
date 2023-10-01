@@ -31,7 +31,7 @@
  - [ ] Render engine throughput optimizations (store & diff buffers by widget)
  - [ ] Sharp box strokes
  - [ ] Layers
- - [ ] Proper framepacing
+ - [x] Proper framepacing
  - [ ] Multi-window support
  - [ ] Abstract out renderer, layout engine, platform integration, application state
  - [ ] Replace Arc<...> with nominal "Ref" types
@@ -46,7 +46,7 @@
  - [x] Rounded clip rects
  - [ ] Move away from MSAA
  - [ ] Move away from Tessellation for glyphs/strokes
- - [ ] Improve framepacing (better statistical determination of render times)
+ - [x] Improve framepacing (better statistical determination of render times)
  - [ ] WASM
  - [ ] Rewrite layout logic (without taffy)
  - [x] Border color macos
