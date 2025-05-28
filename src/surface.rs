@@ -132,14 +132,14 @@ impl RenderSurface {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             dx12_shader_compiler: Default::default(),
-            gles_minor_version: Default::default(),
+            // gles_minor_version: Default::default(),
         });
 
         // # Safety
         //
         // The surface needs to live as long as the window that created it.
         // State owns the window so this should be safe.
-        let surface = unsafe { instance.create_surface(&render_target) }.unwrap();
+        let surface = unsafe { instance.create_surface(render_target) }.unwrap();
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -198,7 +198,7 @@ impl RenderSurface {
             //     .unwrap_or(wgpu::PresentMode::Fifo),
             alpha_mode: wgpu::CompositeAlphaMode::PostMultiplied,
             view_formats: vec![],
-            swap_chain_size: Some(2),
+            // swap_chain_size: Some(2),
         };
         surface.configure(&device, &config);
 

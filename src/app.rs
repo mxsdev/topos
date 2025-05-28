@@ -1,7 +1,10 @@
 use crate::{
     math::{Pos, Rect},
     scene::{
-        framepacer::TimeWithAdapter,
+        framepacer::{
+            self, CADisplayLinkFramepacer, Framepacer, FramepacerInstant, InstantLike,
+            NoopFramepacer,
+        },
         layout::{self, ElementTree},
     },
     surface::{RenderTarget, RenderingContext},
@@ -20,7 +23,7 @@ use winit::{
 use crate::{
     element::RootConstructor,
     input::{input_state::InputState, winit::WinitState},
-    scene::{framepacer::Framepacer, scene::Scene},
+    scene::{framepacer::ManagedFramepacer, scene::Scene},
     surface::{RenderAttachment, RenderSurface},
 };
 
@@ -41,7 +44,7 @@ pub struct App<Root: RootConstructor + 'static> {
 
     last_presentation_time: Option<wgpu::PresentationTimestamp>,
 
-    framepacer: Framepacer,
+    framepacer: ManagedFramepacer,
 }
 
 #[derive(Debug)]
@@ -61,6 +64,8 @@ pub type ToposEventLoop = EventLoop<ToposEvent>;
 impl<Root: RootConstructor + 'static> App<Root> {
     pub fn run(mut self, event_loop: ToposEventLoop) {
         let main_proxy = event_loop.create_proxy();
+        // let mut framepacer = ManagedFramepacer::<wgpu::PresentationTimestamp>::default();
+        let mut framepacer = CADisplayLinkFramepacer::new();
 
         event_loop.run(move |event, _, control_flow| {
             match event {
@@ -97,54 +102,7 @@ impl<Root: RootConstructor + 'static> App<Root> {
                 }
 
                 Event::RedrawRequested(window_id) if window_id == self.window.id() => {
-                    self.try_create_new_output(None);
-
-                    let (output, element_tree) = match self.swap_chain.take() {
-                        Some(output) => output,
-                        None => return,
-                    };
-
-                    let (should_render, render_start_time) = self.framepacer.should_render(
-                        self.render_surface
-                            .rendering_context()
-                            .adapter
-                            .get_presentation_timestamp(),
-                    );
-
-                    if !should_render {
-                        self.swap_chain = Some((output, element_tree));
-                        return;
-                    }
-
-                    let raw_input = self.winit_state.take_egui_input();
-
-                    let input_state =
-                        std::mem::take(&mut self.input_state).begin_frame(raw_input, true);
-
-                    let (mut result_input, result_output, render_time, approx_present_time) =
-                        self.scene.render(
-                            &self.render_surface,
-                            output,
-                            element_tree,
-                            input_state,
-                            render_start_time.into(),
-                            &mut self.framepacer,
-                        );
-
-                    // if self.framepacer.check_missed_deadline(render_finish_time) {
-                    //     log::debug!("  missed deadline render time: {:?}", render_time);
-                    // }
-
-                    result_input.end_frame();
-
-                    self.try_create_new_output(approx_present_time.into());
-
-                    self.framepacer.push_frametime(render_time);
-
-                    self.input_state = result_input;
-
-                    self.winit_state
-                        .handle_platform_output(&self.window, result_output);
+                    self.draw(&mut framepacer)
                 }
 
                 Event::MainEventsCleared => {
@@ -171,9 +129,66 @@ impl<Root: RootConstructor + 'static> App<Root> {
         });
     }
 
-    fn try_create_new_output(
+    fn draw<I: InstantLike + Copy + Debug>(&mut self, framepacer: &mut impl Framepacer<I>) {
+        self.try_create_new_output(None, framepacer);
+
+        // let framepacer = || {
+        //     (match external_framepacer {
+        //         Some(framepacer) => framepacer,
+        //         None => &mut self.framepacer,
+        //     }) as &mut dyn Framepacer
+        // };
+
+        let time_context = I::context_from(self.render_surface.rendering_context());
+
+        let (output, element_tree) = match self.swap_chain.take() {
+            Some(output) => output,
+            None => return,
+        };
+
+        let (should_render, render_start_time) =
+            framepacer.should_render(InstantLike::now(time_context));
+
+        if !should_render {
+            self.swap_chain = Some((output, element_tree));
+            return;
+        }
+
+        let raw_input = self.winit_state.take_egui_input();
+
+        let input_state = std::mem::take(&mut self.input_state).begin_frame(raw_input, true);
+
+        let (mut result_input, result_output, render_time, approx_present_time) =
+            self.scene.render(
+                &self.render_surface,
+                output,
+                element_tree,
+                input_state,
+                render_start_time.into(),
+                framepacer,
+                time_context,
+            );
+
+        // if self.framepacer.check_missed_deadline(render_finish_time) {
+        //     log::debug!("  missed deadline render time: {:?}", render_time);
+        // }
+
+        result_input.end_frame();
+
+        self.try_create_new_output::<I>(approx_present_time.into(), framepacer);
+
+        framepacer.push_frametime(render_time);
+
+        self.input_state = result_input;
+
+        self.winit_state
+            .handle_platform_output(&self.window, result_output);
+    }
+
+    fn try_create_new_output<I: InstantLike + Copy>(
         &mut self,
-        approx_presentation_start: Option<wgpu::PresentationTimestamp>,
+        approx_presentation_start: Option<I>,
+        framepacer: &mut impl Framepacer<I>,
     ) {
         if self.swap_chain.is_some() {
             return;
@@ -187,7 +202,7 @@ impl<Root: RootConstructor + 'static> App<Root> {
 
         match self.render_surface.get_output() {
             Ok(output) => {
-                let RenderingContext { adapter, .. } = self.render_surface.rendering_context();
+                let render_ctx = self.render_surface.rendering_context();
 
                 // let presentation_start = match self.last_presentation_time {
                 //     Some(_) => {
@@ -226,26 +241,19 @@ impl<Root: RootConstructor + 'static> App<Root> {
                 //     }
                 // };
 
-                let presentation_stats = self
-                    .render_surface
-                    .surface()
-                    .query_presentation_statistics();
+                if let Some(ns_screen) = get_ns_screen(&self.window) {
+                    let fps = unsafe { ns_screen.maximumFramesPerSecond() as f32 };
+                    framepacer.sync_to_fps(fps);
+                }
 
-                let presentation_start = match presentation_stats.last() {
-                    Some(stats) => stats.presentation_start,
+                let last_presentation_time = I::query_presentation_statistics(
+                    self.render_surface.surface(),
+                    &self.window,
+                    approx_presentation_start.unwrap_or(I::now(I::context_from(render_ctx))),
+                );
 
-                    None => {
-                        log::warn!("unable to retrieve presentation stats");
-
-                        approx_presentation_start
-                            .unwrap_or_else(|| wgpu::PresentationTimestamp::now(adapter))
-                    }
-                };
-
-                self.last_presentation_time = Some(presentation_start);
-
-                self.framepacer.start_window(
-                    presentation_start,
+                framepacer.start_window(
+                    last_presentation_time,
                     get_window_frame_time_nanos(&self.window),
                 );
 
@@ -254,7 +262,11 @@ impl<Root: RootConstructor + 'static> App<Root> {
                 self.swap_chain = (output, layout_result).into();
             }
             // Reconfigure the surface if lost
-            Err(wgpu::SurfaceError::Lost) => self.render_surface.reconfigure(),
+            Err(wgpu::SurfaceError::Lost) => {
+                log::warn!("render surface lost");
+
+                self.render_surface.reconfigure()
+            }
             // The system is out of memory, we should probably quit
             Err(wgpu::SurfaceError::OutOfMemory) => panic!("out of memory"),
             // All other errors (Outdated, Timeout) should be resolved by the next frame
@@ -306,66 +318,66 @@ impl<Root: RootConstructor + 'static> App<Root> {
         let rwh = window.raw_window_handle();
 
         let rwh_target = match rwh {
-            #[cfg(target_os = "macos")]
-            raw_window_handle::RawWindowHandle::AppKit(handle) => unsafe {
-                use icrate::AppKit::{
-                    NSColor, NSView, NSViewHeightSizable, NSViewWidthSizable,
-                    NSVisualEffectBlendingModeBehindWindow,
-                    NSVisualEffectMaterialUnderWindowBackground, NSVisualEffectStateActive,
-                    NSVisualEffectView, NSWindow, NSWindowBelow, NSWindowMiniaturizeButton,
-                    NSWindowZoomButton,
-                };
+            // #[cfg(target_os = "macos")]
+            // raw_window_handle::RawWindowHandle::AppKit(handle) => unsafe {
+            //     use icrate::AppKit::{
+            //         NSColor, NSView, NSViewHeightSizable, NSViewWidthSizable,
+            //         NSVisualEffectBlendingModeBehindWindow,
+            //         NSVisualEffectMaterialUnderWindowBackground, NSVisualEffectStateActive,
+            //         NSVisualEffectView, NSWindow, NSWindowBelow, NSWindowMiniaturizeButton,
+            //         NSWindowZoomButton,
+            //     };
 
-                use objc2::ClassType;
+            //     use objc2::ClassType;
 
-                let ns_window: &mut NSWindow =
-                    (handle.ns_window as *mut NSWindow).as_mut().unwrap();
+            //     let ns_window: &mut NSWindow =
+            //         (handle.ns_window as *mut NSWindow).as_mut().unwrap();
 
-                let ns_view: &NSView = (handle.ns_view as *mut NSView).as_mut().unwrap();
+            //     let ns_view: &NSView = (handle.ns_view as *mut NSView).as_mut().unwrap();
 
-                ns_window.setMovable(false);
+            //     ns_window.setMovable(false);
 
-                ns_window
-                    .standardWindowButton(NSWindowMiniaturizeButton)
-                    .map(|b| b.setHidden(true));
+            //     ns_window
+            //         .standardWindowButton(NSWindowMiniaturizeButton)
+            //         .map(|b| b.setHidden(true));
 
-                ns_window
-                    .standardWindowButton(NSWindowZoomButton)
-                    .map(|b| b.setHidden(true));
+            //     ns_window
+            //         .standardWindowButton(NSWindowZoomButton)
+            //         .map(|b| b.setHidden(true));
 
-                let metal_view = NSView::initWithFrame(NSView::alloc(), ns_view.bounds());
+            //     let metal_view = NSView::initWithFrame(NSView::alloc(), ns_view.bounds());
 
-                metal_view.setAutoresizingMask(NSViewWidthSizable | NSViewHeightSizable);
-                metal_view.setTranslatesAutoresizingMaskIntoConstraints(true);
-                metal_view.setFrame(ns_view.bounds());
+            //     metal_view.setAutoresizingMask(NSViewWidthSizable | NSViewHeightSizable);
+            //     metal_view.setTranslatesAutoresizingMaskIntoConstraints(true);
+            //     metal_view.setFrame(ns_view.bounds());
 
-                ns_view.addSubview(&metal_view);
+            //     ns_view.addSubview(&metal_view);
 
-                let view = NSVisualEffectView::initWithFrame(
-                    NSVisualEffectView::alloc(),
-                    ns_view.bounds(),
-                );
+            //     let view = NSVisualEffectView::initWithFrame(
+            //         NSVisualEffectView::alloc(),
+            //         ns_view.bounds(),
+            //     );
 
-                view.setAutoresizingMask(NSViewWidthSizable | NSViewHeightSizable);
-                view.setTranslatesAutoresizingMaskIntoConstraints(true);
-                view.setFrame(ns_view.bounds());
-                view.setWantsLayer(true);
+            //     view.setAutoresizingMask(NSViewWidthSizable | NSViewHeightSizable);
+            //     view.setTranslatesAutoresizingMaskIntoConstraints(true);
+            //     view.setFrame(ns_view.bounds());
+            //     view.setWantsLayer(true);
 
-                view.setMaterial(NSVisualEffectMaterialUnderWindowBackground);
-                view.setState(NSVisualEffectStateActive);
-                view.setBlendingMode(NSVisualEffectBlendingModeBehindWindow);
+            //     view.setMaterial(NSVisualEffectMaterialUnderWindowBackground);
+            //     view.setState(NSVisualEffectStateActive);
+            //     view.setBlendingMode(NSVisualEffectBlendingModeBehindWindow);
 
-                ns_view.addSubview_positioned_relativeTo(&view, NSWindowBelow, None);
+            //     ns_view.addSubview_positioned_relativeTo(&view, NSWindowBelow, None);
 
-                ns_window.setBackgroundColor(NSColor::windowBackgroundColor().as_ref().into());
+            //     ns_window.setBackgroundColor(NSColor::windowBackgroundColor().as_ref().into());
 
-                let mut appkit_wh = AppKitWindowHandle::empty();
+            //     let mut appkit_wh = AppKitWindowHandle::empty();
 
-                appkit_wh.ns_view = metal_view.as_ref() as *const _ as *mut _;
-                appkit_wh.ns_window = handle.ns_window;
+            //     appkit_wh.ns_view = metal_view.as_ref() as *const _ as *mut _;
+            //     appkit_wh.ns_window = handle.ns_window;
 
-                raw_window_handle::RawWindowHandle::AppKit(appkit_wh)
-            },
+            //     raw_window_handle::RawWindowHandle::AppKit(appkit_wh)
+            // },
             _ => rwh,
         };
 
@@ -449,10 +461,93 @@ impl<Root: RootConstructor + 'static> App<Root> {
     }
 }
 
-fn get_window_frame_time_nanos(window: &winit::window::Window) -> Option<u128> {
+fn get_window_frame_time_nanos(window: &winit::window::Window) -> Option<std::time::Duration> {
     let monitor = window.current_monitor()?;
 
     return std::time::Duration::from_secs_f64(1000. / monitor.refresh_rate_millihertz()? as f64)
-        .as_nanos()
         .into();
 }
+
+pub fn get_ns_screen(window: &winit::window::Window) -> Option<Id<icrate::AppKit::NSScreen>> {
+    match window.raw_window_handle() {
+        raw_window_handle::RawWindowHandle::AppKit(handle) => unsafe {
+            use icrate::AppKit::NSWindow;
+            let ns_window: &mut NSWindow = (handle.ns_window as *mut NSWindow).as_mut().unwrap();
+            ns_window.screen()
+        },
+        _ => None,
+    }
+}
+
+pub fn get_window_last_screen_draw_time(
+    window: &winit::window::Window,
+) -> Option<std::time::Duration> {
+    match window.raw_window_handle() {
+        raw_window_handle::RawWindowHandle::AppKit(handle) => unsafe {
+            use icrate::AppKit::{
+                NSColor, NSView, NSViewHeightSizable, NSViewWidthSizable,
+                NSVisualEffectBlendingModeBehindWindow,
+                NSVisualEffectMaterialUnderWindowBackground, NSVisualEffectStateActive,
+                NSVisualEffectView, NSWindow, NSWindowBelow, NSWindowMiniaturizeButton,
+                NSWindowZoomButton,
+            };
+
+            use objc2::ClassType;
+
+            let ns_window: &mut NSWindow = (handle.ns_window as *mut NSWindow).as_mut().unwrap();
+
+            let ns_screen = ns_window.screen().unwrap();
+
+            std::time::Duration::from_secs_f64(ns_screen.lastDisplayUpdateTimestamp()).into()
+        },
+        // raw_window_handle::RawWindowHandle::UiKit(_) => todo!(),
+        // raw_window_handle::RawWindowHandle::Orbital(_) => todo!(),
+        // raw_window_handle::RawWindowHandle::Xlib(_) => todo!(),
+        // raw_window_handle::RawWindowHandle::Xcb(_) => todo!(),
+        // raw_window_handle::RawWindowHandle::Wayland(_) => todo!(),
+        // raw_window_handle::RawWindowHandle::Drm(_) => todo!(),
+        // raw_window_handle::RawWindowHandle::Gbm(_) => todo!(),
+        // raw_window_handle::RawWindowHandle::Win32(_) => todo!(),
+        // raw_window_handle::RawWindowHandle::WinRt(_) => todo!(),
+        // raw_window_handle::RawWindowHandle::Web(_) => todo!(),
+        // raw_window_handle::RawWindowHandle::AndroidNdk(_) => todo!(),
+        // raw_window_handle::RawWindowHandle::Haiku(_) => todo!(),
+        _ => None,
+    }
+}
+
+use std::{fmt::Debug, os::raw::c_int};
+
+use icrate::Foundation::{NSCopying, NSObject, NSObjectProtocol, NSZone};
+use objc2::declare::{Ivar, IvarBool, IvarDrop, IvarEncode};
+use objc2::rc::Id;
+use objc2::{
+    declare_class, extern_protocol, msg_send, msg_send_id, mutability, ClassType, ProtocolType,
+};
+
+declare_class!(
+    struct CustomAppDelegate {
+        pub should_render: IvarBool<"_should_render">,
+    }
+
+    mod ivars;
+
+    unsafe impl ClassType for CustomAppDelegate {
+        type Super = NSObject;
+        type Mutability = mutability::Mutable;
+        const NAME: &'static str = "CustomAppDelegate";
+    }
+
+    unsafe impl CustomAppDelegate {
+        #[method(init:)]
+        fn init(this: &mut Self) -> Option<&mut Self> {
+            let this: Option<&mut Self> = unsafe { msg_send![super(this), init] };
+
+            this.map(|this| {
+                *this.should_render = false;
+
+                this
+            })
+        }
+    }
+);

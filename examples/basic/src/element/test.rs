@@ -84,7 +84,7 @@ impl TestRect {
         Self {
             size: Size::new(180., 180.),
 
-            response: Response::new(RoundedRect::default().with_radius_from(10.))
+            response: Response::new(RoundedRect::default())
                 .with_clickable(true)
                 .with_focusable(true)
                 .with_hoverable(true),
