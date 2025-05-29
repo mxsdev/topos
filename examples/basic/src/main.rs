@@ -1,13 +1,7 @@
-use topos::app::ToposEvent;
-use winit::event_loop::EventLoopBuilder;
-
 mod element;
 
 pub async fn run() {
-    let event_loop = EventLoopBuilder::<ToposEvent>::with_user_event().build();
-
-    let app = topos::app::App::<element::TestRoot>::new(&event_loop).await;
-    app.run(event_loop)
+    topos::app::App::<element::TestRoot>::run();
 }
 
 fn main() {

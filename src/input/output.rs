@@ -1,4 +1,18 @@
-use crate::math::Pos;
+use crate::math::Rect;
+
+/// Information about text being edited.
+///
+/// Useful for IME.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct IMEOutput {
+    /// Where the [`crate::TextEdit`] is located on screen.
+    pub rect: Rect,
+
+    /// Where the primary cursor is.
+    ///
+    /// This is a very thin rectangle.
+    pub cursor_rect: Rect,
+}
 
 /// The non-rendering part of what egui emits each frame.
 ///
@@ -33,8 +47,10 @@ pub struct PlatformOutput {
     /// Use by `eframe` web to show/hide mobile keyboard and IME agent.
     pub(super) mutable_text_under_cursor: bool,
 
-    /// Screen-space position of text edit cursor (used for IME).
-    pub(super) text_cursor_pos: Option<Pos>,
+    /// This is set if, and only if, the user is currently editing text.
+    ///
+    /// Useful for IME.
+    pub ime: Option<IMEOutput>,
 
     pub(super) accesskit_update: Option<accesskit::TreeUpdate>,
 
@@ -47,7 +63,11 @@ impl PlatformOutput {
     }
 
     pub fn accesskit_update(&mut self) -> &mut accesskit::TreeUpdate {
-        self.accesskit_update.get_or_insert_with(Default::default)
+        self.accesskit_update.get_or_insert_with(|| accesskit::TreeUpdate {
+            tree: None,
+            focus: accesskit::NodeId(0),
+            nodes: Vec::new(),
+        })
     }
 
     pub fn start_window_drag(&mut self) {
@@ -86,9 +106,9 @@ impl PlatformOutput {
             copied_text,
             mut events,
             mutable_text_under_cursor,
-            text_cursor_pos,
             accesskit_update,
             drag_window,
+            ime,
         } = newer;
 
         self.cursor_icon = cursor_icon;
@@ -100,13 +120,14 @@ impl PlatformOutput {
         }
         self.events.append(&mut events);
         self.mutable_text_under_cursor = mutable_text_under_cursor;
-        self.text_cursor_pos = text_cursor_pos.or(self.text_cursor_pos);
+        self.ime = ime.or(self.ime);
 
         {
             // egui produces a complete AccessKit tree for each frame,
             // so overwrite rather than appending.
             self.accesskit_update = accesskit_update;
         }
+
         self.drag_window = drag_window;
     }
 

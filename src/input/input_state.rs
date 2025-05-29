@@ -1,41 +1,66 @@
-use crate::{
-    element::{boundary::Boundary, ElementId},
-    history::History,
-    math::{CoordinateTransform, Pos, TransformationList, Vector},
-    shape::ClipRect,
-};
+use crate::{element::{boundary::Boundary, ElementId}, history::History, input::{
+    Event, KeyboardShortcut, Modifiers, MouseWheelUnit, PointerButton, RawInput,
+    TouchDeviceId, 
+}, math::{vector, Angle, CoordinateTransform, Pos, Rect, TransformationList, Vector}, num::exponential_smooth_factor, shape::ClipRect};
 
-use super::{
-    focus::FocusState, touch_state, Event, Key, KeyboardShortcut, Modifiers, PointerButton,
-    RawInput, TouchDeviceId,
-};
-
-// use crate::data::input::*;
-// use crate::{emath::*, util::History};
 use std::{
     collections::{BTreeMap, HashSet},
-    rc::Rc,
+    time::Duration,
 };
 
-use rustc_hash::FxHashMap;
-// pub use crate::data::input::Key;
-pub use touch_state::MultiTouchInfo;
-use touch_state::TouchState;
+use super::{focus::FocusState, touch_state::{MultiTouchInfo, TouchState}, EventFilter, Key};
 
-/// If the pointer moves more than this, it won't become a click (but it is still a drag)
-const MAX_CLICK_DIST: f32 = 6.0; // TODO(emilk): move to settings
+/// Options for input state handling.
+#[derive(Clone, Debug, PartialEq)]
+pub struct InputOptions {
+    /// After a pointer-down event, if the pointer moves more than this, it won't become a click.
+    pub max_click_dist: f32,
 
-/// If the pointer is down for longer than this, it won't become a click (but it is still a drag)
-const MAX_CLICK_DURATION: f64 = 0.6; // TODO(emilk): move to settings
+    /// If the pointer is down for longer than this it will no longer register as a click.
+    ///
+    /// If a touch is held for this many seconds while still, then it will register as a
+    /// "long-touch" which is equivalent to a secondary click.
+    ///
+    /// This is to support "press and hold for context menu" on touch screens.
+    pub max_click_duration: f64,
 
-/// The new pointer press must come within this many seconds from previous pointer release
-const MAX_DOUBLE_CLICK_DELAY: f64 = 0.3; // TODO(emilk): move to settings
+    /// The new pointer press must come within this many seconds from previous pointer release
+    /// for double click (or when this value is doubled, triple click) to count.
+    pub max_double_click_delay: f64,
+
+    /// Multiplier for the scroll speed when reported in [`crate::MouseWheelUnit::Line`]s.
+    pub line_scroll_speed: f32,
+
+    /// Controls the speed at which we zoom in when doing ctrl/cmd + scroll.
+    pub scroll_zoom_speed: f32,
+}
+
+impl Default for InputOptions {
+    fn default() -> Self {
+        // TODO(emilk): figure out why these constants need to be different on web and on native (winit).
+        let line_scroll_speed = if cfg!(target_arch = "wasm32") {
+            8.0
+        } else {
+            40.0 // Scroll speed decided by consensus: https://github.com/emilk/egui/issues/461
+        };
+
+        Self {
+            max_click_dist: 6.0,
+            max_click_duration: 0.8,
+            max_double_click_delay: 0.3,
+            line_scroll_speed,
+            scroll_zoom_speed: 1.0 / 200.0,
+        }
+    }
+}
 
 /// Input state that egui updates each frame.
 ///
+/// You can access this with [`crate::Context::input`].
+///
 /// You can check if `egui` is using the inputs using
 /// [`crate::Context::wants_pointer_input`] and [`crate::Context::wants_keyboard_input`].
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct InputState {
     /// The raw input we got this frame from the backend.
     pub raw: RawInput,
@@ -43,11 +68,25 @@ pub struct InputState {
     /// State of the mouse or simple touch gestures which can be mapped to mouse operations.
     pub pointer: PointerState,
 
-    /// State of touches, except those covered by PointerState (like clicks and drags).
+    /// State of touches, except those covered by `PointerState` (like clicks and drags).
     /// (We keep a separate [`TouchState`] for each encountered touch device.)
     touch_states: BTreeMap<TouchDeviceId, TouchState>,
 
-    /// How many points the user scrolled.
+    // ----------------------------------------------
+    // Scrolling:
+    //
+    /// Time of the last scroll event.
+    last_scroll_time: f64,
+
+    /// Used for smoothing the scroll delta.
+    unprocessed_scroll_delta: Vector,
+
+    /// Used for smoothing the scroll delta when zooming.
+    unprocessed_scroll_delta_for_zoom: f32,
+
+    /// You probably want to use [`Self::smooth_scroll_delta`] instead.
+    ///
+    /// The raw input of how many points the user scrolled.
     ///
     /// The delta dictates how the _content_ should move.
     ///
@@ -56,7 +95,24 @@ pub struct InputState {
     ///
     /// A positive Y-value indicates the content is being moved down,
     /// as when swiping down on a touch-screen or track-pad with natural scrolling.
-    pub scroll_delta: Vector,
+    ///
+    /// When using a notched scroll-wheel this will spike very large for one frame,
+    /// then drop to zero. For a smoother experience, use [`Self::smooth_scroll_delta`].
+    pub raw_scroll_delta: Vector,
+
+    /// How many points the user scrolled, smoothed over a few frames.
+    ///
+    /// The delta dictates how the _content_ should move.
+    ///
+    /// A positive X-value indicates the content is being moved right,
+    /// as when swiping right on a touch-screen or track-pad with natural scrolling.
+    ///
+    /// A positive Y-value indicates the content is being moved down,
+    /// as when swiping down on a touch-screen or track-pad with natural scrolling.
+    ///
+    /// [`crate::ScrollArea`] will both read and write to this field, so that
+    /// at the end of the frame this will be zero if a scroll-area consumed the delta.
+    pub smooth_scroll_delta: Vector,
 
     /// Zoom scale factor this frame (e.g. from ctrl-scroll or pinch gesture).
     ///
@@ -65,15 +121,21 @@ pub struct InputState {
     /// * `zoom > 1`: pinch spread
     zoom_factor_delta: f32,
 
-    // // /// Position and size of the egui area.
-    // // pub screen_rect: Rect,
-    // /// Also known as device pixel ratio, > 1 for high resolution screens.
-    // pub pixels_per_point: f32,
+    /// Rotation delta this frame (e.g. from pinch gesture).
+    pub rotation_delta: f32,
+
+    // ----------------------------------------------
+    /// Position and size of the egui area.
+    // pub screen_rect: Rect,
+
+    /// Also known as device pixel ratio, > 1 for high resolution screens.
+    pub pixels_per_point: f32,
 
     // /// Maximum size of one side of a texture.
     // ///
     // /// This depends on the backend.
     // pub max_texture_side: usize,
+
     /// Time in seconds. Relative to whatever. Used for animation.
     pub time: f64,
 
@@ -127,16 +189,23 @@ pub struct InputState {
     // The keys that are currently being held down.
     pub keys_down: HashSet<Key>,
 
-    // pub(crate) focused_element: Option<ElementId>,
+    /// In-order events received this frame
+    pub events: Vec<Event>,
+
+    /// Input state management configuration.
+    ///
+    /// This gets copied from `egui::Options` at the start of each frame for convenience.
+    input_options: InputOptions,
+
     pub(crate) current_element: Option<ElementId>,
 
     focused_within: bool,
 
     focus_state: FocusState,
 
-    // /// In-order events received this frame
-    // pub events: Vec<Event>,
-    accesskit_actions: Rc<Vec<accesskit::ActionRequest>>,
+    // // /// In-order events received this frame
+    // // pub events: Vec<Event>,
+    // accesskit_actions: Rc<Vec<accesskit::ActionRequest>>,
 }
 
 impl Default for InputState {
@@ -145,11 +214,17 @@ impl Default for InputState {
             raw: Default::default(),
             pointer: Default::default(),
             touch_states: Default::default(),
-            scroll_delta: Vector::zero(),
+
+            last_scroll_time: f64::NEG_INFINITY,
+            unprocessed_scroll_delta: Vector::zero(),
+            unprocessed_scroll_delta_for_zoom: 0.0,
+            raw_scroll_delta: Vector::zero(),
+            smooth_scroll_delta: Vector::zero(),
             zoom_factor_delta: 1.0,
-            // screen_rect: Rect::from_min_size(Default::default(), Size2::new(10_000.0, 10_000.0)),
-            // pixels_per_point: 1.0,
-            // max_texture_side: 2048,
+            rotation_delta: 0.0,
+
+            // screen_rect: Rect::from_min_size(Default::default(), vector(10_000.0, 10_000.0).to_size()),
+            pixels_per_point: 1.0,
             time: 0.0,
             unstable_dt: 1.0 / 60.0,
             predicted_dt: 1.0 / 60.0,
@@ -157,14 +232,12 @@ impl Default for InputState {
             focused: false,
             modifiers: Default::default(),
             keys_down: Default::default(),
-            // events: Default::default(),
-            accesskit_actions: Rc::new(Default::default()),
+            events: Default::default(),
+            input_options: Default::default(),
 
-            // focused_element: Default::default(),
+            // Focus state
             current_element: Default::default(),
-
             focused_within: false,
-
             focus_state: Default::default(),
         }
     }
@@ -172,15 +245,19 @@ impl Default for InputState {
 
 impl InputState {
     #[must_use]
-    pub fn begin_frame(
+    pub fn begin_pass(
         mut self,
         mut new: RawInput,
-        requested_repaint_last_frame: bool,
-    ) -> InputState {
+        requested_immediate_repaint_prev_frame: bool,
+        pixels_per_point: f32,
+        options: &InputOptions,
+    ) -> Self {
+        // profiling::function_scope!();
+
         let time = new.time.unwrap_or(self.time + new.predicted_dt as f64);
         let unstable_dt = (time - self.time) as f32;
 
-        let stable_dt = if requested_repaint_last_frame {
+        let stable_dt = if requested_immediate_repaint_prev_frame {
             // we should have had a repaint straight away,
             // so this should be trustable.
             unstable_dt
@@ -191,14 +268,20 @@ impl InputState {
         // let screen_rect = new.screen_rect.unwrap_or(self.screen_rect);
         self.create_touch_states_for_new_devices(&new.events);
         for touch_state in self.touch_states.values_mut() {
-            touch_state.begin_frame(time, &new, self.pointer.interact_pos);
+            touch_state.begin_pass(time, &new, self.pointer.interact_pos);
         }
-        let pointer = self.pointer.begin_frame(time, &new);
+        let pointer = self.pointer.begin_pass(time, &new, options);
 
         let mut keys_down = self.keys_down;
-        let mut scroll_delta = Vector::zero();
-        let mut zoom_factor_delta = 1.0;
-        let mut accesskit_actions = Vec::new();
+        let mut zoom_factor_delta = 1.0; // TODO(emilk): smoothing for zoom factor
+        let mut rotation_delta = 0.0;
+        let mut raw_scroll_delta = Vector::zero();
+
+        let mut unprocessed_scroll_delta = self.unprocessed_scroll_delta;
+        let mut unprocessed_scroll_delta_for_zoom = self.unprocessed_scroll_delta_for_zoom;
+        let mut smooth_scroll_delta = Vector::zero();
+        let mut smooth_scroll_delta_for_zoom = 0.0;
+
         for event in &mut new.events {
             match event {
                 Event::Key {
@@ -214,18 +297,110 @@ impl InputState {
                         keys_down.remove(key);
                     }
                 }
-                Event::Scroll(delta) => {
-                    scroll_delta += *delta;
+                Event::MouseWheel {
+                    unit,
+                    delta,
+                    modifiers,
+                } => {
+                    let mut delta = match unit {
+                        MouseWheelUnit::Point => *delta,
+                        MouseWheelUnit::Line => *delta * options.line_scroll_speed,
+                        // MouseWheelUnit::Page => screen_rect.height() * *delta,
+                        MouseWheelUnit::Page => Vector::zero(), // TODO: implement
+                    };
+
+                    if modifiers.shift {
+                        // Treat as horizontal scrolling.
+                        // Note: one Mac we already get horizontal scroll events when shift is down.
+                        delta = vector(delta.x + delta.y, 0.0);
+                    }
+
+                    raw_scroll_delta += delta;
+
+                    // Mouse wheels often go very large steps.
+                    // A single notch on a logitech mouse wheel connected to a Macbook returns 14.0 raw_scroll_delta.
+                    // So we smooth it out over several frames for a nicer user experience when scrolling in egui.
+                    // BUT: if the user is using a nice smooth mac trackpad, we don't add smoothing,
+                    // because it adds latency.
+                    let is_smooth = match unit {
+                        MouseWheelUnit::Point => delta.length() < 8.0, // a bit arbitrary here
+                        MouseWheelUnit::Line | MouseWheelUnit::Page => false,
+                    };
+
+                    let is_zoom = modifiers.ctrl || modifiers.mac_cmd || modifiers.command;
+
+                    #[expect(clippy::collapsible_else_if)]
+                    if is_zoom {
+                        if is_smooth {
+                            smooth_scroll_delta_for_zoom += delta.y;
+                        } else {
+                            unprocessed_scroll_delta_for_zoom += delta.y;
+                        }
+                    } else {
+                        if is_smooth {
+                            smooth_scroll_delta += delta;
+                        } else {
+                            unprocessed_scroll_delta += delta;
+                        }
+                    }
                 }
                 Event::Zoom(factor) => {
                     zoom_factor_delta *= *factor;
                 }
-                Event::AccessKitActionRequest(action) => {
-                    accesskit_actions.push(action.clone());
+                Event::Rotate(delta) => {
+                    rotation_delta += *delta;
+                }
+                Event::WindowFocused(false) => {
+                    // Example: pressing `Cmd+S` brings up a save-dialog (e.g. using rfd),
+                    // but we get no key-up event for the `S` key (in winit).
+                    // This leads to `S` being mistakenly marked as down when we switch back to the app.
+                    // So we take the safe route and just clear all the keys and modifiers when
+                    // the app loses focus.
+                    keys_down.clear();
                 }
                 _ => {}
             }
         }
+
+        {
+            let dt = stable_dt.min(0.1);
+            let t = exponential_smooth_factor(0.90, 0.1, dt); // reach _% in _ seconds. TODO(emilk): parameterize
+
+            if unprocessed_scroll_delta != Vector::zero() {
+                for d in 0..2 {
+                    if unprocessed_scroll_delta[d].abs() < 1.0 {
+                        smooth_scroll_delta[d] += unprocessed_scroll_delta[d];
+                        unprocessed_scroll_delta[d] = 0.0;
+                    } else {
+                        let applied = t * unprocessed_scroll_delta[d];
+                        smooth_scroll_delta[d] += applied;
+                        unprocessed_scroll_delta[d] -= applied;
+                    }
+                }
+            }
+
+            {
+                // Smooth scroll-to-zoom:
+                if unprocessed_scroll_delta_for_zoom.abs() < 1.0 {
+                    smooth_scroll_delta_for_zoom += unprocessed_scroll_delta_for_zoom;
+                    unprocessed_scroll_delta_for_zoom = 0.0;
+                } else {
+                    let applied = t * unprocessed_scroll_delta_for_zoom;
+                    smooth_scroll_delta_for_zoom += applied;
+                    unprocessed_scroll_delta_for_zoom -= applied;
+                }
+
+                zoom_factor_delta *=
+                    (options.scroll_zoom_speed * smooth_scroll_delta_for_zoom).exp();
+            }
+        }
+
+        let is_scrolling = raw_scroll_delta != Vector::zero() || smooth_scroll_delta != Vector::zero();
+        let last_scroll_time = if is_scrolling {
+            time
+        } else {
+            self.last_scroll_time
+        };
 
         let mut modifiers = new.modifiers;
 
@@ -243,14 +418,20 @@ impl InputState {
 
         self.focus_state.begin_frame(&new);
 
-        InputState {
+        Self {
             pointer,
             touch_states: self.touch_states,
-            scroll_delta,
+
+            last_scroll_time,
+            unprocessed_scroll_delta,
+            unprocessed_scroll_delta_for_zoom,
+            raw_scroll_delta,
+            smooth_scroll_delta,
             zoom_factor_delta,
+            rotation_delta,
+
             // screen_rect,
-            // pixels_per_point: new.pixels_per_point.unwrap_or(self.pixels_per_point),
-            // max_texture_side: new.max_texture_side.unwrap_or(self.max_texture_side),
+            pixels_per_point,
             time,
             unstable_dt,
             predicted_dt: new.predicted_dt,
@@ -258,14 +439,13 @@ impl InputState {
             focused: new.focused,
             modifiers,
             keys_down,
-            // events: new.events.clone(), // TODO(emilk): remove clone() and use raw.events
+            events: new.events.clone(), // TODO(emilk): remove clone() and use raw.events
             raw: new,
-            accesskit_actions: accesskit_actions.into(),
+            input_options: options.clone(),
 
+            // Focus state
             current_element: Default::default(),
-
             focused_within: false,
-
             focus_state: self.focus_state,
         }
     }
@@ -332,6 +512,12 @@ impl InputState {
         self.focused_within
     }
 
+    // /// Info about the active viewport
+    // #[inline]
+    // pub fn viewport(&self) -> &ViewportInfo {
+    //     self.raw.viewport()
+    // }
+
     // #[inline(always)]
     // pub fn screen_rect(&self) -> Rect {
     //     self.screen_rect
@@ -349,6 +535,11 @@ impl InputState {
         // synthesized from an original touch gesture.
         self.multi_touch()
             .map_or(self.zoom_factor_delta, |touch| touch.zoom_delta)
+    }
+
+    #[inline(always)]
+    pub fn rotation_delta(&self) -> Angle<f32> {
+        Angle::radians(self.rotation_delta)
     }
 
     /// 2D non-proportional zoom scale factor this frame (e.g. from ctrl-scroll or pinch gesture).
@@ -376,17 +567,54 @@ impl InputState {
         )
     }
 
-    // pub fn wants_repaint(&self) -> bool {
-    //     self.pointer.wants_repaint() || self.scroll_delta != Vector::zero() || !self.events.is_empty()
-    // }
+    /// How long has it been (in seconds) since the use last scrolled?
+    #[inline(always)]
+    pub fn time_since_last_scroll(&self) -> f32 {
+        (self.time - self.last_scroll_time) as f32
+    }
+
+    /// The [`crate::Context`] will call this at the end of each frame to see if we need a repaint.
+    ///
+    /// Returns how long to wait for a repaint.
+    pub fn wants_repaint_after(&self) -> Option<Duration> {
+        if self.pointer.wants_repaint()
+            || self.unprocessed_scroll_delta.abs().max_elem() > 0.2
+            || self.unprocessed_scroll_delta_for_zoom.abs() > 0.2
+            || !self.events.is_empty()
+        {
+            // Immediate repaint
+            return Some(Duration::from_secs(0));
+        }
+
+        if self.any_touches() && !self.pointer.is_decidedly_dragging() {
+            // We need to wake up and check for press-and-hold for the context menu.
+            if let Some(press_start_time) = self.pointer.press_start_time {
+                let press_duration = self.time - press_start_time;
+                if self.input_options.max_click_duration.is_finite()
+                    && press_duration < self.input_options.max_click_duration
+                {
+                    let secs_until_menu = self.input_options.max_click_duration - press_duration;
+                    return Some(Duration::from_secs_f64(secs_until_menu));
+                }
+            }
+        }
+
+        None
+    }
 
     /// Count presses of a key. If non-zero, the presses are consumed, so that this will only return non-zero once.
     ///
     /// Includes key-repeat events.
-    pub fn count_and_consume_key(&mut self, modifiers: Modifiers, key: Key) -> usize {
+    ///
+    /// This uses [`Modifiers::matches_logically`] to match modifiers,
+    /// meaning extra Shift and Alt modifiers are ignored.
+    /// Therefore, you should match most specific shortcuts first,
+    /// i.e. check for `Cmd-Shift-S` ("Save as…") before `Cmd-S` ("Save"),
+    /// so that a user pressing `Cmd-Shift-S` won't trigger the wrong command!
+    pub fn count_and_consume_key(&mut self, modifiers: Modifiers, logical_key: Key) -> usize {
         let mut count = 0usize;
 
-        self.raw.events.retain(|event| {
+        self.events.retain(|event| {
             let is_match = matches!(
                 event,
                 Event::Key {
@@ -394,7 +622,7 @@ impl InputState {
                     modifiers: ev_mods,
                     pressed: true,
                     ..
-                } if *ev_key == key && ev_mods.matches(modifiers)
+                } if *ev_key == logical_key && ev_mods.matches_logically(modifiers)
             );
 
             count += is_match as usize;
@@ -408,18 +636,32 @@ impl InputState {
     /// Check for a key press. If found, `true` is returned and the key pressed is consumed, so that this will only return `true` once.
     ///
     /// Includes key-repeat events.
-    pub fn consume_key(&mut self, modifiers: Modifiers, key: Key) -> bool {
-        self.count_and_consume_key(modifiers, key) > 0
+    ///
+    /// This uses [`Modifiers::matches_logically`] to match modifiers,
+    /// meaning extra Shift and Alt modifiers are ignored.
+    /// Therefore, you should match most specific shortcuts first,
+    /// i.e. check for `Cmd-Shift-S` ("Save as…") before `Cmd-S` ("Save"),
+    /// so that a user pressing `Cmd-Shift-S` won't trigger the wrong command!
+    pub fn consume_key(&mut self, modifiers: Modifiers, logical_key: Key) -> bool {
+        self.count_and_consume_key(modifiers, logical_key) > 0
     }
 
     /// Check if the given shortcut has been pressed.
     ///
     /// If so, `true` is returned and the key pressed is consumed, so that this will only return `true` once.
     ///
-    /// Includes key-repeat events.
+    /// This uses [`Modifiers::matches_logically`] to match modifiers,
+    /// meaning extra Shift and Alt modifiers are ignored.
+    /// Therefore, you should match most specific shortcuts first,
+    /// i.e. check for `Cmd-Shift-S` ("Save as…") before `Cmd-S` ("Save"),
+    /// so that a user pressing `Cmd-Shift-S` won't trigger the wrong command!
     pub fn consume_shortcut(&mut self, shortcut: &KeyboardShortcut) -> bool {
-        let KeyboardShortcut { modifiers, key } = *shortcut;
-        self.consume_key(modifiers, key)
+        let KeyboardShortcut {
+            modifiers,
+            logical_key,
+            ..
+        } = *shortcut;
+        self.consume_key(modifiers, logical_key)
     }
 
     /// Was the given key pressed this frame?
@@ -433,8 +675,7 @@ impl InputState {
     ///
     /// Includes key-repeat events.
     pub fn num_presses(&self, desired_key: Key) -> usize {
-        self.raw
-            .events
+        self.events
             .iter()
             .filter(|event| {
                 matches!(
@@ -453,7 +694,7 @@ impl InputState {
 
     /// Was the given key released this frame?
     pub fn key_released(&self, desired_key: Key) -> bool {
-        self.raw.events.iter().any(|event| {
+        self.events.iter().any(|event| {
             matches!(
                 event,
                 Event::Key {
@@ -465,25 +706,25 @@ impl InputState {
         })
     }
 
-    // // /// Also known as device pixel ratio, > 1 for high resolution screens.
-    // // #[inline(always)]
-    // // pub fn pixels_per_point(&self) -> f32 {
-    // //     self.pixels_per_point
-    // // }
+    /// Also known as device pixel ratio, > 1 for high resolution screens.
+    #[inline(always)]
+    pub fn pixels_per_point(&self) -> f32 {
+        self.pixels_per_point
+    }
 
-    // // /// Size of a physical pixel in logical gui coordinates (points).
-    // // #[inline(always)]
-    // // pub fn physical_pixel_size(&self) -> f32 {
-    // //     1.0 / self.pixels_per_point()
-    // // }
+    /// Size of a physical pixel in logical gui coordinates (points).
+    #[inline(always)]
+    pub fn physical_pixel_size(&self) -> f32 {
+        1.0 / self.pixels_per_point()
+    }
 
-    // /// How imprecise do we expect the mouse/touch input to be?
-    // /// Returns imprecision in points.
-    // #[inline(always)]
-    // pub fn aim_radius(&self) -> f32 {
-    //     // TODO(emilk): multiply by ~3 for touch inputs because fingers are fat
-    //     self.physical_pixel_size()
-    // }
+    /// How imprecise do we expect the mouse/touch input to be?
+    /// Returns imprecision in points.
+    #[inline(always)]
+    pub fn aim_radius(&self) -> f32 {
+        // TODO(emilk): multiply by ~3 for touch inputs because fingers are fat
+        self.physical_pixel_size()
+    }
 
     /// Returns details about the currently ongoing multi-touch gesture, if any. Note that this
     /// method returns `None` for single-touch gestures (click, drag, …).
@@ -514,15 +755,16 @@ impl InputState {
     /// delivers a synthetic zoom factor based on ctrl-scroll events, as a fallback.
     pub fn multi_touch(&self) -> Option<MultiTouchInfo> {
         // In case of multiple touch devices simply pick the touch_state of the first active device
-        if let Some(touch_state) = self.touch_states.values().find(|t| t.is_active()) {
-            touch_state.info()
-        } else {
-            None
-        }
+        self.touch_states.values().find_map(|t| t.info())
     }
 
     /// True if there currently are any fingers touching egui.
     pub fn any_touches(&self) -> bool {
+        self.touch_states.values().any(|t| t.any_touches())
+    }
+
+    /// True if we have ever received a touch event.
+    pub fn has_touch_screen(&self) -> bool {
         !self.touch_states.is_empty()
     }
 
@@ -540,24 +782,44 @@ impl InputState {
 
     pub fn accesskit_action_requests(
         &self,
+        id: ElementId,
         action: accesskit::Action,
     ) -> impl Iterator<Item = &accesskit::ActionRequest> {
-        self.current_element.iter().flat_map(move |element_id| {
-            self.accesskit_actions.iter().filter_map(move |request| {
-                if request.target == element_id.as_access_id() && request.action == action {
+        let accesskit_id = id.as_access_id();
+
+        self.events.iter().filter_map(move |event| {
+            if let Event::AccessKitActionRequest(request) = event {
+                if request.target == accesskit_id && request.action == action {
                     return Some(request);
                 }
-                None
-            })
+            }
+            None
         })
     }
 
-    pub fn has_accesskit_action_request(&self, action: accesskit::Action) -> bool {
-        self.accesskit_action_requests(action).next().is_some()
+    pub fn has_accesskit_action_request(&self, id: ElementId, action: accesskit::Action) -> bool {
+        self.accesskit_action_requests(id, action).next().is_some()
     }
 
-    pub fn num_accesskit_action_requests(&self, action: accesskit::Action) -> usize {
-        self.accesskit_action_requests(action).count()
+    pub fn num_accesskit_action_requests(&self, id: ElementId, action: accesskit::Action) -> usize {
+        self.accesskit_action_requests(id, action).count()
+    }
+
+    /// Get all events that matches the given filter.
+    pub fn filtered_events(&self, filter: &EventFilter) -> Vec<Event> {
+        self.events
+            .iter()
+            .filter(|event| filter.matches(event))
+            .cloned()
+            .collect()
+    }
+
+    /// A long press is something we detect on touch screens
+    /// to trigger a secondary click (context menu).
+    ///
+    /// Returns `true` only on one frame.
+    pub(crate) fn is_long_touch(&self) -> bool {
+        self.any_touches() && self.pointer.is_long_press()
     }
 
     pub(crate) fn insert_transformations(
@@ -595,6 +857,7 @@ impl InputState {
 
 /// A pointer (mouse or touch) click.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub(crate) struct Click {
     pub pos: Pos,
 
@@ -616,6 +879,7 @@ impl Click {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub(crate) enum PointerEvent {
     Moved(Pos),
     Pressed {
@@ -630,15 +894,15 @@ pub(crate) enum PointerEvent {
 
 impl PointerEvent {
     pub fn is_press(&self) -> bool {
-        matches!(self, PointerEvent::Pressed { .. })
+        matches!(self, Self::Pressed { .. })
     }
 
     pub fn is_release(&self) -> bool {
-        matches!(self, PointerEvent::Released { .. })
+        matches!(self, Self::Released { .. })
     }
 
     pub fn is_click(&self) -> bool {
-        matches!(self, PointerEvent::Released { click: Some(_), .. })
+        matches!(self, Self::Released { click: Some(_), .. })
     }
 }
 
@@ -678,6 +942,16 @@ impl TransformablePointerState {
             .unwrap_or(velocity)
     }
 
+    pub fn get_direction(
+        &mut self,
+        transform: Option<CoordinateTransform>,
+        direction: Vector,
+    ) -> Vector {
+        transform
+            .map(|t| t.transform_vector(direction))
+            .unwrap_or(direction)
+    }
+
     pub fn get_delta(&mut self, transform: Option<CoordinateTransform>, delta: Vector) -> Vector {
         transform
             .map(|t| t.transform_vector(delta))
@@ -713,9 +987,17 @@ impl TransformablePointerState {
             .and_then(|t| t.transform_point(interact_pos?).into())
             .or(interact_pos)
     }
+
+    pub fn get_motion(
+        &mut self,
+        transform: Option<CoordinateTransform>,
+        motion: Option<Vector>,
+    ) -> Option<Vector> {
+        transform.and_then(|t| t.transform_vector(motion?).into()).or(motion)
+    }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 struct TransformablePointerCache {
     transformations: Option<TransformationList>,
 
@@ -745,6 +1027,11 @@ impl TransformablePointerCache {
     pub fn get_velocity_at(&mut self, idx: Option<usize>, velocity: Vector) -> Vector {
         let (state, transform) = self.at(idx);
         state.get_velocity(transform, velocity)
+    }
+
+    pub fn get_direction_at(&mut self, idx: Option<usize>, direction: Vector) -> Vector {
+        let (state, transform) = self.at(idx);
+        state.get_direction(transform, direction)
     }
 
     pub fn get_delta_at(&mut self, idx: Option<usize>, delta: Vector) -> Vector {
@@ -778,11 +1065,19 @@ impl TransformablePointerCache {
         let (state, transform) = self.at(idx);
         state.get_interact_pos(transform, interact_pos)
     }
+
+    pub fn get_motion_at(&mut self, idx: Option<usize>, motion: Option<Vector>) -> Option<Vector> {
+        let (state, transform) = self.at(idx);
+        state.get_motion(transform, motion)
+    }
 }
 
 /// Mouse or touch state.
-#[derive(Debug)]
-pub struct PointerState {
+#[derive(Clone, Debug)]
+pub struct PointerState<const NUM_POINTER_BUTTONS: usize = 5> {
+    /// Latest known time
+    time: f64,
+
     // Consider a finger tapping a touch screen.
     // What position should we report?
     // The location of the touch, or `None`, because the finger is gone?
@@ -801,22 +1096,26 @@ pub struct PointerState {
     /// How much the pointer moved compared to last frame, in points.
     delta: Vector,
 
+    /// How much the mouse moved since the last frame, in unspecified units.
+    /// Represents the actual movement of the mouse, without acceleration or clamped by screen edges.
+    /// May be unavailable on some integrations.
+    motion: Option<Vector>,
+
     /// Current velocity of pointer.
     velocity: Vector,
 
-    /// Where did the current click/drag originate?
-    /// `None` if no mouse button is down.
-    press_origin: Option<Pos>,
-
-    /// Latest known time
-    time: f64,
+    /// Current direction of pointer.
+    direction: Vector,
 
     /// Recent movement of the pointer.
     /// Used for calculating velocity of pointer.
     pos_history: History<Pos>,
 
-    // down: [bool; NUM_POINTER_BUTTONS],
-    down: FxHashMap<PointerButton, bool>,
+    down: [bool; NUM_POINTER_BUTTONS],
+
+    /// Where did the current click/drag originate?
+    /// `None` if no mouse button is down.
+    press_origin: Option<Pos>,
 
     /// When did the current click/drag originate?
     /// `None` if no mouse button is down.
@@ -826,6 +1125,11 @@ pub struct PointerState {
     /// for it to be registered as a click.
     pub(crate) has_moved_too_much_for_a_click: bool,
 
+    /// Did [`Self::is_decidedly_dragging`] go from `false` to `true` this frame?
+    ///
+    /// This could also be the trigger point for a long-touch.
+    pub(crate) started_decidedly_dragging: bool,
+
     /// When did the pointer get click last?
     /// Used to check for double-clicks.
     last_click_time: f64,
@@ -834,11 +1138,17 @@ pub struct PointerState {
     /// Used to check for triple-clicks.
     last_last_click_time: f64,
 
+    /// When was the pointer last moved?
+    /// Used for things like showing hover ui/tooltip with a delay.
+    last_move_time: f64,
+
     /// All button events that occurred this frame
     pub(crate) pointer_events: Vec<PointerEvent>,
 
-    /// Was touchpad used at all this frame
-    touchpad_used: bool,
+    /// Input state management configuration.
+    ///
+    /// This gets copied from `egui::Options` at the start of each frame for convenience.
+    input_options: InputOptions,
 
     hover_consumed: bool,
 
@@ -857,18 +1167,22 @@ impl Default for PointerState {
             latest_pos: None,
             interact_pos: None,
             delta: Vector::zero(),
+            motion: None,
             velocity: Vector::zero(),
-            pos_history: History::new(0..1000, 0.1),
+            direction: Vector::zero(),
+            pos_history: History::new(2..1000, 0.1),
             down: Default::default(),
             press_origin: None,
             press_start_time: None,
             has_moved_too_much_for_a_click: false,
-            last_click_time: std::f64::NEG_INFINITY,
-            last_last_click_time: std::f64::NEG_INFINITY,
+            started_decidedly_dragging: false,
+            last_click_time: f64::NEG_INFINITY,
+            last_last_click_time: f64::NEG_INFINITY,
+            last_move_time: f64::NEG_INFINITY,
             pointer_events: vec![],
-            hover_consumed: false,
+            input_options: Default::default(),
 
-            touchpad_used: false,
+            hover_consumed: false,
 
             active_transformation_idx: Default::default(),
 
@@ -882,16 +1196,26 @@ impl Default for PointerState {
 
 impl PointerState {
     #[must_use]
-    pub(crate) fn begin_frame(mut self, time: f64, new: &RawInput) -> PointerState {
+    pub(crate) fn begin_pass(
+        mut self,
+        time: f64,
+        new: &RawInput,
+        options: &InputOptions,
+    ) -> Self {
+        let was_decidedly_dragging = self.is_decidedly_dragging();
+
         self.time = time;
+        self.input_options = options.clone();
 
         self.pointer_events.clear();
 
         let old_pos = self.latest_pos;
         self.interact_pos = self.latest_pos;
+        if self.motion.is_some() {
+            self.motion = Some(Vector::zero());
+        }
 
-        self.touchpad_used = false;
-
+        let mut clear_history_after_velocity_calculation = false;
         for event in &new.events {
             match event {
                 Event::PointerMoved(pos) => {
@@ -902,12 +1226,12 @@ impl PointerState {
 
                     if let Some(press_origin) = self.press_origin {
                         self.has_moved_too_much_for_a_click |=
-                            press_origin.distance_to(pos) > MAX_CLICK_DIST;
+                            press_origin.distance_to(pos) > self.input_options.max_click_dist;
                     }
 
+                    self.last_move_time = time;
                     self.pointer_events.push(PointerEvent::Moved(pos));
                 }
-
                 Event::PointerButton {
                     pos,
                     button,
@@ -937,13 +1261,14 @@ impl PointerState {
                             button,
                         });
                     } else {
+                        // Released
                         let clicked = self.could_any_button_be_click();
 
                         let click = if clicked {
-                            let double_click =
-                                (time - self.last_click_time) < MAX_DOUBLE_CLICK_DELAY;
-                            let triple_click =
-                                (time - self.last_last_click_time) < (MAX_DOUBLE_CLICK_DELAY * 2.0);
+                            let double_click = (time - self.last_click_time)
+                                < self.input_options.max_double_click_delay;
+                            let triple_click = (time - self.last_last_click_time)
+                                < (self.input_options.max_double_click_delay * 2.0);
                             let count = if triple_click {
                                 3
                             } else if double_click {
@@ -971,18 +1296,19 @@ impl PointerState {
                         self.press_start_time = None;
                     }
 
-                    self.down.insert(button, pressed); // must be done after the above call to `could_any_button_be_click`
+                    self.down[button.as_u16() as usize] = pressed; // must be done after the above call to `could_any_button_be_click`
                 }
-
                 Event::PointerGone => {
                     self.latest_pos = None;
+                    // When dragging a slider and the mouse leaves the viewport, we still want the drag to work,
+                    // so we don't treat this as a `PointerEvent::Released`.
                     // NOTE: we do NOT clear `self.interact_pos` here. It will be cleared next frame.
-                }
 
-                Event::TouchPad => {
-                    self.touchpad_used = true;
+                    // Delay the clearing until after the final velocity calculation, so we can
+                    // get the final velocity when `drag_stopped` is true.
+                    clear_history_after_velocity_calculation = true;
                 }
-
+                Event::MouseMoved(delta) => *self.motion.get_or_insert(Vector::zero()) += *delta,
                 _ => {}
             }
         }
@@ -1008,9 +1334,18 @@ impl PointerState {
         } else {
             Vector::default()
         };
+        if self.velocity != Vector::zero() {
+            self.last_move_time = time;
+        }
+        if clear_history_after_velocity_calculation {
+            self.pos_history.clear();
+        }
+
+        self.direction = self.pos_history.velocity().unwrap_or_default().normalize();
+
+        self.started_decidedly_dragging = self.is_decidedly_dragging() && !was_decidedly_dragging;
 
         self.hover_consumed = false;
-
         self.transformable_pointer_cache = Default::default();
 
         self
@@ -1020,9 +1355,9 @@ impl PointerState {
         self.hover_consumed = true;
     }
 
-    // fn wants_repaint(&self) -> bool {
-    //     !self.pointer_events.is_empty() || self.delta != Vector::zero()
-    // }
+    fn wants_repaint(&self) -> bool {
+        !self.pointer_events.is_empty() || self.delta != Vector::zero()
+    }
 
     /// How much the pointer moved compared to last frame, in points.
     #[inline(always)]
@@ -1111,6 +1446,24 @@ impl PointerState {
             .get_interact_pos_at(self.active_transformation_idx, self.interact_pos)
     }
 
+    /// How much the mouse moved since the last frame, in unspecified units.
+    /// Represents the actual movement of the mouse, without acceleration or clamped by screen edges.
+    /// May be unavailable on some integrations.
+    #[inline(always)]
+    pub fn motion(&mut self) -> Option<Vector> {
+        self.transformable_pointer_cache
+            .get_motion_at(self.active_transformation_idx, self.motion)
+    }
+
+    /// Current direction of the pointer.
+    ///
+    /// This is less sensitive to bad framerate than [`Self::velocity`].
+    #[inline(always)]
+    pub fn direction(&mut self) -> Vector {
+        self.transformable_pointer_cache
+            .get_direction_at(self.active_transformation_idx, self.direction)
+    }
+
     /// Do we have a pointer?
     ///
     /// `false` if the mouse is not over the egui area, or if no touches are down on touch screens.
@@ -1133,7 +1486,20 @@ impl PointerState {
         self.velocity != Vector::zero()
     }
 
+    /// How long has it been (in seconds) since the pointer was last moved?
+    #[inline(always)]
+    pub fn time_since_last_movement(&self) -> f32 {
+        (self.time - self.last_move_time) as f32
+    }
+
+    /// How long has it been (in seconds) since the pointer was clicked?
+    #[inline(always)]
+    pub fn time_since_last_click(&self) -> f32 {
+        (self.time - self.last_click_time) as f32
+    }
+
     /// Was any pointer button pressed (`!down -> down`) this frame?
+    ///
     /// This can sometimes return `true` even if `any_down() == false`
     /// because a press can be shorted than one frame.
     pub fn any_pressed(&self) -> bool {
@@ -1181,7 +1547,7 @@ impl PointerState {
 
     /// Is any pointer button currently down?
     pub fn any_down(&self) -> bool {
-        self.down.values().any(|&down| down)
+        self.down.iter().any(|&down| down)
     }
 
     /// Were there any type of click this frame?
@@ -1189,11 +1555,13 @@ impl PointerState {
         self.pointer_events.iter().any(|event| event.is_click())
     }
 
-    /// Was the button given clicked this frame?
+    /// Was the given pointer button given clicked this frame?
+    ///
+    /// Returns true on double- and triple- clicks too.
     pub fn button_clicked(&self, button: PointerButton) -> bool {
         self.pointer_events
             .iter()
-            .any(|event| matches!(event, &PointerEvent::Pressed { button: b, .. } if button == b))
+            .any(|event| matches!(event, &PointerEvent::Released { button: b, click: Some(_) } if button == b))
     }
 
     /// Was the button given double clicked this frame?
@@ -1235,28 +1603,28 @@ impl PointerState {
     /// Is this button currently down?
     #[inline(always)]
     pub fn button_down(&self, button: PointerButton) -> bool {
-        self.down.get(&button).copied().unwrap_or(false)
+        self.down[button.as_u16() as usize]
     }
 
     /// If the pointer button is down, will it register as a click when released?
     ///
     /// See also [`Self::is_decidedly_dragging`].
     pub fn could_any_button_be_click(&self) -> bool {
-        if !self.any_down() {
-            return false;
-        }
-
-        if self.has_moved_too_much_for_a_click {
-            return false;
-        }
-
-        if let Some(press_start_time) = self.press_start_time {
-            if self.time - press_start_time > MAX_CLICK_DURATION {
+        if self.any_down() || self.any_released() {
+            if self.has_moved_too_much_for_a_click {
                 return false;
             }
-        }
 
-        true
+            if let Some(press_start_time) = self.press_start_time {
+                if self.time - press_start_time > self.input_options.max_click_duration {
+                    return false;
+                }
+            }
+
+            true
+        } else {
+            false
+        }
     }
 
     /// Just because the mouse is down doesn't mean we are dragging.
@@ -1273,6 +1641,19 @@ impl PointerState {
             && !self.any_pressed()
             && !self.could_any_button_be_click()
             && !self.any_click()
+    }
+
+    /// A long press is something we detect on touch screens
+    /// to trigger a secondary click (context menu).
+    ///
+    /// Returns `true` only on one frame.
+    pub(crate) fn is_long_press(&self) -> bool {
+        self.started_decidedly_dragging
+            && !self.has_moved_too_much_for_a_click
+            && self.button_down(PointerButton::Primary)
+            && self.press_start_time.is_some_and(|press_start_time| {
+                self.time - press_start_time > self.input_options.max_click_duration
+            })
     }
 
     /// Is the primary button currently down?
@@ -1293,121 +1674,15 @@ impl PointerState {
         self.button_down(PointerButton::Middle)
     }
 
-    fn logical_scale_factor(&self) -> f32 {
-        todo!("implement with cache")
-    }
+    /// Is the mouse moving in the direction of the given rect?
+    pub fn is_moving_towards_rect(&mut self, rect: &Rect) -> bool {
+        if self.is_still() {
+            return false;
+        }
 
-    /// Was the touchpad used this frame?
-    #[inline(always)]
-    pub fn is_touchpad_used(&self) -> bool {
-        self.touchpad_used
+        if let Some(pos) = self.hover_pos() {
+            return rect.intersects_ray(pos, self.direction());
+        }
+        false
     }
 }
-
-// impl InputState {
-//     pub fn ui(&self, ui: &mut crate::Ui) {
-//         let Self {
-//             raw,
-//             pointer,
-//             touch_states,
-//             scroll_delta,
-//             zoom_factor_delta,
-//             // screen_rect,
-//             // pixels_per_point,
-//             // max_texture_side,
-//             time,
-//             unstable_dt,
-//             predicted_dt,
-//             stable_dt,
-//             focused,
-//             modifiers,
-//             keys_down,
-//             events,
-//         } = self;
-
-//         ui.style_mut()
-//             .text_styles
-//             .get_mut(&crate::TextStyle::Body)
-//             .unwrap()
-//             .family = crate::FontFamily::Monospace;
-
-//         ui.collapsing("Raw Input", |ui| raw.ui(ui));
-
-//         crate::containers::CollapsingHeader::new("🖱 Pointer")
-//             .default_open(true)
-//             .show(ui, |ui| {
-//                 pointer.ui(ui);
-//             });
-
-//         for (device_id, touch_state) in touch_states {
-//             ui.collapsing(format!("Touch State [device {}]", device_id.0), |ui| {
-//                 touch_state.ui(ui);
-//             });
-//         }
-
-//         ui.label(format!("scroll_delta: {:?} points", scroll_delta));
-//         ui.label(format!("zoom_factor_delta: {:4.2}x", zoom_factor_delta));
-//         ui.label(format!("screen_rect: {:?} points", screen_rect));
-//         ui.label(format!(
-//             "{} physical pixels for each logical point",
-//             pixels_per_point
-//         ));
-//         ui.label(format!(
-//             "max texture size (on each side): {}",
-//             max_texture_side
-//         ));
-//         ui.label(format!("time: {:.3} s", time));
-//         ui.label(format!(
-//             "time since previous frame: {:.1} ms",
-//             1e3 * unstable_dt
-//         ));
-//         ui.label(format!("predicted_dt: {:.1} ms", 1e3 * predicted_dt));
-//         ui.label(format!("stable_dt:    {:.1} ms", 1e3 * stable_dt));
-//         ui.label(format!("focused:   {}", focused));
-//         ui.label(format!("modifiers: {:#?}", modifiers));
-//         ui.label(format!("keys_down: {:?}", keys_down));
-//         ui.scope(|ui| {
-//             ui.set_min_height(150.0);
-//             ui.label(format!("events: {:#?}", events))
-//                 .on_hover_text("key presses etc");
-//         });
-//     }
-// }
-
-// impl PointerState {
-//     pub fn ui(&self, ui: &mut crate::Ui) {
-//         let Self {
-//             time: _,
-//             latest_pos,
-//             interact_pos,
-//             delta,
-//             velocity,
-//             pos_history: _,
-//             down,
-//             press_origin,
-//             press_start_time,
-//             has_moved_too_much_for_a_click,
-//             last_click_time,
-//             last_last_click_time,
-//             pointer_events,
-//         } = self;
-
-//         ui.label(format!("latest_pos: {:?}", latest_pos));
-//         ui.label(format!("interact_pos: {:?}", interact_pos));
-//         ui.label(format!("delta: {:?}", delta));
-//         ui.label(format!(
-//             "velocity: [{:3.0} {:3.0}] points/sec",
-//             velocity.x, velocity.y
-//         ));
-//         ui.label(format!("down: {:#?}", down));
-//         ui.label(format!("press_origin: {:?}", press_origin));
-//         ui.label(format!("press_start_time: {:?} s", press_start_time));
-//         ui.label(format!(
-//             "has_moved_too_much_for_a_click: {}",
-//             has_moved_too_much_for_a_click
-//         ));
-//         ui.label(format!("last_click_time: {:#?}", last_click_time));
-//         ui.label(format!("last_last_click_time: {:#?}", last_last_click_time));
-//         ui.label(format!("pointer_events: {:?}", pointer_events));
-//     }
-// }

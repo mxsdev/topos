@@ -1,7 +1,10 @@
 use crate::{
     math::{Pos, Rect},
     scene::{
-        framepacer::TimeWithAdapter,
+        framepacer::{
+            self, CADisplayLinkFramepacer, Framepacer, FramepacerInstant, InstantLike,
+            NoopFramepacer,
+        },
         layout::{self, ElementTree},
     },
     surface::{RenderTarget, RenderingContext},
@@ -10,24 +13,23 @@ use crate::{
 };
 use core::panic;
 
-use raw_window_handle::{AppKitWindowHandle, HasRawDisplayHandle, HasRawWindowHandle};
+use wgpu::rwh::{AppKitWindowHandle, HasDisplayHandle, HasWindowHandle};
 use winit::{
-    event::{ElementState, Event, KeyboardInput, WindowEvent},
-    event_loop::{ControlFlow, EventLoop},
-    window::WindowBuilder,
+    application::ApplicationHandler, error::EventLoopError, event::{ElementState, Event, KeyEvent, WindowEvent}, event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy}, keyboard::{KeyCode, PhysicalKey}, window::Window
 };
 
 use crate::{
     element::RootConstructor,
     input::{input_state::InputState, winit::WinitState},
-    scene::{framepacer::Framepacer, scene::Scene},
-    surface::{RenderAttachment, RenderSurface},
+    scene::{framepacer::ManagedFramepacer, scene::Scene},
+    surface::{RenderAttachment, WindowSurface},
 };
 
-pub struct App<Root: RootConstructor + 'static> {
+struct AppInner<Root: RootConstructor + 'static> {
     swap_chain: Option<(RenderAttachment, ElementTree)>,
 
-    render_surface: RenderSurface,
+    window_surface: WindowSurface,
+
     scene: Scene<Root>,
 
     winit_state: WinitState,
@@ -35,146 +37,225 @@ pub struct App<Root: RootConstructor + 'static> {
 
     queued_resize: Option<(winit::dpi::PhysicalSize<u32>, Option<f64>)>,
 
-    window: winit::window::Window,
-
     texture_manager: TextureManagerRef,
 
     last_presentation_time: Option<wgpu::PresentationTimestamp>,
 
-    framepacer: Framepacer,
+    framepacer: ManagedFramepacer,
 }
 
-#[derive(Debug)]
-pub enum ToposEvent {
+pub enum ToposEvent<Root: RootConstructor + 'static> {
     Exit(i32),
-    AccessKitActionRequest(accesskit_winit::ActionRequestEvent),
+    AccessKitActionRequest(accesskit_winit::WindowEvent),
+    AppInnerCreated(PhantomData<AppInner<Root>>),
 }
 
-impl From<accesskit_winit::ActionRequestEvent> for ToposEvent {
-    fn from(value: accesskit_winit::ActionRequestEvent) -> Self {
+unsafe impl<Root: RootConstructor + 'static> Send for ToposEvent<Root> {}
+
+impl<Root: RootConstructor + 'static> From<accesskit_winit::WindowEvent> for ToposEvent<Root> {
+    fn from(value: accesskit_winit::WindowEvent) -> Self {
         Self::AccessKitActionRequest(value)
     }
 }
 
-pub type ToposEventLoop = EventLoop<ToposEvent>;
+pub struct App<Root: RootConstructor + 'static> {
+    // event_loop: ToposEventLoop<Root>,
+    event_loop_proxy: EventLoopProxy<ToposEvent<Root>>,
+    app_inner: Option<AppInner<Root>>,
+}
+
+pub type ToposEventLoop<Root: RootConstructor + 'static> = EventLoop<ToposEvent<Root>>;
 
 impl<Root: RootConstructor + 'static> App<Root> {
-    pub fn run(mut self, event_loop: ToposEventLoop) {
-        let main_proxy = event_loop.create_proxy();
+    pub fn run() {
+        let event_loop = EventLoop::with_user_event().build().expect("Failed to create event loop");
 
-        event_loop.run(move |event, _, control_flow| {
-            match event {
-                Event::WindowEvent {
-                    ref event,
-                    window_id,
+          // ControlFlow::Poll continuously runs the event loop, even if the OS hasn't
+        // dispatched any events. This is ideal for games and similar applications.
+        event_loop.set_control_flow(ControlFlow::Poll);
+
+        let mut app = Self {
+            event_loop_proxy: event_loop.create_proxy(),
+            app_inner: None,
+        };
+
+        event_loop.run_app(&mut app).unwrap();
+    }
+}
+
+impl<Root: RootConstructor + 'static> ApplicationHandler<ToposEvent<Root>> for App<Root> {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.app_inner.is_some() {
+            return;
+        }
+
+        let winit_event_loop_proxy = self.event_loop_proxy.clone();
+        // let thread_event_loop_proxy = self.event_loop_proxy.clone();
+
+        log::info!("creating app inner");
+
+        // TODO: maybe do this on another thread...
+        // std::thread::spawn(move || {
+            let app_inner = pollster::block_on(AppInner::<Root>::new(event_loop, winit_event_loop_proxy));
+
+            self.app_inner = Some(app_inner);
+
+            // self.event_loop_proxy.send_event(ToposEvent::AppInnerCreated(app_inner)).unwrap_or_else(|_| panic!("Failed to send app inner created event"));
+        // });
+
+        log::info!("app inner created, presumably starting now");
+    }
+
+    fn window_event(
+        &mut self,
+        _event_loop: &ActiveEventLoop,
+        window_id: winit::window::WindowId,
+        event: WindowEvent,
+    ) {
+        let Some(app_inner) = self.app_inner.as_mut() else {
+            log::warn!("app inner not created yet");
+            return;
+        };
+
+        let window = app_inner.window_surface.window();
+
+        if window.id() != window_id {
+            return;
+        };
+        
+        let main_proxy = &self.event_loop_proxy;
+
+        // TODO: use this information to determine whether to repaint, i guess
+        let _ = app_inner.winit_state.on_window_event(window, &event);
+
+        match event {
+            WindowEvent::CloseRequested
+            | WindowEvent::KeyboardInput {
+                event: KeyEvent {
+                    state: ElementState::Pressed,
+                    physical_key: PhysicalKey::Code(KeyCode::Escape),
                     ..
-                } if window_id == self.window.id() => {
-                    let _ = self.winit_state.on_event(event, &self.window);
-
-                    match event {
-                        WindowEvent::CloseRequested
-                        | WindowEvent::KeyboardInput {
-                            input:
-                                KeyboardInput {
-                                    state: ElementState::Pressed,
-                                    virtual_keycode: Some(winit::event::VirtualKeyCode::Escape),
-                                    ..
-                                },
-                            ..
-                        } => {
-                            main_proxy.send_event(ToposEvent::Exit(0)).unwrap();
-                        }
-
-                        WindowEvent::Resized(physical_size) => self.resize(*physical_size, None),
-
-                        WindowEvent::ScaleFactorChanged {
-                            new_inner_size,
-                            scale_factor,
-                        } => self.resize(**new_inner_size, Some(*scale_factor)),
-
-                        _ => {}
-                    }
-                }
-
-                Event::RedrawRequested(window_id) if window_id == self.window.id() => {
-                    self.try_create_new_output(None);
-
-                    let (output, element_tree) = match self.swap_chain.take() {
-                        Some(output) => output,
-                        None => return,
-                    };
-
-                    let (should_render, render_start_time) = self.framepacer.should_render(
-                        self.render_surface
-                            .rendering_context()
-                            .adapter
-                            .get_presentation_timestamp(),
-                    );
-
-                    if !should_render {
-                        self.swap_chain = Some((output, element_tree));
-                        return;
-                    }
-
-                    let raw_input = self.winit_state.take_egui_input();
-
-                    let input_state =
-                        std::mem::take(&mut self.input_state).begin_frame(raw_input, true);
-
-                    let (mut result_input, result_output, render_time, approx_present_time) =
-                        self.scene.render(
-                            &self.render_surface,
-                            output,
-                            element_tree,
-                            input_state,
-                            render_start_time.into(),
-                            &mut self.framepacer,
-                        );
-
-                    // if self.framepacer.check_missed_deadline(render_finish_time) {
-                    //     log::debug!("  missed deadline render time: {:?}", render_time);
-                    // }
-
-                    result_input.end_frame();
-
-                    self.try_create_new_output(approx_present_time.into());
-
-                    self.framepacer.push_frametime(render_time);
-
-                    self.input_state = result_input;
-
-                    self.winit_state
-                        .handle_platform_output(&self.window, result_output);
-                }
-
-                Event::MainEventsCleared => {
-                    // RedrawRequested will only trigger once, unless we manually
-                    // request it.
-                    self.window.request_redraw()
-                }
-
-                Event::UserEvent(ToposEvent::Exit(code)) => {
-                    // should do any de-init logic here
-
-                    *control_flow = ControlFlow::ExitWithCode(code);
-                }
-
-                Event::UserEvent(ToposEvent::AccessKitActionRequest(
-                    accesskit_winit::ActionRequestEvent { request, .. },
-                )) => {
-                    self.winit_state
-                        .on_accesskit_action_request(request.clone());
-                }
-
-                _ => {}
+                },
+                ..
+            } => {
+                main_proxy.send_event(ToposEvent::Exit(0)).unwrap_or_else(|_| panic!("Failed to send exit event"));
             }
-        });
+
+            WindowEvent::Resized(physical_size) => app_inner.resize(physical_size, None),
+
+            WindowEvent::ScaleFactorChanged {
+                scale_factor,
+                ..
+            } => {
+                app_inner.resize(None, Some(scale_factor))
+            },
+
+            WindowEvent::RedrawRequested => {
+                app_inner.draw()
+            }
+
+            _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(app_inner) = self.app_inner.as_mut() else {
+            log::warn!("app inner not created yet");
+            return;
+        };
+
+        app_inner.window_surface.window().request_redraw();
+    }
+
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: ToposEvent<Root>) {
+        match event {
+            // ToposEvent::AppInnerCreated(app_inner) => {
+            //     self.app_inner = Some(app_inner);
+            // }
+
+            // TODO: handle exit code?
+            ToposEvent::Exit(_) => {
+                event_loop.exit();
+            }
+
+            ToposEvent::AccessKitActionRequest(accesskit_winit::WindowEvent::ActionRequested(request)) => {
+                if let Some(app_inner) = &mut self.app_inner {
+                    app_inner.winit_state.on_accesskit_action_request(request);
+                }
+            }
+
+            _ => {}
+        }
+    }
+}
+
+impl<Root: RootConstructor + 'static> AppInner<Root> {
+    fn draw(&mut self) {
+        type I = wgpu::PresentationTimestamp;
+
+        let dpi = self.window_surface.window().scale_factor();
+        
+        self.try_create_new_output(None);
+
+        // let framepacer = || {
+        //     (match external_framepacer {
+        //         Some(framepacer) => framepacer,
+        //         None => &mut self.framepacer,
+        //     }) as &mut dyn Framepacer
+        // };
+
+        let time_context = I::context_from(self.window_surface.surface().rendering_context());
+
+        let (output, element_tree) = match self.swap_chain.take() {
+            Some(output) => output,
+            None => return,
+        };
+
+        let (should_render, render_start_time) =
+            self.framepacer.should_render(I::now(time_context));
+
+        if !should_render {
+            self.swap_chain = Some((output, element_tree));
+            return;
+        }
+
+        let raw_input = self.winit_state.take_egui_input(self.window_surface.window());
+
+        let input_state = std::mem::take(&mut self.input_state).begin_pass(raw_input, true, dpi as f32, &Default::default());
+
+        let (mut result_input, result_output, render_time, approx_present_time) =
+            self.scene.render(
+                self.window_surface.surface(),
+                output,
+                element_tree,
+                input_state,
+                render_start_time.into(),
+                &mut self.framepacer,
+                time_context,
+            );
+
+        // if self.framepacer.check_missed_deadline(render_finish_time) {
+        //     log::debug!("  missed deadline render time: {:?}", render_time);
+        // }
+
+        result_input.end_frame();
+
+        self.try_create_new_output(approx_present_time.into());
+
+        self.framepacer.push_frametime(render_time);
+
+        self.input_state = result_input;
+
+        self.winit_state
+            .handle_platform_output(self.window_surface.window(), result_output, &self.input_state);
     }
 
     fn try_create_new_output(
         &mut self,
         approx_presentation_start: Option<wgpu::PresentationTimestamp>,
     ) {
+        type I = wgpu::PresentationTimestamp;
+        
         if self.swap_chain.is_some() {
             return;
         }
@@ -185,9 +266,9 @@ impl<Root: RootConstructor + 'static> App<Root> {
 
         let _output_start_time = crate::time::Instant::now();
 
-        match self.render_surface.get_output() {
+        match self.window_surface.surface().get_output() {
             Ok(output) => {
-                let RenderingContext { adapter, .. } = self.render_surface.rendering_context();
+                let render_ctx = self.window_surface.surface().rendering_context();
 
                 // let presentation_start = match self.last_presentation_time {
                 //     Some(_) => {
@@ -226,35 +307,32 @@ impl<Root: RootConstructor + 'static> App<Root> {
                 //     }
                 // };
 
-                let presentation_stats = self
-                    .render_surface
-                    .surface()
-                    .query_presentation_statistics();
+                // if let Some(ns_screen) = get_ns_screen(&self.window) {
+                //     let fps = unsafe { ns_screen.maximumFramesPerSecond() as f32 };
+                //     framepacer.sync_to_fps(fps);
+                // }
 
-                let presentation_start = match presentation_stats.last() {
-                    Some(stats) => stats.presentation_start,
-
-                    None => {
-                        log::warn!("unable to retrieve presentation stats");
-
-                        approx_presentation_start
-                            .unwrap_or_else(|| wgpu::PresentationTimestamp::now(adapter))
-                    }
-                };
-
-                self.last_presentation_time = Some(presentation_start);
-
-                self.framepacer.start_window(
-                    presentation_start,
-                    get_window_frame_time_nanos(&self.window),
+                let last_presentation_time = I::query_presentation_statistics(
+                    self.window_surface.surface().surface(),
+                    &self.window_surface.window(),
+                    approx_presentation_start.unwrap_or(I::now(I::context_from(render_ctx))),
                 );
 
-                let layout_result = self.scene.do_layout(&self.render_surface);
+                self.framepacer.start_window(
+                    last_presentation_time,
+                    get_window_frame_time_nanos(self.window_surface.window()),
+                );
+
+                let layout_result = self.scene.do_layout(&self.window_surface.surface());
 
                 self.swap_chain = (output, layout_result).into();
             }
             // Reconfigure the surface if lost
-            Err(wgpu::SurfaceError::Lost) => self.render_surface.reconfigure(),
+            Err(wgpu::SurfaceError::Lost) => {
+                log::warn!("render surface lost");
+
+                self.window_surface.surface_mut().reconfigure()
+            }
             // The system is out of memory, we should probably quit
             Err(wgpu::SurfaceError::OutOfMemory) => panic!("out of memory"),
             // All other errors (Outdated, Timeout) should be resolved by the next frame
@@ -264,13 +342,13 @@ impl<Root: RootConstructor + 'static> App<Root> {
         };
     }
 
-    pub async fn new(event_loop: &ToposEventLoop) -> Self {
-        let mut builder = WindowBuilder::new();
+    pub async fn new(event_loop: &ActiveEventLoop, winit_state_proxy: EventLoopProxy<ToposEvent<Root>>) -> Self {
+        let mut builder = Window::default_attributes();
 
         #[cfg(target_os = "macos")]
         {
-            use winit::platform::macos::WindowBuilderExtMacOS;
-
+            use winit::platform::macos::WindowAttributesExtMacOS;
+            
             builder = builder
                 // .with_title_hidden(true)
                 .with_title("topos")
@@ -279,7 +357,8 @@ impl<Root: RootConstructor + 'static> App<Root> {
                 .with_transparent(true);
         }
 
-        let window = builder.build(event_loop).unwrap();
+        let window = event_loop.create_window(builder).expect("Failed to create window");
+        let scale_factor = window.scale_factor();
 
         #[cfg(target_arch = "wasm32")]
         {
@@ -303,11 +382,11 @@ impl<Root: RootConstructor + 'static> App<Root> {
         }
 
         // TODO: move this to separate file
-        let rwh = window.raw_window_handle();
+        let rwh = window.window_handle().expect("Window should have handle");
 
-        let rwh_target = match rwh {
+        let rwh_target = match rwh.as_raw() {
             #[cfg(target_os = "macos")]
-            raw_window_handle::RawWindowHandle::AppKit(handle) => unsafe {
+            wgpu::rwh::RawWindowHandle::AppKit(handle) => unsafe {
                 use icrate::AppKit::{
                     NSColor, NSView, NSViewHeightSizable, NSViewWidthSizable,
                     NSVisualEffectBlendingModeBehindWindow,
@@ -318,10 +397,9 @@ impl<Root: RootConstructor + 'static> App<Root> {
 
                 use objc2::ClassType;
 
-                let ns_window: &mut NSWindow =
-                    (handle.ns_window as *mut NSWindow).as_mut().unwrap();
+                let ns_view: Id<NSView> = unsafe { Id::retain(handle.ns_view.as_ptr().cast()) }.unwrap();
+                let ns_window = ns_view.window().expect("view was not installed in a window");
 
-                let ns_view: &NSView = (handle.ns_view as *mut NSView).as_mut().unwrap();
 
                 ns_window.setMovable(false);
 
@@ -359,23 +437,20 @@ impl<Root: RootConstructor + 'static> App<Root> {
 
                 ns_window.setBackgroundColor(NSColor::windowBackgroundColor().as_ref().into());
 
-                let mut appkit_wh = AppKitWindowHandle::empty();
+                let appkit_wh = AppKitWindowHandle::new(NonNull::new(metal_view.as_ref() as *const _ as *mut _).unwrap());
 
-                appkit_wh.ns_view = metal_view.as_ref() as *const _ as *mut _;
-                appkit_wh.ns_window = handle.ns_window;
-
-                raw_window_handle::RawWindowHandle::AppKit(appkit_wh)
+                wgpu::rwh::RawWindowHandle::AppKit(appkit_wh)
             },
-            _ => rwh,
+            rwh => rwh,
         };
 
         let render_target = RenderTarget {
             raw_window_handle: rwh_target,
-            raw_display_handle: window.raw_display_handle(),
+            raw_display_handle: window.display_handle().expect("Window should have display handle").as_raw(),
         };
 
-        let render_surface = RenderSurface::new(&window, &render_target).await;
-        let rendering_context = render_surface.clone_rendering_context();
+        let window_surface = WindowSurface::new(window, render_target).await;
+        let rendering_context = window_surface.surface().clone_rendering_context();
 
         let wgpu::Limits {
             max_sampled_textures_per_shader_stage,
@@ -392,34 +467,32 @@ impl<Root: RootConstructor + 'static> App<Root> {
 
         let mut scene = Scene::new(
             rendering_context,
-            &render_surface,
+            &window_surface.surface(),
             &texture_manager,
-            window.scale_factor(),
+            scale_factor,
         );
-
-        let winit_state_proxy = event_loop.create_proxy();
 
         let root_id = scene.root_id().as_access_id();
         let root_node = scene.root_access_node();
 
         let winit_state = WinitState::new(
-            &window,
-            winit_state_proxy,
+            window_surface.window(),
+            None
+            // winit_state_proxy,
             // TODO: use featuere
-            #[cfg(not(target_arch = "wasm32"))]
-            move || accesskit::TreeUpdate {
-                tree: Some(accesskit::Tree::new(root_id)),
-                nodes: vec![(root_id, root_node)],
-                ..Default::default()
-            },
+            // #[cfg(not(target_arch = "wasm32"))]
+            // move || accesskit::TreeUpdate {
+            //     tree: Some(accesskit::Tree::new(root_id)),
+            //     nodes: vec![(root_id, root_node)],
+            //     focus: root_id,
+            // },
         );
 
         let input_state = InputState::default().into();
 
         Self {
-            window,
+            window_surface,
 
-            render_surface,
             scene,
 
             winit_state,
@@ -436,7 +509,9 @@ impl<Root: RootConstructor + 'static> App<Root> {
         }
     }
 
-    pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>, scale_factor: Option<f64>) {
+    pub fn resize(&mut self, new_size: impl Into<Option<winit::dpi::PhysicalSize<u32>>>, scale_factor: Option<f64>) {
+        let new_size = new_size.into().unwrap_or_else(|| self.window_surface.window().inner_size());
+
         if self.swap_chain.is_some() {
             self.queued_resize = Some((
                 new_size,
@@ -445,14 +520,99 @@ impl<Root: RootConstructor + 'static> App<Root> {
             return;
         }
 
-        self.render_surface.resize(new_size, scale_factor);
+        self.window_surface.surface_mut().resize(new_size, scale_factor);
     }
 }
 
-fn get_window_frame_time_nanos(window: &winit::window::Window) -> Option<u128> {
+fn get_window_frame_time_nanos(window: &winit::window::Window) -> Option<std::time::Duration> {
     let monitor = window.current_monitor()?;
 
     return std::time::Duration::from_secs_f64(1000. / monitor.refresh_rate_millihertz()? as f64)
-        .as_nanos()
         .into();
 }
+
+// pub fn get_ns_screen(window: &winit::window::Window) -> Option<Id<icrate::AppKit::NSScreen>> {
+//     match window.window_handle().expect("Window should have handle").as_raw() {
+//         wgpu::rwh::RawWindowHandle::AppKit(handle) => unsafe {
+//             use icrate::AppKit::NSWindow;
+//             let ns_window: &mut NSWindow = (handle.ns_view as *mut NSWindow).as_mut().unwrap();
+//             ns_window.screen()
+//         },
+//         _ => None,
+//     }
+// }
+
+pub fn get_window_last_screen_draw_time(
+    window: &winit::window::Window,
+) -> Option<std::time::Duration> {
+    None
+
+    // match window.raw_window_handle() {
+    //     raw_window_handle::RawWindowHandle::AppKit(handle) => unsafe {
+    //         use icrate::AppKit::{
+    //             NSColor, NSView, NSViewHeightSizable, NSViewWidthSizable,
+    //             NSVisualEffectBlendingModeBehindWindow,
+    //             NSVisualEffectMaterialUnderWindowBackground, NSVisualEffectStateActive,
+    //             NSVisualEffectView, NSWindow, NSWindowBelow, NSWindowMiniaturizeButton,
+    //             NSWindowZoomButton,
+    //         };
+
+    //         use objc2::ClassType;
+
+    //         let ns_window: &mut NSWindow = (handle.ns_window as *mut NSWindow).as_mut().unwrap();
+
+    //         let ns_screen = ns_window.screen().unwrap();
+
+    //         std::time::Duration::from_secs_f64(ns_screen.lastDisplayUpdateTimestamp()).into()
+    //     },
+    //     // raw_window_handle::RawWindowHandle::UiKit(_) => todo!(),
+    //     // raw_window_handle::RawWindowHandle::Orbital(_) => todo!(),
+    //     // raw_window_handle::RawWindowHandle::Xlib(_) => todo!(),
+    //     // raw_window_handle::RawWindowHandle::Xcb(_) => todo!(),
+    //     // raw_window_handle::RawWindowHandle::Wayland(_) => todo!(),
+    //     // raw_window_handle::RawWindowHandle::Drm(_) => todo!(),
+    //     // raw_window_handle::RawWindowHandle::Gbm(_) => todo!(),
+    //     // raw_window_handle::RawWindowHandle::Win32(_) => todo!(),
+    //     // raw_window_handle::RawWindowHandle::WinRt(_) => todo!(),
+    //     // raw_window_handle::RawWindowHandle::Web(_) => todo!(),
+    //     // raw_window_handle::RawWindowHandle::AndroidNdk(_) => todo!(),
+    //     // raw_window_handle::RawWindowHandle::Haiku(_) => todo!(),
+    //     _ => None,
+    // }
+}
+
+use std::{fmt::Debug, marker::PhantomData, os::raw::c_int, ptr::NonNull};
+
+use icrate::Foundation::{NSCopying, NSObject, NSObjectProtocol, NSZone};
+use objc2::declare::{Ivar, IvarBool, IvarDrop, IvarEncode};
+use objc2::rc::Id;
+use objc2::{
+    declare_class, extern_protocol, msg_send, msg_send_id, mutability, ClassType, ProtocolType,
+};
+
+declare_class!(
+    struct CustomAppDelegate {
+        pub should_render: IvarBool<"_should_render">,
+    }
+
+    mod ivars;
+
+    unsafe impl ClassType for CustomAppDelegate {
+        type Super = NSObject;
+        type Mutability = mutability::Mutable;
+        const NAME: &'static str = "CustomAppDelegate";
+    }
+
+    unsafe impl CustomAppDelegate {
+        #[method(init:)]
+        fn init(this: &mut Self) -> Option<&mut Self> {
+            let this: Option<&mut Self> = unsafe { msg_send![super(this), init] };
+
+            this.map(|this| {
+                *this.should_render = false;
+
+                this
+            })
+        }
+    }
+);

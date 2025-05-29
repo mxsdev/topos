@@ -3,6 +3,7 @@ use std::num::NonZeroU128;
 use uuid::Uuid;
 
 use crate::accessibility::{AccessNodeBuilder, AccessNodeId};
+use crate::debug::HashU64;
 use crate::input::input_state::InputState;
 use crate::math::CoordinateTransform;
 use crate::refbox::{self, coerce_ref, RefBox};
@@ -53,7 +54,8 @@ impl ElementId {
     }
 
     pub fn as_access_id(&self) -> AccessNodeId {
-        accesskit::NodeId(NonZeroU128::new(self.inner.as_u128()).unwrap())
+        // TODO: more performant to just use first 64 bits of the UUID?
+        accesskit::NodeId(self.inner.as_u128().hash_u64())
     }
 }
 

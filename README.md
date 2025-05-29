@@ -27,6 +27,7 @@
  - [x] Image fill textures with `TextureRef`
  - [x] Text resolution
  - [x] Text render-ahead
+ - [ ] Custom render pipelines (onto `TextureRef`)
  - [ ] Support multiple rounded clip rects / clip rect intersection
  - [ ] Render engine throughput optimizations (store & diff buffers by widget)
  - [ ] Sharp box strokes
@@ -48,7 +49,6 @@
  - [ ] Move away from Tessellation for glyphs/strokes
  - [x] Improve framepacing (better statistical determination of render times)
  - [ ] WASM
- - [ ] Rewrite layout logic (without taffy)
  - [x] Border color macos
 
 ## Components

@@ -1,10 +1,11 @@
 use std::sync::{Arc, RwLock};
 
-use raw_window_handle::{
-    HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
+use wgpu::rwh::{
+    HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle,
 };
 use wgpu::util::DeviceExt;
 
+use wgpu::{WindowHandle};
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
@@ -23,17 +24,24 @@ pub(crate) struct RenderTarget {
     pub raw_display_handle: RawDisplayHandle,
 }
 
-unsafe impl HasRawDisplayHandle for RenderTarget {
-    fn raw_display_handle(&self) -> RawDisplayHandle {
-        self.raw_display_handle
+impl HasDisplayHandle for RenderTarget {
+    fn display_handle(&self) -> Result<wgpu::rwh::DisplayHandle<'_>, wgpu::rwh::HandleError> {
+        unsafe {
+            Ok(wgpu::rwh::DisplayHandle::borrow_raw(self.raw_display_handle))
+        }
     }
 }
 
-unsafe impl HasRawWindowHandle for RenderTarget {
-    fn raw_window_handle(&self) -> RawWindowHandle {
-        self.raw_window_handle
+impl HasWindowHandle for RenderTarget {
+    fn window_handle(&self) -> Result<wgpu::rwh::WindowHandle<'_>, wgpu::rwh::HandleError> {
+        unsafe {
+            Ok(wgpu::rwh::WindowHandle::borrow_raw(self.raw_window_handle))
+        }
     }
 }
+
+unsafe impl Send for RenderTarget {}
+unsafe impl Sync for RenderTarget {}
 
 struct ScreenDescriptor {
     size: PhysicalSize<u32>,
@@ -62,8 +70,8 @@ impl MultisampleMode {
     }
 }
 
-pub struct RenderSurface {
-    surface: wgpu::Surface,
+pub struct RenderSurface<'window> {
+    surface: wgpu::Surface<'window>,
     screen_descriptor: ScreenDescriptor,
     config: wgpu::SurfaceConfiguration,
     rendering_context: Arc<RenderingContext>,
@@ -115,10 +123,10 @@ pub struct RenderAttachment {
     pub num_samples: u32,
 }
 
-impl RenderSurface {
+impl<'window> RenderSurface<'window> {
     pub async fn new(
         window: &Window,
-        render_target: &(impl HasRawWindowHandle + HasRawDisplayHandle),
+        render_target: impl WindowHandle + 'window,
     ) -> Self {
         let size = window.inner_size();
 
@@ -129,17 +137,17 @@ impl RenderSurface {
 
         // The instance is a handle to our GPU
         // Backends::all => Vulkan + Metal + DX12 + Browser WebGPU
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
-            dx12_shader_compiler: Default::default(),
-            gles_minor_version: Default::default(),
+            flags: wgpu::InstanceFlags::empty(),
+            backend_options: Default::default(),
         });
 
         // # Safety
         //
         // The surface needs to live as long as the window that created it.
         // State owns the window so this should be safe.
-        let surface = unsafe { instance.create_surface(&render_target) }.unwrap();
+        let surface = unsafe { instance.create_surface(render_target) }.unwrap();
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -153,13 +161,14 @@ impl RenderSurface {
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
-                    features: wgpu::Features::empty(),
+                    required_features: wgpu::Features::empty(),
                     // WebGL doesn't support all of wgpu's features, so if
                     // we're building for the web we'll have to disable some.
-                    limits: wgpu::Limits::default(),
+                    required_limits: wgpu::Limits::default(),
                     label: None,
+                    memory_hints: Default::default(),
+                    trace: Default::default(),
                 },
-                None, // Trace path
             )
             .await
             .unwrap();
@@ -198,7 +207,8 @@ impl RenderSurface {
             //     .unwrap_or(wgpu::PresentMode::Fifo),
             alpha_mode: wgpu::CompositeAlphaMode::PostMultiplied,
             view_formats: vec![],
-            swap_chain_size: Some(2),
+            desired_maximum_frame_latency: 2,
+            // swap_chain_size: Some(2),
         };
         surface.configure(&device, &config);
 
@@ -325,5 +335,29 @@ impl RenderSurface {
 
     pub fn get_size(&self) -> winit::dpi::PhysicalSize<u32> {
         self.screen_descriptor.size
+    }
+}
+
+pub struct WindowSurface {
+    surface: RenderSurface<'static>,
+    window: Window,
+}
+
+impl WindowSurface {
+    pub async fn new(window: Window, handle: impl WindowHandle + 'static) -> Self {
+        Self { surface: RenderSurface::new(&window, handle).await, window  }
+    }
+
+    pub fn window(&self) -> &Window {
+        &self.window
+    }
+
+    pub fn surface<'a>(&'a self) -> &'a RenderSurface<'a> {
+        &self.surface
+    }
+
+    pub fn surface_mut<'a>(&'a mut self) -> &'a mut RenderSurface<'a> {
+        // yes mom i know what i'm doing (i don't)
+        unsafe { std::mem::transmute( &mut self.surface) }
     }
 }

@@ -84,10 +84,11 @@ impl TestRect {
         Self {
             size: Size::new(180., 180.),
 
-            response: Response::new(RoundedRect::default().with_radius_from(10.))
+            response: Response::new(RoundedRect::default())
                 .with_clickable(true)
                 .with_focusable(true)
-                .with_hoverable(true),
+                .with_hoverable(true)
+                .with_focus_on_mouse_down(true),
             drag: pos.to_vector(),
 
             transition: Transition::new(0.15).set_ease_func(curve),
@@ -110,6 +111,7 @@ impl Element for TestRect {
 
         ctx.add_shape(
             PaintRectangle::from_rect(self.response.boundary)
+                .with_rounding(10.)
                 .with_fill(PaintFill::from_atlas_allocation_uv(
                     &self.image_allocation,
                     // Rect::new(Pos::new(2. - 0.5, 1.), Pos::new(3. - 0.5, 2.)),
@@ -125,7 +127,7 @@ impl Element for TestRect {
             self.response.boundary.min() + Vector::splat(10.),
         ));
 
-        if self.response.focused() {
+        if self.response.focused() || self.response.hovered() {
             ctx.add_shape(
                 PaintRectangle::from_rect(self.response.boundary.inflate(1., 1.).with_radius(None))
                     .with_stroke(ColorRgba::new(1., 1., 0., 1.), 1.),

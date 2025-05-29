@@ -331,10 +331,11 @@ fn sdSmoothStep(dist: f32) -> f32 {
     return smoothstep(0., 1., -dist + 0.5);
 }
 
-// fn sdSharpBox(p: vec2<f32>, b: vec2<f32>) -> f32 {
-//     var q = abs(p) - b;
-//     return min(max(q, vec<f32>(0.)))
-// }
+fn sdSharpBox(p: vec2<f32>, b: vec2<f32>) -> f32 {
+    var q = abs(p) - b;
+    var qm = max(q, vec2<f32>(0.));
+    return max(qm.x, qm.y) + min(max(q.x, q.y), 0.0);
+}
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -443,7 +444,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 break;
             }
 
-            var dist = sdRoundBox(rel_pos, in.dims, in.rounding);
+            var dist: f32;
+
+            // TODO: avoid branching
+            if in.rounding <= 0. {
+                dist = sdSharpBox(rel_pos, in.dims);
+            } else {
+                dist = sdRoundBox(rel_pos, in.dims, in.rounding);
+            }
 
             // draw fill
             if in.stroke_width <= 0. {

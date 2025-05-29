@@ -29,7 +29,7 @@ use crate::{
 
 use super::{
     ctx::{PaintShapeWithContext, SceneContext},
-    framepacer::{Framepacer, TimeWithAdapter},
+    framepacer::{Framepacer, InstantLike, ManagedFramepacer},
     layout::{ElementTree, LayoutEngine, LayoutPass},
 };
 
@@ -213,7 +213,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         layout_pass.do_layout_pass(screen_size, &mut self.root)
     }
 
-    pub fn render(
+    pub fn render<I: InstantLike + Copy + std::fmt::Debug>(
         &mut self,
         render_surface: &RenderSurface,
         RenderAttachment {
@@ -227,14 +227,10 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
             mut clip_rects,
         }: ElementTree,
         mut input: InputState,
-        start_time: wgpu::PresentationTimestamp,
-        fp: &mut Framepacer,
-    ) -> (
-        InputState,
-        PlatformOutput,
-        std::time::Duration,
-        wgpu::PresentationTimestamp,
-    ) {
+        start_time: I,
+        fp: &mut (impl Framepacer<I> + ?Sized),
+        time_context: &I::Context,
+    ) -> (InputState, PlatformOutput, std::time::Duration, I) {
         let render_ctx = render_surface.rendering_context();
 
         let RenderingContext {
@@ -271,8 +267,12 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
             SceneContext::new(scale_fac, transformations, clip_rects, scene_resources);
         scene_layout.do_ui_pass(&mut scene_context, None, None);
 
-        scene_context.output.accesskit_update().tree =
-            Some(accesskit::Tree::new(self.root.id().as_access_id()));
+        {
+            let root_id = self.root.id().as_access_id();
+            scene_context.output.accesskit_update().focus = root_id;
+            scene_context.output.accesskit_update().tree =
+                Some(accesskit::Tree::new(root_id));
+        }
 
         // render pass
         let SceneContext {
@@ -389,8 +389,8 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         queue.submit(std::iter::once(encoder.finish()));
 
         fp.check_missed_deadline(
-            adapter.get_presentation_timestamp(),
-            start_time.elapsed(adapter).into(),
+            I::now(time_context),
+            start_time.elapsed(time_context).into(),
         );
 
         // window_texture.present(&wgpu::PresentationDescriptor {
@@ -399,17 +399,34 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         //     ),
         // });
 
-        let approx_present_time = wgpu::PresentationTimestamp::now(adapter);
+        let approx_present_time = I::now(&time_context);
 
-        window_texture.present(&wgpu::PresentationDescriptor {
-            presentation_delay: wgpu::PresentationDelay::ScheduleMinimumDuration(
-                std::time::Duration::from_nanos(fp.refresh_rate_nanos().try_into().unwrap()),
-            ),
-        });
+        match (fp.desired_frame_time(), fp.desired_frame_instant()) {
+            (Some(desired_frame_time), _) => {
+                // window_texture.present(&wgpu::PresentationDescriptor {
+                //     presentation_delay: wgpu::PresentationDelay::ScheduleMinimumDuration(
+                //         desired_frame_time,
+                //     ),
+                // });
+                window_texture.present();
+            }
+
+            (_, Some(desired_instant)) => {
+                // window_texture.present(&wgpu::PresentationDescriptor {
+                //     presentation_delay: wgpu::PresentationDelay::ScheduleTime(desired_instant),
+                // });
+                window_texture.present();
+            }
+
+            _ => {
+                // window_texture.present(&Default::default());
+                window_texture.present();
+            }
+        }
 
         self.font_manager.collect_garbage();
 
-        let render_time = start_time.elapsed(adapter);
+        let render_time = start_time.elapsed(time_context);
 
         (input, platform_output, render_time, approx_present_time)
     }

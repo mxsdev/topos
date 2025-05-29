@@ -126,7 +126,7 @@ impl TextBoxElement {
     pub fn new(
         scene_resources: &mut SceneResources,
         metrics: Metrics,
-        color: ColorRgba,
+        color: impl Into<PaintFill>,
         text: String,
         attrs: Attrs<'static>,
     ) -> Self {
@@ -160,7 +160,7 @@ impl TextBoxElement {
                 &mut font_system,
                 metrics.font_size,
                 metrics.line_height,
-                PaintFill::Color(ColorRgba::new(1., 1., 1., 1.)),
+                color,
                 // PaintFill::from_atlas_allocation_uv(
                 //     &image_allocation,
                 //     Rect::new(Pos::new(0.5, 0.5), Pos::new(1.5, 0.5)),
@@ -225,7 +225,7 @@ impl Element for TextBoxElement {
     }
 
     fn node(&self) -> AccessNodeBuilder {
-        AccessNodeBuilder::new(AccessRole::StaticText)
+        AccessNodeBuilder::new(AccessRole::TextRun)
     }
 }
 

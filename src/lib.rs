@@ -1,7 +1,6 @@
-#![feature(return_position_impl_trait_in_trait)]
-#![feature(adt_const_params)]
-#![feature(unboxed_closures)]
-#![feature(fn_traits)]
+// #![feature(adt_const_params)]
+// #![feature(unboxed_closures)]
+// #![feature(fn_traits)]
 
 #[macro_use]
 extern crate custom_derive;
