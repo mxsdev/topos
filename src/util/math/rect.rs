@@ -39,6 +39,38 @@ impl<T, U> Rect<T, U> {
             max: min + size,
         }
     }
+
+    /// Does this Rect intersect the given ray (where `d` is normalized)?
+    ///
+    /// A ray that starts inside the rect will return `true`.
+    pub fn intersects_ray(&self, o: Pos<T, U>, d: Vector<T, U>) -> bool where T: num_traits::Float {
+        // debug_assert!(
+        //     d.is_normalized(),
+        //     "expected normalized direction, but `d` has length {}",
+        //     d.length()
+        // );
+
+        let mut tmin = T::neg_infinity();
+        let mut tmax = T::infinity();
+
+        if d.x != T::zero() {
+            let tx1 = (self.min.x - o.x) / d.x;
+            let tx2 = (self.max.x - o.x) / d.x;
+
+            tmin = tmin.max(tx1.min(tx2));
+            tmax = tmax.min(tx1.max(tx2));
+        }
+
+        if d.y != T::zero() {
+            let ty1 = (self.min.y - o.y) / d.y;
+            let ty2 = (self.max.y - o.y) / d.y;
+
+            tmin = tmin.max(ty1.min(ty2));
+            tmax = tmax.min(ty1.max(ty2));
+        }
+
+        T::zero() <= tmax && tmin <= tmax
+    }
 }
 
 impl<T, U> Rect<T, U>

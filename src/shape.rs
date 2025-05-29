@@ -153,17 +153,19 @@ impl ShapeRenderer {
                 layout: Some(&shape_render_pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &shape_shader_module,
-                    entry_point: "vs_main",
+                    entry_point: "vs_main".into(),
                     buffers: &[BoxShaderVertex::desc()],
+                    compilation_options: Default::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &shape_shader_module,
-                    entry_point: "fs_main",
+                    entry_point: "fs_main".into(),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: *texture_format,
                         blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
+                    compilation_options: Default::default(),
                 }),
                 primitive: wgpu::PrimitiveState {
                     topology: wgpu::PrimitiveTopology::TriangleList,
@@ -180,6 +182,7 @@ impl ShapeRenderer {
                     ..Default::default()
                 },
                 multiview: None,
+                cache: None,
             });
 
         let shader_storage_caps =

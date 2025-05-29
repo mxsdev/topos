@@ -586,18 +586,18 @@ impl<I: InstantLike + Copy + std::fmt::Debug> Framepacer<I> for ManagedFramepace
             let missed = now > deadline;
 
             if missed {
-                log::debug!("missed deadline by {:?}!", now.duration_since(&deadline));
+                // log::debug!("missed deadline by {:?}!", now.duration_since(&deadline));
 
                 let predicted_frametime =
                     crate::time::Duration::from_secs_f64(self.worst_frametime_secs)
                         + crate::time::Duration::from_micros(DEVIATION_BUFFER_MICROS);
 
                 if let Some(render_time) = render_time {
-                    log::debug!(
-                        "\trender time: {:?}, anticipated: {:?}",
-                        render_time,
-                        predicted_frametime
-                    );
+                    // log::debug!(
+                    //     "\trender time: {:?}, anticipated: {:?}",
+                    //     render_time,
+                    //     predicted_frametime
+                    // );
                 }
             }
 

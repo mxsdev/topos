@@ -7,11 +7,11 @@ pub type AccessNodeId = accesskit::NodeId;
 pub type AccessRole = accesskit::Role;
 
 pub struct AccessNodeBuilder {
-    inner: accesskit::NodeBuilder,
+    inner: accesskit::Node,
 }
 
 impl Deref for AccessNodeBuilder {
-    type Target = accesskit::NodeBuilder;
+    type Target = accesskit::Node;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
@@ -27,14 +27,11 @@ impl DerefMut for AccessNodeBuilder {
 impl AccessNodeBuilder {
     pub fn new(role: AccessRole) -> Self {
         Self {
-            inner: accesskit::NodeBuilder::new(role),
+            inner: accesskit::Node::new(role),
         }
     }
 
-    pub fn build(self) -> AccessNode {
-        self.inner
-            .build(&mut accesskit::NodeClassSet::lock_global())
-    }
+    pub fn build(self) -> AccessNode { self.inner }
 }
 
 pub type AccessPoint = accesskit::Point;

@@ -2,17 +2,15 @@ use topos::cosmic_text::{Attrs, Metrics};
 
 use topos::{
     accessibility::{AccessNodeBuilder, AccessRole},
-    atlas::AtlasAllocation,
     color::{ColorRgba, ColorSrgba, FromNSColor},
     element::{Element, ElementRef, TextBoxElement},
     input::input_state::InputState,
-    math::{CoordinateTransform, Pos, Rect, Size, Vector},
+    math::{CoordinateTransform, Pos, Rect, Vector},
     scene::ctx::SceneContext,
     scene::{
         layout::{FlexBox, LayoutPass, LayoutPassResult, Percent},
         scene::SceneResources,
     },
-    util::text::AtlasContentType,
 };
 
 use super::TestRect;
@@ -90,7 +88,7 @@ impl Element for MainElement {
 
     fn input(&mut self, input: &mut InputState, _rect: Rect) {
         if let Some(pos) = input.pointer.latest_pos() {
-            let scroll_del = (input.scroll_delta.y * 0.01).exp();
+            let scroll_del = (input.raw_scroll_delta.y * 0.01).exp();
 
             let old_scale_fac = self.scale_fac;
             self.scale_fac *= scroll_del;

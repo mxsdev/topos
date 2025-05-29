@@ -225,7 +225,7 @@ impl Element for TextBoxElement {
     }
 
     fn node(&self) -> AccessNodeBuilder {
-        AccessNodeBuilder::new(AccessRole::StaticText)
+        AccessNodeBuilder::new(AccessRole::TextRun)
     }
 }
 

@@ -6,6 +6,8 @@ use crate::{
 use num_traits::Float;
 use paste::paste;
 
+use super::ElementId;
+
 pub struct Response<B: Boundary = RoundedRect, const NUM_POINTER_BUTTONS: usize = 3> {
     pub boundary: B,
 
@@ -13,6 +15,7 @@ pub struct Response<B: Boundary = RoundedRect, const NUM_POINTER_BUTTONS: usize 
     focusable: bool,
     focus_locked: bool,
     focus_on_click: bool,
+    focus_on_mouse_down: bool,
     blur_on_click_outside: bool,
     hoverable: bool,
     clickable: bool,
@@ -92,6 +95,7 @@ impl<B: Boundary, const NUM_POINTER_BUTTONS: usize> Response<B, NUM_POINTER_BUTT
             focusable: false,
             focus_locked: false,
             focus_on_click: true,
+            focus_on_mouse_down: false,
             blur_on_click_outside: true,
             hoverable: true,
             consume_hover: true,
@@ -126,6 +130,7 @@ impl<B: Boundary, const NUM_POINTER_BUTTONS: usize> Response<B, NUM_POINTER_BUTT
     }
 
     input_boundary_config_boilerplate!(focusable, bool);
+    input_boundary_config!(focus_on_mouse_down, bool);
 
     pub fn set_focusable(&mut self, focusable: bool) {
         self.focusable = focusable;
@@ -301,11 +306,15 @@ impl<B: Boundary, const NUM_POINTER_BUTTONS: usize> Response<B, NUM_POINTER_BUTT
             self.clicked[PointerButton::Primary.as_u16() as usize] = true;
         }
 
-        if self.clickable && input.has_accesskit_action_request(accesskit::Action::Default) {
+        if self.clickable && input.current_element.map_or(false, |id| input.has_accesskit_action_request(id, accesskit::Action::Click)) {
             self.clicked[PointerButton::Primary.as_u16() as usize] = true;
         }
 
         if self.focus_on_click && self.primary_clicked() {
+            input.request_focus();
+        }
+
+        if self.focus_on_mouse_down && self.primary_button_down_on() {
             input.request_focus();
         }
 

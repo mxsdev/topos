@@ -267,8 +267,12 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
             SceneContext::new(scale_fac, transformations, clip_rects, scene_resources);
         scene_layout.do_ui_pass(&mut scene_context, None, None);
 
-        scene_context.output.accesskit_update().tree =
-            Some(accesskit::Tree::new(self.root.id().as_access_id()));
+        {
+            let root_id = self.root.id().as_access_id();
+            scene_context.output.accesskit_update().focus = root_id;
+            scene_context.output.accesskit_update().tree =
+                Some(accesskit::Tree::new(root_id));
+        }
 
         // render pass
         let SceneContext {
@@ -352,8 +356,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: load_op,
-                            // store: wgpu::StoreOp::Store,
-                            store: true
+                            store: wgpu::StoreOp::Store,
                         },
                     },
                     Some(msaa_view) => wgpu::RenderPassColorAttachment {
@@ -361,14 +364,13 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
                         resolve_target: Some(&window_view),
                         ops: wgpu::Operations {
                             load: load_op,
-                            // store: wgpu::StoreOp::Discard,
-                            store: false
+                            store: wgpu::StoreOp::Discard,
                         },
                     },
                 })],
                 depth_stencil_attachment: None,
-                // timestamp_writes: Default::default(),
-                // occlusion_query_set: Default::default(),
+                timestamp_writes: Default::default(),
+                occlusion_query_set: Default::default(),
             });
 
             render_pass.set_pipeline(&self.shape_renderer.shape_render_pipeline);

@@ -248,6 +248,12 @@ impl<T: Float, U> Vector<T, U> {
     pub fn is_finite(self) -> bool {
         self.x.is_finite() && self.y.is_finite()
     }
+
+    /// Checks if `self` has length `1.0` up to a precision of `1e-6`.
+    #[inline(always)]
+    pub fn is_normalized(self) -> bool {
+        (self.square_length() - T::one()).abs() < T::from(2e-6).unwrap()
+    }
 }
 
 impl<T: Real, U> Vector<T, U> {
@@ -345,6 +351,18 @@ impl<T: PartialOrd, U> Vector<T, U> {
     #[inline]
     pub fn max(self, other: Self) -> Self {
         vector(max(self.x, other.x), max(self.y, other.y))
+    }
+
+    /// Returns the maximum of x and y components.
+    #[inline]
+    pub fn max_elem(self) -> T {
+        max(self.x, self.y)
+    }
+
+    /// Returns the minimum of x and y components.
+    #[inline]
+    pub fn min_elem(self) -> T {
+        min(self.x, self.y)
     }
 
     /// Returns the vector each component of which is clamped by corresponding
@@ -524,3 +542,26 @@ pub const fn vector<T, U>(x: T, y: T) -> Vector<T, U> {
 }
 
 pub type PhysicalVector<F = f32> = Vector<F, PhysicalUnit>;
+
+impl<T, U> Index<usize> for Vector<T, U> {
+    type Output = T;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        match index {
+            0 => &self.x,
+            1 => &self.y,
+            _ => panic!("Index out of bounds"),
+        }
+    }
+}
+
+impl<T, U> IndexMut<usize> for Vector<T, U> {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        match index {
+            0 => &mut self.x,
+            1 => &mut self.y,
+            _ => panic!("Index out of bounds"),
+        }
+    }
+}
+

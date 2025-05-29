@@ -48,6 +48,6 @@ impl Element for TitleBarGlyph {
     }
 
     fn node(&self) -> AccessNodeBuilder {
-        AccessNodeBuilder::new(AccessRole::ToggleButton)
+        AccessNodeBuilder::new(AccessRole::RadioButton)
     }
 }
