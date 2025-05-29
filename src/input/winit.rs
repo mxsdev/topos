@@ -495,11 +495,18 @@ impl WinitState {
             WindowEvent::ActivationTokenDone { .. }
             | WindowEvent::AxisMotion { .. }
             | WindowEvent::DoubleTapGesture { .. }
-            | WindowEvent::RotationGesture { .. }
             | WindowEvent::PanGesture { .. } => EventResponse {
                 repaint: false,
                 consumed: false,
             },
+
+            WindowEvent::RotationGesture { delta, .. } => {
+                self.egui_input.events.push(crate::input::Event::Rotate(*delta));
+                EventResponse {
+                    repaint: true,
+                    consumed: self.wants_pointer_input,
+                }
+            }
 
             WindowEvent::PinchGesture { delta, .. } => {
                 // Positive delta values indicate magnification (zooming in).

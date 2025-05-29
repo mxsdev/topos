@@ -1,7 +1,7 @@
 use crate::{element::{boundary::Boundary, ElementId}, history::History, input::{
     Event, KeyboardShortcut, Modifiers, MouseWheelUnit, PointerButton, RawInput,
     TouchDeviceId, 
-}, math::{vector, CoordinateTransform, Pos, Rect, TransformationList, Vector}, num::exponential_smooth_factor, shape::ClipRect};
+}, math::{vector, Angle, CoordinateTransform, Pos, Rect, TransformationList, Vector}, num::exponential_smooth_factor, shape::ClipRect};
 
 use std::{
     collections::{BTreeMap, HashSet},
@@ -121,6 +121,9 @@ pub struct InputState {
     /// * `zoom > 1`: pinch spread
     zoom_factor_delta: f32,
 
+    /// Rotation delta this frame (e.g. from pinch gesture).
+    pub rotation_delta: f32,
+
     // ----------------------------------------------
     /// Position and size of the egui area.
     // pub screen_rect: Rect,
@@ -218,6 +221,7 @@ impl Default for InputState {
             raw_scroll_delta: Vector::zero(),
             smooth_scroll_delta: Vector::zero(),
             zoom_factor_delta: 1.0,
+            rotation_delta: 0.0,
 
             // screen_rect: Rect::from_min_size(Default::default(), vector(10_000.0, 10_000.0).to_size()),
             pixels_per_point: 1.0,
@@ -270,6 +274,7 @@ impl InputState {
 
         let mut keys_down = self.keys_down;
         let mut zoom_factor_delta = 1.0; // TODO(emilk): smoothing for zoom factor
+        let mut rotation_delta = 0.0;
         let mut raw_scroll_delta = Vector::zero();
 
         let mut unprocessed_scroll_delta = self.unprocessed_scroll_delta;
@@ -341,6 +346,9 @@ impl InputState {
                 }
                 Event::Zoom(factor) => {
                     zoom_factor_delta *= *factor;
+                }
+                Event::Rotate(delta) => {
+                    rotation_delta += *delta;
                 }
                 Event::WindowFocused(false) => {
                     // Example: pressing `Cmd+S` brings up a save-dialog (e.g. using rfd),
@@ -420,6 +428,7 @@ impl InputState {
             raw_scroll_delta,
             smooth_scroll_delta,
             zoom_factor_delta,
+            rotation_delta,
 
             // screen_rect,
             pixels_per_point,
@@ -526,6 +535,11 @@ impl InputState {
         // synthesized from an original touch gesture.
         self.multi_touch()
             .map_or(self.zoom_factor_delta, |touch| touch.zoom_delta)
+    }
+
+    #[inline(always)]
+    pub fn rotation_delta(&self) -> Angle<f32> {
+        Angle::radians(self.rotation_delta)
     }
 
     /// 2D non-proportional zoom scale factor this frame (e.g. from ctrl-scroll or pinch gesture).

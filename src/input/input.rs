@@ -277,6 +277,9 @@ pub enum Event {
     /// * `zoom > 1`: pinch spread
     Zoom(f32),
 
+    /// Rotation delta this frame (e.g. from pinch gesture).
+    Rotate(f32),
+
     /// IME Event
     Ime(ImeEvent),
 

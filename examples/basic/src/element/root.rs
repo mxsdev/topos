@@ -58,7 +58,7 @@ impl Element for TestRoot {
     }
 
     fn ui(&mut self, ctx: &mut SceneContext, rect: Rect) {
-        if self.response.primary_clicked() {
+        if self.response.primary_button_down_on() {
             ctx.start_window_drag();
         }
 

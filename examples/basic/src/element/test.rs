@@ -127,7 +127,7 @@ impl Element for TestRect {
             self.response.boundary.min() + Vector::splat(10.),
         ));
 
-        if self.response.focused() {
+        if self.response.focused() || self.response.hovered() {
             ctx.add_shape(
                 PaintRectangle::from_rect(self.response.boundary.inflate(1., 1.).with_radius(None))
                     .with_stroke(ColorRgba::new(1., 1., 0., 1.), 1.),

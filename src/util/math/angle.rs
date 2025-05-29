@@ -5,7 +5,7 @@ use num_traits::real::Real;
 use num_traits::{Float, FloatConst};
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
-pub struct Angle<T> {
+pub struct Angle<T = f32> {
     pub radians: T,
 }
 

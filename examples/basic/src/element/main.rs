@@ -1,5 +1,6 @@
 use topos::cosmic_text::{Attrs, Metrics};
 
+use topos::math::Angle;
 use topos::{
     accessibility::{AccessNodeBuilder, AccessRole},
     color::{ColorRgba, ColorSrgba, FromNSColor},
@@ -88,10 +89,12 @@ impl Element for MainElement {
 
     fn input(&mut self, input: &mut InputState, _rect: Rect) {
         if let Some(pos) = input.pointer.latest_pos() {
-            let scroll_del = (input.raw_scroll_delta.y * 0.01).exp();
+            let scroll_del = (input.smooth_scroll_delta.y * 0.01).exp();
 
             let old_scale_fac = self.scale_fac;
+
             self.scale_fac *= scroll_del;
+            self.scale_fac = self.scale_fac.clamp(0.4, 4.);
 
             let f = old_scale_fac - self.scale_fac;
 
