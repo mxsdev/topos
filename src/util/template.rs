@@ -40,11 +40,11 @@ struct TimesHelper;
 impl handlebars::HelperDef for TimesHelper {
     fn call_inner<'reg: 'rc, 'rc>(
         &self,
-        helper: &handlebars::Helper<'reg, 'rc>,
-        r: &'reg handlebars::Handlebars<'reg>,
-        ctx: &'rc handlebars::Context,
-        rc: &mut handlebars::RenderContext<'reg, 'rc>,
-    ) -> Result<handlebars::ScopedJson<'reg, 'rc>, handlebars::RenderError> {
+        helper: &handlebars::Helper,
+        r: &handlebars::Handlebars,
+        ctx: &handlebars::Context,
+        rc: &mut handlebars::RenderContext,
+    ) -> Result<handlebars::ScopedJson<'rc>, handlebars::RenderError> {
         let num_times = helper
             .param(0)
             .ok_or_else(|| {

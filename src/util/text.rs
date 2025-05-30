@@ -1,11 +1,12 @@
 use std::{
     marker::PhantomData,
-    ops::Mul,
+    ops::{Deref, DerefMut, Mul},
     sync::{Arc, Mutex},
 };
 
-use cosmic_text::{PhysicalGlyph, Shaping};
-use ordered_float::NotNan;
+use cosmic_text::{PhysicalGlyph, Scroll, Shaping};
+use ordered_float::{NotNan, OrderedFloat};
+use rustc_hash::FxHashMap;
 use shrinkwraprs::Shrinkwrap;
 
 pub use cosmic_text::{
@@ -222,27 +223,27 @@ impl<U> TextBox<U> {
         self.buffer.set_metrics(font_system, metrics);
     }
 
-    /// Pre-shape lines in the buffer, up to `lines`, return actual number of layout lines
-    #[inline(always)]
-    pub fn shape_until(&mut self, font_system: &mut FontSystem, lines: i32) -> i32 {
-        self.buffer.shape_until(font_system, lines)
-    }
+    // /// Pre-shape lines in the buffer, up to `lines`, return actual number of layout lines
+    // #[inline(always)]
+    // pub fn shape_until(&mut self, font_system: &mut FontSystem, lines: i32) -> i32 {
+    //     self.buffer.shape_until(font_system, lines)
+    // }
 
     /// Shape lines until cursor, also scrolling to include cursor in view
     #[inline(always)]
     pub fn shape_until_cursor(&mut self, font_system: &mut FontSystem, cursor: Cursor) {
-        self.buffer.shape_until_cursor(font_system, cursor)
+        self.buffer.shape_until_cursor(font_system, cursor, false)
     }
 
     /// Shape lines until scroll
     #[inline(always)]
     pub fn shape_until_scroll(&mut self, font_system: &mut FontSystem) {
-        self.buffer.shape_until_scroll(font_system)
+        self.buffer.shape_until_scroll(font_system, false)
     }
 
     #[inline(always)]
-    pub fn layout_cursor(&self, cursor: &Cursor) -> LayoutCursor {
-        self.buffer.layout_cursor(cursor)
+    pub fn layout_cursor(&mut self, font_system: &mut FontSystem, cursor: Cursor) -> Option<LayoutCursor> {
+        self.buffer.layout_cursor(font_system, cursor)
     }
 
     /// Shape the provided line index and return the result
@@ -295,13 +296,13 @@ impl<U> TextBox<U> {
 
     /// Get the current buffer dimensions (width, height)
     #[inline(always)]
-    pub fn size(&self) -> (f32, f32) {
+    pub fn size(&self) -> (Option<f32>, Option<f32>) {
         self.buffer.size()
     }
 
     /// Set the current buffer dimensions
     #[inline(always)]
-    pub fn set_size(&mut self, font_system: &mut FontSystem, width: f32, height: f32) {
+    pub fn set_size(&mut self, font_system: &mut FontSystem, width: Option<f32>, height: Option<f32>) {
         self.buffer.set_size(font_system, width, height)
     }
 
@@ -351,25 +352,25 @@ impl<U> TextBox<U> {
 
     /// Get the current scroll location
     #[inline(always)]
-    pub fn scroll(&self) -> i32 {
+    pub fn scroll(&self) -> Scroll {
         self.buffer.scroll()
     }
 
     /// Set the current scroll location
     #[inline(always)]
-    pub fn set_scroll(&mut self, scroll: i32) {
+    pub fn set_scroll(&mut self, scroll: Scroll) {
         self.buffer.set_scroll(scroll)
     }
 
-    /// Get the number of lines that can be viewed in the buffer
-    #[inline(always)]
-    pub fn visible_lines(&self) -> i32 {
-        self.buffer.visible_lines()
-    }
+    // /// Get the number of lines that can be viewed in the buffer
+    // #[inline(always)]
+    // pub fn visible_lines(&self) -> Scroll {
+    //     self.buffer.visible_lines()
+    // }
 
     /// Set text of buffer, using provided attributes for each line by default
     #[inline(always)]
-    pub fn set_text(&mut self, font_system: &mut FontSystem, text: &str, attrs: Attrs) {
+    pub fn set_text(&mut self, font_system: &mut FontSystem, text: &str, attrs: &Attrs) {
         self.buffer
             .set_text(font_system, text, attrs, Shaping::Basic)
     }
@@ -396,5 +397,59 @@ impl<U> TextBox<U> {
     #[inline(always)]
     pub fn hit(&self, x: f32, y: f32) -> Option<Cursor> {
         self.buffer.hit(x, y)
+    }
+}
+
+// Text render caching primitives
+
+// TODO: do this with 1/3 subpixel binning...
+pub type CachedFloat = OrderedFloat<f32>;
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct TextBoxSizeCacheKey {
+    width: Option<CachedFloat>,
+    height: Option<CachedFloat>,
+}
+
+pub struct TextCacheBuffer {
+    pub buffer: TextBox,
+
+    pub invalidate_cache: bool,
+
+    // TODO: make this a LRU cache to ease memory consumption...
+    pub cache: FxHashMap<TextBoxSizeCacheKey, Size>,
+}
+
+impl Deref for TextCacheBuffer {
+    type Target = cosmic_text::Buffer;
+
+    fn deref(&self) -> &Self::Target {
+        &self.buffer
+    }
+}
+
+impl DerefMut for TextCacheBuffer {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.buffer
+    }
+}
+
+impl From<TextBox> for TextCacheBuffer {
+    fn from(buffer: TextBox) -> Self {
+        Self {
+            buffer,
+            invalidate_cache: false,
+
+            cache: Default::default(),
+        }
+    }
+}
+
+impl TextBoxSizeCacheKey {
+    pub fn from_measure_fn(tbox_width: f32, tbox_height: f32) -> Self {
+        Self {
+            width: Some(tbox_width.into()),
+            height: Some(tbox_height.into()),
+        }
     }
 }

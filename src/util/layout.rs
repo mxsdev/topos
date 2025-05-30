@@ -1,49 +1,12 @@
-use std::{hash::Hash, ops::DerefMut, rc::Rc};
+use std::{hash::Hash, ops::DerefMut, rc::Rc, sync::{Arc, Mutex}};
 
-use super::taffy::*;
+use super::{taffy::*, text::{FontSystemRef, TextBoxSizeCacheKey, TextCacheBuffer}};
+use derive_more::From;
 use itertools::Itertools;
 use refbox::RefBox;
 
 use crate::math::{Rect, Size};
 
-pub type MeasureFunc = TaffyMeasureFunc;
-
-pub trait Measurable: Send + Sync {
-    fn measure(
-        &self,
-        known_dimensions: Size<Option<f32>>,
-        available_space: Size<AvailableSpace>,
-    ) -> Size<f32>;
-}
-
-pub struct MeasurableFunc<T: Measurable> {
-    pub func: T,
-}
-
-impl<T: Measurable> MeasurableFunc<T> {
-    pub fn new(inner: T) -> Self {
-        Self { func: inner }
-    }
-}
-
-impl<T: Measurable> TaffyMeasurable for MeasurableFunc<T> {
-    fn measure(
-        &self,
-        known_dimensions: TaffySize<Option<f32>>,
-        available_space: TaffySize<TaffyAvailableSpace>,
-    ) -> TaffySize<f32> {
-        self.func
-            .measure(
-                known_dimensions.into(),
-                available_space.map(Into::into).into(),
-            )
-            .into()
-    }
-}
-
-pub fn measure_func_boxed<T: Measurable + 'static>(func: T) -> MeasureFunc {
-    MeasureFunc::Boxed(Box::new(MeasurableFunc::new(func)))
-}
 
 #[derive(Copy, Clone, Debug, Default)]
 pub struct LayoutRect<F = f32> {
@@ -316,13 +279,13 @@ pub struct LengthPercentage(TaffyLengthPercentage);
 
 impl Into<LengthPercentage> for f32 {
     fn into(self) -> LengthPercentage {
-        LengthPercentage(TaffyLengthPercentage::Length(self))
+        LengthPercentage(TaffyLengthPercentage::length(self))
     }
 }
 
 impl Into<LengthPercentage> for Percent {
     fn into(self) -> LengthPercentage {
-        LengthPercentage(TaffyLengthPercentage::Percent(self.0))
+        LengthPercentage(TaffyLengthPercentage::percent(self.0))
     }
 }
 
@@ -337,19 +300,19 @@ pub struct Dimension(TaffyDimension);
 
 impl Into<Dimension> for f32 {
     fn into(self) -> Dimension {
-        Dimension(TaffyDimension::Length(self))
+        Dimension(TaffyDimension::length(self))
     }
 }
 
 impl Into<Dimension> for Percent {
     fn into(self) -> Dimension {
-        Dimension(TaffyDimension::Percent(self.0))
+        Dimension(TaffyDimension::percent(self.0))
     }
 }
 
 impl Into<Dimension> for Auto {
     fn into(self) -> Dimension {
-        Dimension(TaffyDimension::Auto)
+        Dimension(TaffyDimension::auto())
     }
 }
 
@@ -479,12 +442,12 @@ impl CSSLayoutBuilder {
     }
 
     pub fn gap_x(mut self, hor: f32) -> Self {
-        self.style.gap.width = TaffyLengthPercentage::Length(hor);
+        self.style.gap.width = TaffyLengthPercentage::length(hor);
         self
     }
 
     pub fn gap_y(mut self, vert: f32) -> Self {
-        self.style.gap.height = TaffyLengthPercentage::Length(vert);
+        self.style.gap.height = TaffyLengthPercentage::length(vert);
         self
     }
 
@@ -514,10 +477,18 @@ impl Into<taffy::style::Style> for CSSLayoutBuilder {
     }
 }
 
+
+#[derive(From)]
+pub enum TaffyNodeContext {
+    Text(Arc<Mutex<TextCacheBuffer>>),
+}
+
+pub type TaffyEngine = taffy::TaffyTree<TaffyNodeContext>;
+
 #[derive(Debug, PartialEq, Eq)]
 struct LayoutNodeInternal {
     inner: taffy::tree::NodeId,
-    engine: refbox::Ref<taffy::Taffy>,
+    engine: refbox::Weak<TaffyEngine>,
 }
 
 impl Hash for LayoutNodeInternal {
@@ -540,7 +511,7 @@ impl Ord for LayoutNodeInternal {
 
 impl LayoutNodeInternal {
     #[inline]
-    pub const fn new(inner: taffy::tree::NodeId, engine: refbox::Ref<taffy::Taffy>) -> Self {
+    pub const fn new(inner: taffy::tree::NodeId, engine: refbox::Weak<TaffyEngine>) -> Self {
         Self { inner, engine }
     }
 }
@@ -565,10 +536,14 @@ pub struct LayoutNode {
 }
 
 impl LayoutNode {
-    pub fn new(inner: TaffyNodeId, engine: refbox::Ref<taffy::Taffy>) -> Self {
+    pub fn new(inner: TaffyNodeId, engine: refbox::Weak<TaffyEngine>) -> Self {
         Self {
             node: Rc::new(LayoutNodeInternal::new(inner, engine)),
         }
+    }
+
+    pub fn set_style(&mut self, style: impl Into<LayoutStyle>) {
+        self.node.engine.try_borrow_mut().unwrap().set_style(self.inner(), style.into());
     }
 
     pub(crate) fn inner(&self) -> TaffyNodeId {
@@ -576,13 +551,20 @@ impl LayoutNode {
     }
 }
 
-#[derive(Default)]
 pub struct LayoutEngine {
-    inner: RefBox<taffy::Taffy>,
+    inner: RefBox<TaffyEngine>,
+    font_system: FontSystemRef,
 }
 
 impl LayoutEngine {
-    fn get_inner_mut(&mut self) -> impl DerefMut<Target = taffy::Taffy> + '_ {
+    pub fn new(font_system: FontSystemRef) -> Self {
+        Self {
+            inner: RefBox::new(TaffyEngine::new()),
+            font_system,
+        }
+    }
+    
+    fn get_inner_mut(&mut self) -> impl DerefMut<Target = TaffyEngine> + '_ {
         self.inner.try_borrow_mut().unwrap()
     }
 
@@ -600,8 +582,51 @@ impl LayoutEngine {
         node: &LayoutNode,
         size: impl Into<taffy::geometry::Size<taffy::prelude::AvailableSpace>>,
     ) -> Result<(), TaffyError> {
-        self.get_inner_mut()
-            .compute_layout(node.inner(), size.into())
+        self.inner.try_borrow_mut().unwrap()
+            .compute_layout_with_measure(node.inner(), size.into(), |known_dimensions, available_space, _node_id, node_context, _font_metrics| { 
+                match node_context {
+                    None => {
+                        taffy::Size {
+                            width: known_dimensions.width.unwrap_or_default(),
+                            height: known_dimensions.height.unwrap_or_default(),
+                        }
+                    }
+
+                    Some(TaffyNodeContext::Text(buffer))  => {
+                        let taffy::Size {
+                            width: available_width,
+                            height: available_height,
+                            ..
+                        } = available_space;
+                
+                        let taffy::Size { width, height, .. } = known_dimensions;
+                
+                        let tbox_width = width.unwrap_or(match available_width {
+                            taffy::AvailableSpace::Definite(max_width) => max_width,
+                            taffy::AvailableSpace::MinContent => 0.,
+                            taffy::AvailableSpace::MaxContent => f32::INFINITY,
+                        });
+                
+                        let tbox_height = height.unwrap_or(match available_height {
+                            taffy::AvailableSpace::Definite(max_height) => max_height,
+                            taffy::AvailableSpace::MinContent => 0.,
+                            taffy::AvailableSpace::MaxContent => f32::INFINITY,
+                        });
+                
+                        let mut buffer = buffer.lock().unwrap();
+
+                        buffer.buffer.set_size(
+                            &mut self.font_system.lock().unwrap(),
+                            Some(tbox_width),
+                            Some(tbox_height),
+                        );
+
+                        let result = buffer.buffer.computed_size();
+
+                        result.into()
+                    }
+                }
+            })
     }
 
     pub fn layout(&mut self, node: &LayoutNode) -> Result<Rect, TaffyError> {
@@ -610,24 +635,24 @@ impl LayoutEngine {
 
     pub fn new_leaf(
         &mut self,
-        style: impl Into<taffy::style::Style>,
+        style: impl Into<LayoutStyle>,
     ) -> Result<LayoutNode, TaffyError> {
-        let inner_ref = self.inner.create_ref();
+        let inner_ref = self.inner.downgrade();
 
         self.get_inner_mut()
             .new_leaf(style.into())
             .map(|node| LayoutNode::new(node, inner_ref))
     }
 
-    pub fn new_leaf_with_measure(
+    pub fn new_leaf_with_context(
         &mut self,
-        style: impl Into<taffy::style::Style>,
-        measure: impl Into<TaffyMeasureFunc>,
-    ) -> Result<LayoutNode, taffy::TaffyError> {
-        let inner_ref = self.inner.create_ref();
+        style: impl Into<LayoutStyle>,
+        context: impl Into<TaffyNodeContext>,
+    ) -> Result<LayoutNode, TaffyError> {
+        let inner_ref = self.inner.downgrade();
 
         self.get_inner_mut()
-            .new_leaf_with_measure(style.into(), measure.into())
+            .new_leaf_with_context(style.into(), context.into())
             .map(|node| LayoutNode::new(node, inner_ref))
     }
 
@@ -639,3 +664,5 @@ impl LayoutEngine {
         self.get_inner_mut().enable_rounding()
     }
 }
+
+pub type LayoutStyle = taffy::style::Style;

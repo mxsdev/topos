@@ -389,8 +389,8 @@ impl<T> Into<TaffySize<T>> for Size<T, LogicalUnit> {
 impl Into<TaffySize<TaffyDimension>> for Size<f32, LogicalUnit> {
     fn into(self) -> TaffySize<TaffyDimension> {
         TaffySize {
-            height: TaffyDimension::Length(self.height),
-            width: TaffyDimension::Length(self.width),
+            height: TaffyDimension::length(self.height),
+            width: TaffyDimension::length(self.width),
         }
     }
 }

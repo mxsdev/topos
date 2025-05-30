@@ -4,7 +4,7 @@ use std::{
 };
 
 use num_traits::Float;
-use ordered_float::NotNan;
+use ordered_float::{FloatCore, NotNan};
 
 use crate::util::DeviceUnit;
 
@@ -68,7 +68,7 @@ impl<T, Src, Dst> ScaleFactor<Src, Dst, T> {
     }
 }
 
-impl<F: Float, Src, Dst> ScaleFactor<Src, Dst, NotNan<F>> {
+impl<F: FloatCore, Src, Dst> ScaleFactor<Src, Dst, NotNan<F>> {
     pub fn from_float(x: F) -> Self {
         Self::new(NotNan::new(x).unwrap())
     }
@@ -89,7 +89,7 @@ where
     }
 }
 
-impl<F: Float, Src, Dst> Into<ScaleFactor<Src, Dst, F>> for ScaleFactor<Src, Dst, NotNan<F>> {
+impl<F: FloatCore, Src, Dst> Into<ScaleFactor<Src, Dst, F>> for ScaleFactor<Src, Dst, NotNan<F>> {
     fn into(self) -> ScaleFactor<Src, Dst, F> {
         ScaleFactor::new(self.0.into_inner())
     }

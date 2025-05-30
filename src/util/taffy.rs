@@ -5,7 +5,7 @@ pub use taffy::{
         LengthPercentage as TaffyLengthPercentage,
     },
     tree::{
-        Layout as TaffyLayout, Measurable as TaffyMeasurable, MeasureFunc as TaffyMeasureFunc,
+        Layout as TaffyLayout, 
         NodeId as TaffyNodeId,
     },
     TaffyError,

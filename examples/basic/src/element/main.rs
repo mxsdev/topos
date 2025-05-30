@@ -41,8 +41,8 @@ impl MainElement {
             Metrics::new(20., 20.),
             color,
             "Hello world".into(),
-            // Attrs::new().family(Family::Name("Test Calibre")),
             Attrs::new(),
+            FlexBox::builder().width(50.),
         );
 
         Self {
@@ -93,7 +93,7 @@ impl Element for MainElement {
 
             let old_scale_fac = self.scale_fac;
 
-            self.scale_fac *= scroll_del;
+            self.scale_fac *= (scroll_del.ln() / 2.).exp();
             self.scale_fac = self.scale_fac.clamp(0.4, 4.);
 
             let f = old_scale_fac - self.scale_fac;

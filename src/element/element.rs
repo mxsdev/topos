@@ -6,7 +6,7 @@ use crate::accessibility::{AccessNodeBuilder, AccessNodeId};
 use crate::debug::HashU64;
 use crate::input::input_state::InputState;
 use crate::math::CoordinateTransform;
-use crate::refbox::{self, coerce_ref, RefBox};
+use crate::refbox::{self, coerce_weak, RefBox};
 
 use crate::scene::layout::LayoutPassResult;
 use crate::scene::scene::SceneResources;
@@ -110,14 +110,14 @@ impl<T: Element + ?Sized> ElementRef<T> {
         T: Sized + 'static,
     {
         ElementWeakref {
-            reference: coerce_ref!(self.element.create_ref() => dyn Element),
+            reference: coerce_weak!(self.element.downgrade() => dyn Element),
             id: self.id(),
         }
     }
 }
 
 pub struct ElementWeakref<T: Element + ?Sized> {
-    reference: refbox::Ref<T>,
+    reference: refbox::Weak<T>,
     id: ElementId,
 }
 

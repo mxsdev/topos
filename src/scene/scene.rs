@@ -147,7 +147,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
             //     .load_font_data(include_bytes!("../../assets/TestCalibre-Regular.otf").to_vec());
         }
 
-        let mut layout_engine = LayoutEngine::default();
+        let mut layout_engine = LayoutEngine::new(font_manager.get_font_system_ref());
         layout_engine.disable_rounding();
 
         let atlas_manager = font_manager.atlas_manager_ref();
