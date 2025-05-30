@@ -1,7 +1,7 @@
 use crate::{
     color::{ColorRgb, ColorRgba},
     graphics::PushVertices,
-    math::{PhysicalPos, PhysicalRect, PhysicalSize, Pos, Rect, Sides, Size},
+    math::{PhysicalPos, PhysicalRect, PhysicalSize, Pos, Rect, ScaleFactor, Sides, Size},
     shape::BoxShaderVertex,
     texture::{TextureManagerError, TextureManagerRef, TextureRef, TextureWeakRef},
     util::{
@@ -13,21 +13,21 @@ use crate::{
 use std::{
     borrow::{Borrow, BorrowMut},
     cell::RefCell,
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{BTreeSet, HashMap, HashSet, VecDeque},
     hash::Hash,
-    ops::Deref,
-    ops::DerefMut,
+    ops::{Deref, DerefMut},
     sync::{Arc, Mutex, RwLock, Weak},
 };
 
 use std::sync::mpsc;
 
+use cosmic_text::fontdb;
 use itertools::Itertools;
 use palette::{Alpha, IntoColor};
 use rayon::prelude::*;
 
 use etagere::{AllocId as EtagereAllocId, Allocation as EtagereAllocation, BucketedAtlasAllocator};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxBuildHasher, FxHashMap, FxHasher};
 use shrinkwraprs::Shrinkwrap;
 use swash::scale::ScaleContext;
 
@@ -438,11 +438,66 @@ impl WriteLockable<TextureAtlasManager> for &TextureAtlasManagerRef {
     }
 }
 
+#[derive(Default)]
+struct GlyphCache {
+    glyphs: FxHashMap<GlyphCacheKey, GlyphCacheEntry>,
+
+    // TODO: btreeset is excessive, just use a list?
+    glyph_btreemap: FxHashMap<(fontdb::ID, u16), BTreeSet<GlyphCacheKey>>,
+}
+
+impl GlyphCache {
+    fn get(&self, cache_key: &GlyphCacheKey) -> Option<&GlyphCacheEntry> {
+        self.glyphs.get(cache_key)
+    }
+
+    fn contains_key(&self, key: &GlyphCacheKey) -> bool {
+        self.glyphs.contains_key(key)
+    }
+
+    fn insert(&mut self, cache_key: cosmic_text::CacheKey, noop: GlyphCacheEntry) {
+        self.glyphs.insert(cache_key, noop);
+        self.glyph_btreemap.entry((cache_key.font_id, cache_key.glyph_id)).or_default().insert(cache_key);
+    }
+
+    fn remove(&mut self, cache_key: &GlyphCacheKey) -> Option<GlyphCacheEntry> {
+        let entry = self.glyphs.remove(cache_key);
+
+        let mut destroy = false;
+        self.glyph_btreemap.entry((cache_key.font_id, cache_key.glyph_id)).and_modify(|set| {
+            set.remove(cache_key);
+            destroy = set.is_empty();
+        });
+
+        if destroy {
+            self.glyph_btreemap.remove(&(cache_key.font_id, cache_key.glyph_id));
+        }
+
+        entry
+    }
+
+    fn keys(&self) -> impl Iterator<Item = &GlyphCacheKey> {
+        self.glyphs.keys()
+    }
+
+    fn clear(&mut self) {
+        self.glyphs.clear();
+        self.glyph_btreemap.clear();
+    }
+
+    fn find_closest_key(&self, key: &GlyphCacheKey) -> Option<(&GlyphCacheKey, &GlyphCacheEntry)> {
+        self.glyph_btreemap.get(&(key.font_id, key.glyph_id))
+            .and_then(|set| set.last())
+            .and_then(|key| self.glyphs.get(key).map(|entry| (key, entry)))
+    }
+}
+
 pub struct TextureAtlasManager {
     atlases: FontAtlasCollection,
 
-    glyphs: FxHashMap<GlyphCacheKey, GlyphCacheEntry>,
-    used_glyphs_this_frame: HashSet<GlyphCacheKey>,
+    glyphs: GlyphCache,
+
+    used_glyphs_this_frame: HashSet<GlyphCacheKey, FxBuildHasher>,
 
     id: u32,
 
@@ -486,20 +541,37 @@ impl TextureAtlasManager {
                 })
             })
             .filter_map(|(g, clip_rect, pos, scale_fac, bounding_size)| {
-                let alloc = self.glyphs.get(&g.glyph.cache_key);
+                let alloc = self.glyphs.get(&g.glyph.cache_key).map(|entry| (&g.glyph.cache_key, entry, false))
+                    .or_else(|| {
+                        self.glyphs.find_closest_key(&g.glyph.cache_key)
+                            .map(|(key, entry)| (key, entry, true))
+                    });
 
                 match alloc {
-                    Some(GlyphCacheEntry::GlyphAllocation(GlyphAllocation {
+                    Some((key, GlyphCacheEntry::GlyphAllocation(GlyphAllocation {
                         size,
                         allocation,
                         placement,
                         ..
-                    })) => {
+                    }), is_fallback)) => {
+                        self.used_glyphs_this_frame.insert(*key);
+
                         if let Some(atlas) = self.get_atlas_by_id(&allocation.atlas_id()) {
                             let color = g.color;
 
+                            let (adjusted_size, placement) = if is_fallback {
+                                let scale_fac = f32::from_bits(g.glyph.cache_key.font_size_bits) / f32::from_bits(key.font_size_bits);
+
+                                (
+                                    size.map(|x| (x as f32 * scale_fac).round() as u32), 
+                                    placement.map(|x| (x as f32 * scale_fac).round() as i32)
+                                )
+                            } else {
+                                (*size, *placement)
+                            };
+
                             let draw_rect =
-                                g.to_draw_glyph(pos, *size, *placement, scale_fac.inverse());
+                                g.to_draw_glyph(pos, adjusted_size, placement, scale_fac.inverse());
 
                             if clip_rect
                                 .map(|clip_rect| clip_rect.inner.intersection(&draw_rect).is_none())
@@ -528,8 +600,8 @@ impl TextureAtlasManager {
                             return Some(g.glyph.cache_key);
                         }
                     }
-                    None => log::trace!("Glyph {} not cached", g.glyph.cache_key.glyph_id),
-                    Some(GlyphCacheEntry::Noop) => {}
+                    None => log::warn!("Glyph {} not cached, it will not be rendered this frame", g.glyph.cache_key.glyph_id),
+                    Some((_, GlyphCacheEntry::Noop, _)) => {}
                 };
 
                 None
@@ -676,7 +748,8 @@ impl TextureAtlasManager {
         let mut glyphs_to_remove: HashSet<_> = self.glyphs.keys().copied().collect();
         glyphs_to_remove.retain(|key| !self.used_glyphs_this_frame.contains(key));
 
-        self.glyphs.retain(|key, _| !glyphs_to_remove.contains(key));
+        for key in glyphs_to_remove { self.glyphs.remove(&key); }
+
         self.used_glyphs_this_frame.clear();
 
         self.atlases.retain(|_, atlas| atlas.num_glyphs > 0);
@@ -687,7 +760,7 @@ impl TextureAtlasManager {
             }
         }
 
-        // log::trace!(
+        // log::debug!(
         //     "Atlas GC result: total number of atlases: {}, allocated glyphs: {}, total glyphs: {}",
         //     self.atlases.len(),
         //     self.glyphs.len(),
