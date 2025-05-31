@@ -1,7 +1,7 @@
 use std::borrow::Borrow;
 use std::ops::*;
 
-use crate::num::{One, Zero};
+use crate::num::{One, Two, Zero};
 use num_traits::Float;
 
 use super::{pos, vector, Pos, ScaleFactor, Sides, Size, Vector};
@@ -37,6 +37,17 @@ impl<T, U> Rect<T, U> {
         Rect {
             min,
             max: min + size,
+        }
+    }
+
+    #[inline]
+    pub fn from_origin_size(origin: Pos<T, U>, size: Size<T, U>) -> Self
+    where
+        T: Copy + Div<T, Output = T> + Sub<T, Output = T> + Two + Add<T, Output = T>,
+    {
+        Rect {
+            min: origin - (size / T::TWO),
+            max: origin + (size / T::TWO),
         }
     }
 
@@ -516,10 +527,10 @@ impl<F, U> RoundedRect<F, U> {
     }
 
     #[inline]
-    pub fn with_radius(self, radius: Option<F>) -> Self {
+    pub fn with_radius(self, radius: impl Into<Option<F>>) -> Self {
         Self {
             inner: self.inner,
-            radius,
+            radius: radius.into(),
         }
     }
 

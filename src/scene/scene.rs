@@ -338,7 +338,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         }
 
         self.shape_renderer
-            .write_all_shapes(queue, device, &shape_buffer_local.vertex_buffers);
+            .write_all_shapes(queue, device, shape_buffer_local.vertex_buffers);
 
         {
             let load_op = wgpu::LoadOp::Clear(wgpu::Color {

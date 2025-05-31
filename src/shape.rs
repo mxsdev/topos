@@ -252,7 +252,7 @@ impl ShapeRenderer {
         &mut self,
         queue: &wgpu::Queue,
         device: &wgpu::Device,
-        buffers: &VertexBuffers<BoxShaderVertex>,
+        buffers: VertexBuffers<BoxShaderVertex>,
     ) {
         self.shape_buffer.write_all(queue, device, buffers)
     }
@@ -271,7 +271,7 @@ impl ShapeRenderer {
         }: &RenderingContext,
         clip_rects: &[ShaderClipRect],
     ) {
-        if self.clip_rects.write(device, queue, clip_rects) {
+        if self.clip_rects.write(device, queue, clip_rects, clip_rects.len() as u64) {
             self.shape_bind_group = Self::create_bind_group(
                 device,
                 &self.shape_bind_group_layout,
@@ -294,10 +294,10 @@ impl ShapeRenderer {
         transformations: &[CoordinateTransform],
         transformation_inversions: &[CoordinateTransform],
     ) {
-        if self.transformations.write(device, queue, transformations)
+        if self.transformations.write(device, queue, transformations, transformations.len() as u64)
             || self
                 .transformation_inversions
-                .write(device, queue, transformations)
+                .write(device, queue, transformations, transformations.len() as u64)
         {
             self.shape_bind_group = Self::create_bind_group(
                 device,

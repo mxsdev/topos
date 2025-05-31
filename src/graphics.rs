@@ -90,8 +90,10 @@ impl<T: Sized + Pod> DynamicGPUBuffer<T> {
         }
     }
 
-    pub fn write(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, items: &[T]) -> bool {
-        let new_size = (items.len() * std::mem::size_of::<T>()) as u64;
+    pub fn write(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, items: &[T], num_items: u64) -> bool {
+        debug_assert!(num_items <= items.len() as u64);
+
+        let new_size = num_items * (std::mem::size_of::<T>() as u64);
 
         let reallocated = self.reallocate_self(device, new_size);
 
@@ -157,10 +159,19 @@ impl<T: Sized + Pod + Debug> DynamicGPUMeshTriBuffer<T> {
         &mut self,
         queue: &wgpu::Queue,
         device: &wgpu::Device,
-        buffers: &VertexBuffers<T>,
+        mut buffers: VertexBuffers<T>,
     ) {
-        self.vertex_buffer.write(device, queue, &buffers.vertices);
-        self.index_buffer.write(device, queue, &buffers.indices);
+        self.vertex_buffer.write(device, queue, &buffers.vertices, buffers.vertices.len() as u64);
+
+        // have to do padding to be 4-byte aligned
+        // TODO: use wgpu::COPY_BUFFER_ALIGNMENT instead of "4"
+
+        let num_indices = buffers.indices.len();
+        for _ in 0..4 - (buffers.indices.len() % 4) {
+            buffers.indices.push(0u16);
+        }
+
+        self.index_buffer.write(device, queue, &buffers.indices, num_indices as u64);
     }
 }
 
