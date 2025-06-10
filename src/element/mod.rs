@@ -13,3 +13,6 @@ pub use response::*;
 
 mod text;
 pub use text::*;
+
+mod text_edit;
+pub use text_edit::*;

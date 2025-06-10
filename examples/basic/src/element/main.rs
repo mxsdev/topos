@@ -1,6 +1,8 @@
-use topos::cosmic_text::{Attrs, Metrics};
+use topos::cosmic_text::{Attrs, Editor, Metrics};
 
+use topos::element::TextBoxEditorElement;
 use topos::math::Angle;
+use topos::util::layout::Manual;
 use topos::{
     accessibility::{AccessNodeBuilder, AccessRole},
     color::{ColorRgba, ColorSrgba, FromNSColor},
@@ -18,7 +20,7 @@ use super::TestRect;
 
 pub struct MainElement {
     rects: Vec<ElementRef<TestRect>>,
-    text_box: ElementRef<TextBoxElement>,
+    text_box: ElementRef<TextBoxEditorElement>,
 
     scale_fac: f32,
     delta: Vector,
@@ -36,7 +38,7 @@ impl MainElement {
 
         color.alpha = 0.3;
 
-        let text_box = TextBoxElement::new(
+        let text_box = TextBoxEditorElement::new(
             resources,
             Metrics::new(20., 20.),
             color,

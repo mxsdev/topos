@@ -1,7 +1,7 @@
 use crate::{
     element::boundary::{Boundary, RectLikeBoundary},
     input::{input_state::InputState, Key, PointerButton},
-    math::{Rect, RoundedRect},
+    math::{Pos, Rect, RoundedRect},
 };
 use num_traits::Float;
 use paste::paste;
@@ -10,6 +10,8 @@ use super::ElementId;
 
 pub struct Response<B: Boundary = RoundedRect, const NUM_POINTER_BUTTONS: usize = 3> {
     pub boundary: B,
+
+    last_mouse_pos: Option<Pos>,
 
     // user config
     focusable: bool,
@@ -91,6 +93,8 @@ impl<B: Boundary, const NUM_POINTER_BUTTONS: usize> Response<B, NUM_POINTER_BUTT
     pub fn new(boundary: B) -> Self {
         Self {
             boundary,
+
+            last_mouse_pos: None,
 
             focusable: false,
             focus_locked: false,
@@ -245,7 +249,14 @@ impl<B: Boundary, const NUM_POINTER_BUTTONS: usize> Response<B, NUM_POINTER_BUTT
         input.surrender_focus();
     }
 
+    #[inline]
+    pub fn latest_mouse_pos(&self) -> Option<Pos> {
+        self.last_mouse_pos
+    }
+
     pub fn update(&mut self, input: &mut InputState) {
+        self.last_mouse_pos = input.pointer.latest_pos();
+
         if self.focusable {
             input.interested_in_focus();
         }
@@ -302,11 +313,16 @@ impl<B: Boundary, const NUM_POINTER_BUTTONS: usize> Response<B, NUM_POINTER_BUTT
         if self.clickable
             && self.focused
             && (input.key_pressed(Key::Space) || input.key_pressed(Key::Enter))
+            && !input.editing_text
         {
             self.clicked[PointerButton::Primary.as_u16() as usize] = true;
         }
 
-        if self.clickable && input.current_element.map_or(false, |id| input.has_accesskit_action_request(id, accesskit::Action::Click)) {
+        if self.clickable
+            && input.current_element.map_or(false, |id| {
+                input.has_accesskit_action_request(id, accesskit::Action::Click)
+            })
+        {
             self.clicked[PointerButton::Primary.as_u16() as usize] = true;
         }
 

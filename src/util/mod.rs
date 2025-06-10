@@ -11,6 +11,7 @@ pub mod svg;
 pub mod taffy;
 pub mod template;
 pub mod text;
+pub mod os;
 
 pub fn min<T: PartialOrd>(x: T, y: T) -> T {
     if x <= y {

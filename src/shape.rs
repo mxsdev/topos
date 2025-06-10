@@ -17,7 +17,7 @@ use crate::{
         guard::ReadLockable,
         svg::PosVertexBuffers,
         template::{HandlebarsTemplater, Templater},
-        text::{AtlasContentType, PlacedTextBox, TextBox},
+        text::{AtlasContentType, PlacedTextBox, TextBox, TextBoxLike},
         PhysicalUnit,
     },
 };
@@ -271,7 +271,10 @@ impl ShapeRenderer {
         }: &RenderingContext,
         clip_rects: &[ShaderClipRect],
     ) {
-        if self.clip_rects.write(device, queue, clip_rects, clip_rects.len() as u64) {
+        if self
+            .clip_rects
+            .write(device, queue, clip_rects, clip_rects.len() as u64)
+        {
             self.shape_bind_group = Self::create_bind_group(
                 device,
                 &self.shape_bind_group_layout,
@@ -294,10 +297,15 @@ impl ShapeRenderer {
         transformations: &[CoordinateTransform],
         transformation_inversions: &[CoordinateTransform],
     ) {
-        if self.transformations.write(device, queue, transformations, transformations.len() as u64)
-            || self
-                .transformation_inversions
-                .write(device, queue, transformations, transformations.len() as u64)
+        if self
+            .transformations
+            .write(device, queue, transformations, transformations.len() as u64)
+            || self.transformation_inversions.write(
+                device,
+                queue,
+                transformations,
+                transformations.len() as u64,
+            )
         {
             self.shape_bind_group = Self::create_bind_group(
                 device,
@@ -1022,11 +1030,11 @@ impl PaintMesh {
 
 pub enum PaintShape<'a> {
     Rectangle(PaintRectangle),
-    Text(&'a TextBox),
+    Text(&'a dyn TextBoxLike),
     Mesh(PaintMesh),
 }
 
-impl<'a> Into<PaintShape<'a>> for &'a TextBox {
+impl<'a> Into<PaintShape<'a>> for &'a dyn TextBoxLike {
     fn into(self) -> PaintShape<'a> {
         PaintShape::Text(self)
     }
@@ -1053,7 +1061,7 @@ impl<'a> PaintShape<'a> {
         match self {
             Self::Rectangle(rect) => ComputedPaintShape::Rectangle(rect),
             Self::Text(text) => {
-                ComputedPaintShape::Text(text.calculate_placed_text_box(clip_rect, scale_factor))
+                ComputedPaintShape::Text(text.calculate_placed_text_box(clip_rect.into(), scale_factor))
             }
             Self::Mesh(mesh) => ComputedPaintShape::Mesh(mesh),
         }

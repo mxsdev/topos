@@ -41,6 +41,7 @@ impl ElementTreeNode {
         parent_transformation_idx: Option<usize>,
         clip_rects: &mut ClipRectList,
         parent_clip_rect_idx: Option<usize>,
+        resources: &mut SceneResources,
     ) -> bool {
         let element_id = self.element.id();
         let mut focus_within = input.is_focused();
@@ -51,7 +52,7 @@ impl ElementTreeNode {
         if let Some(mut element) = self.element.try_get() {
             for child in self.children.iter_mut().rev() {
                 focus_within |=
-                    child.do_input_pass(input, transform_idx, clip_rects, parent_clip_rect_idx);
+                    child.do_input_pass(input, transform_idx, clip_rects, parent_clip_rect_idx, resources);
             }
 
             input.set_active_transformation(transform_idx);
@@ -68,7 +69,9 @@ impl ElementTreeNode {
             input.set_focused_within(focus_within);
 
             input.set_current_element(element_id.into());
+
             element.input(input, self.rect);
+            element.input_with_resources(input, resources, self.rect);
         }
 
         focus_within

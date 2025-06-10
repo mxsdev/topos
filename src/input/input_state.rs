@@ -1,7 +1,7 @@
 use crate::{element::{boundary::Boundary, ElementId}, history::History, input::{
     Event, KeyboardShortcut, Modifiers, MouseWheelUnit, PointerButton, RawInput,
     TouchDeviceId, 
-}, math::{vector, Angle, CoordinateTransform, Pos, Rect, TransformationList, Vector}, num::exponential_smooth_factor, shape::ClipRect};
+}, math::{vector, Angle, CoordinateTransform, Pos, Rect, TransformationList, Vector}, num::exponential_smooth_factor, shape::ClipRect, util::text::FontSystemRef};
 
 use std::{
     collections::{BTreeMap, HashSet},
@@ -206,6 +206,8 @@ pub struct InputState {
     // // /// In-order events received this frame
     // // pub events: Vec<Event>,
     // accesskit_actions: Rc<Vec<accesskit::ActionRequest>>,
+
+    pub(crate) editing_text: bool,
 }
 
 impl Default for InputState {
@@ -239,6 +241,8 @@ impl Default for InputState {
             current_element: Default::default(),
             focused_within: false,
             focus_state: Default::default(),
+
+            editing_text: false,
         }
     }
 }
@@ -447,6 +451,8 @@ impl InputState {
             current_element: Default::default(),
             focused_within: false,
             focus_state: self.focus_state,
+
+            editing_text: false,
         }
     }
 

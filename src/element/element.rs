@@ -68,6 +68,8 @@ pub trait Element {
     fn layout_post(&mut self, _resources: &mut SceneResources, _rect: Rect) {}
 
     fn input(&mut self, _input: &mut InputState, _rect: Rect) {}
+    fn input_with_resources(&mut self, _input: &mut InputState, _resources: &mut SceneResources, _rect: Rect) {}
+
     fn ui(&mut self, ctx: &mut SceneContext, rect: Rect);
     fn ui_post(&mut self, _ctx: &mut SceneContext, _rect: Rect) {}
     fn node(&self) -> AccessNodeBuilder;

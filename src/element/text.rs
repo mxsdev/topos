@@ -3,15 +3,19 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use cosmic_text::Edit;
+use num_traits::ToPrimitive;
+
 use crate::{
     accessibility::{AccessNodeBuilder, AccessRole},
     atlas::AtlasAllocation,
     color::ColorRgba,
-    math::{PhysicalSize, Pos},
+    input::{input_state::InputState, output::CursorIcon, Key},
+    math::{PhysicalSize, Pos, Vector},
     scene::layout::{AvailableSpace, FlexBox, LayoutPassResult},
-    shape::PaintFill,
+    shape::{PaintFill, PaintRectangle},
     util::{
-        guard::ReadLockable, layout::{LayoutStyle, TaffyNodeContext}, text::{AtlasContentType, CachedFloat, FontSystemRef, TextBox, TextCacheBuffer}
+        guard::ReadLockable, layout::{LayoutStyle, TaffyNodeContext}, text::{AtlasContentType, CachedFloat, FontSystemRef, HasBuffer, TextBox, TextBoxLike, TextCacheBuffer}, DeviceUnit, LogicalUnit, PhysicalUnit
     },
 };
 
@@ -23,20 +27,17 @@ use crate::{
     scene::{ctx::SceneContext, layout::LayoutPass, scene::SceneResources},
 };
 
-pub struct TextBoxElement {
-    buffer: Arc<Mutex<TextCacheBuffer>>,
+use super::{boundary::RectLikeBoundary, Response};
 
+pub type TextBoxEditorElement = TextBoxElement<cosmic_text::Editor<'static>>;
+
+pub struct TextBoxElement<Buffer: HasBuffer = cosmic_text::Buffer> {
+    buffer: Arc<Mutex<TextCacheBuffer<Buffer>>>,
     layout_node: LayoutPassResult,
-
-    logical_metrics: Metrics,
-
-    text: String,
-    attrs: Attrs<'static>,
-
-    image: AtlasAllocation,
+    response: Option<Response<Rect>>,
 }
 
-impl TextBoxElement {
+impl<Buffer: HasBuffer + 'static> TextBoxElement<Buffer> {
     pub fn new(
         scene_resources: &mut SceneResources,
         metrics: Metrics,
@@ -45,41 +46,14 @@ impl TextBoxElement {
         attrs: Attrs<'static>,
         layout: impl Into<LayoutStyle>,
     ) -> Self {
-        let image_allocation = {
-            let mut atlas_manager = scene_resources.texture_atlas_manager().write().unwrap();
-
-            let s = PhysicalSize::new(2, 1);
-
-            let image_allocation = atlas_manager
-                .allocate(
-                    scene_resources.texture_manager(),
-                    AtlasContentType::Color,
-                    s,
-                )
-                .unwrap();
-
-            atlas_manager.get_atlas(&image_allocation).write_texture(
-                &scene_resources.rendering_context_ref(),
-                &image_allocation,
-                &[0xFF, 0xEC, 0xD2, 0xFF, 0xFC, 0xB6, 0x9F, 0xFF],
-                // &[0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
-            );
-
-            image_allocation
-        };
-
         let buffer = {
             let mut font_system = scene_resources.font_system();
 
-            let mut buffer = TextBox::new(
+            let mut buffer = TextBox::<Buffer>::new(
                 &mut font_system,
                 metrics.font_size,
                 metrics.line_height,
                 color,
-                // PaintFill::from_atlas_allocation_uv(
-                //     &image_allocation,
-                //     Rect::new(Pos::new(0.5, 0.5), Pos::new(1.5, 0.5)),
-                // ),
                 Pos::default(),
             );
 
@@ -94,46 +68,140 @@ impl TextBoxElement {
 
         let layout_node = scene_resources
             .layout_engine()
-            .new_leaf_with_context(
-                layout,
-                TaffyNodeContext::Text(buffer.clone()),
-            )
+            .new_leaf_with_context(layout, TaffyNodeContext::Text(buffer.clone()))
             .unwrap();
 
+        let interactive = buffer.lock().unwrap().buffer.buffer.editor_mut().is_some();
+
         Self {
-            attrs,
-            text,
             buffer,
-            logical_metrics: metrics,
             layout_node,
-            image: image_allocation,
+            response: interactive.then(|| Response::new(Rect::default()).with_clickable(true).with_focusable(true)),
         }
     }
 }
 
-impl TextBoxElement {
+impl<Buffer: HasBuffer + 'static> TextBoxElement<Buffer> {
     pub fn set_layout(&mut self, layout: impl Into<LayoutStyle>) {
         self.layout_node.set_style(layout);
     }
 }
 
-impl Element for TextBoxElement {
+impl<Buffer: HasBuffer + 'static> Element for TextBoxElement<Buffer> {
     fn layout(&mut self, layout_pass: &mut LayoutPass) -> LayoutPassResult {
         self.layout_node.clone()
     }
 
     fn layout_post(&mut self, resources: &mut SceneResources, rect: Rect) {
-        self.buffer.lock().unwrap().set_size(
-            &mut resources.font_system(),
-            Some(rect.width()),
-            Some(rect.height()),
-        );
+        self.buffer.lock().unwrap().buffer.pos = rect.min;
 
         resources.prepare_text(&self.buffer.lock().unwrap().buffer);
     }
 
+    fn input_with_resources(&mut self, input: &mut InputState, resources: &mut SceneResources, rect: Rect) {
+        if input.is_focused() {
+            input.editing_text = true;
+        }
+        
+        if let Some(response) = &mut self.response {
+            let mut buffer = self.buffer.lock().unwrap();
+
+            response.update_rect(
+                input,
+                Rect::from_min_size(
+                    rect.min,
+                    buffer.computed_size.unwrap_or_else(|| rect.size()),
+                ),
+            );
+
+            let Some(editor) = buffer.buffer.buffer.editor_mut() else {
+                log::debug!("No editor");
+                return;
+            };
+
+            if response.hovered() {
+                if let Some(pos) = response.latest_mouse_pos() {
+                    if response.primary_clicked() {
+                        editor.action(&mut resources.font_system(), cosmic_text::Action::Click {
+                            x: (pos.x - response.boundary.min.x) as i32,
+                            y: (pos.y - response.boundary.min.y) as i32,
+                        });
+                    }
+                }
+            }
+
+            if response.focused() {
+                input.events.iter().for_each(|event| match event {
+                    crate::input::Event::Text(text) => {
+                        editor.insert_string(text, None)
+                    }
+
+                    crate::input::Event::Key { pressed: true, key: Key::Backspace, .. } => {
+                        editor.action(&mut resources.font_system(), cosmic_text::Action::Backspace);
+                    }
+
+                    crate::input::Event::Key { pressed: true, key: Key::ArrowLeft, .. } => {
+                        editor.action(&mut resources.font_system(), cosmic_text::Action::Motion(cosmic_text::Motion::Left));
+                    }
+
+                    crate::input::Event::Key { pressed: true, key: Key::ArrowRight, .. } => {
+                        editor.action(&mut resources.font_system(), cosmic_text::Action::Motion(cosmic_text::Motion::Right));
+                    }
+
+                    crate::input::Event::Key { pressed: true, key: Key::ArrowUp, .. } => {
+                        editor.action(&mut resources.font_system(), cosmic_text::Action::Motion(cosmic_text::Motion::Up));
+                    }
+
+                    crate::input::Event::Key { pressed: true, key: Key::ArrowDown, .. } => {
+                        editor.action(&mut resources.font_system(), cosmic_text::Action::Motion(cosmic_text::Motion::Down));
+                    }
+
+                    crate::input::Event::Key { pressed: true, key: Key::Home, .. } => {
+                        editor.action(&mut resources.font_system(), cosmic_text::Action::Motion(cosmic_text::Motion::Home));
+                    }
+
+                    _ => {}
+                    
+                    // crate::input::Event::Key { pressed: true, key, physical_key, .. } => {
+                    //     // editor.action(&mut resources.font_system(), cosmic_text::Action::Insert() {
+                    //     key.name()
+
+                    //     editor.action(&mut resources.font_system(), cosmic_text::Action::Insert(event.text));
+                    // },
+                })
+            }
+        }
+    }
+
     fn ui(&mut self, ctx: &mut SceneContext, rect: Rect) {
-        ctx.add_shape(&self.buffer.lock().unwrap().buffer)
+        let mut buffer = self.buffer.lock().unwrap();
+
+        let buffer_ref: &dyn TextBoxLike = &buffer.buffer;
+        ctx.add_shape(buffer_ref);
+
+        let Some(response) = &mut self.response else {
+            return;
+        };
+
+        let Some(editor) = buffer.buffer.buffer.editor_mut() else {
+            log::debug!("No editor");
+            return;
+        };
+        
+        if response.focused() {
+            if let Some(cursor) = editor.cursor_position() {
+                let relative_pos =  Vector::<f32, LogicalUnit>::new(cursor.0 as f32, cursor.1 as f32);
+                
+                ctx.add_shape(PaintRectangle::from_rect(Rect::from_min_size(
+                    response.boundary.min + relative_pos,
+                    Size::new(1., editor.buffer().metrics().line_height),
+                )).with_fill(PaintFill::Color(ColorRgba::new(1., 0., 0., 1.))));
+            }
+        }
+
+        if response.hovered() {
+            ctx.set_cursor(CursorIcon::Text);
+        }
     }
 
     fn ui_post(&mut self, ctx: &mut SceneContext, _rect: Rect) {
@@ -144,7 +212,6 @@ impl Element for TextBoxElement {
         AccessNodeBuilder::new(AccessRole::TextRun)
     }
 }
-
 
 // #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 // enum AvailableSpaceCache {

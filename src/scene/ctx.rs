@@ -7,7 +7,7 @@ use crate::{
         CompleteScaleFactor, CoordinateTransform, DeviceScaleFactor, Pos, Rect, Size,
         TransformationList, TransformationScaleFactor,
     },
-    shape::{ClipRect, ClipRectList, ComputedPaintShape, PaintShape, ShaderClipRect},
+    shape::{ClipRect, ClipRectList, ComputedPaintShape, PaintShape, ShaderClipRect}, util::os::OperatingSystem,
 };
 
 use super::scene::SceneResources;
@@ -31,6 +31,7 @@ pub struct SceneContext<'a> {
     scene_resources: SceneResources<'a>,
 
     scale_factor: DeviceScaleFactor,
+    os: OperatingSystem,
 }
 
 impl<'a> SceneContext<'a> {
@@ -49,7 +50,13 @@ impl<'a> SceneContext<'a> {
             clip_rects,
             active_clip_rect_idx: Default::default(),
             scene_resources,
+            os: OperatingSystem::default(),
         }
+    }
+
+    #[inline(always)]
+    pub fn os(&self) -> OperatingSystem {
+        self.os
     }
 
     pub fn add_shape<'b, T: Into<PaintShape<'b>>>(&mut self, shape: T) {
@@ -122,5 +129,10 @@ impl<'a> SceneContext<'a> {
 
     pub fn scale_factor(&self) -> CompleteScaleFactor {
         self.scene_resources.device_scale_factor() * self.transformation_scale_factor()
+    }
+
+    #[inline(always)]
+    pub fn device_scale_factor(&self) -> DeviceScaleFactor {
+        self.scene_resources.device_scale_factor()
     }
 }

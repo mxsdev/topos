@@ -1,11 +1,11 @@
-use std::{hash::Hash, ops::DerefMut, rc::Rc, sync::{Arc, Mutex}};
+use std::{any::Any, hash::Hash, ops::DerefMut, rc::Rc, sync::{Arc, Mutex}};
 
 use super::{taffy::*, text::{FontSystemRef, TextBoxSizeCacheKey, TextCacheBuffer}};
 use derive_more::From;
 use itertools::Itertools;
 use refbox::RefBox;
 
-use crate::math::{Rect, Size};
+use crate::{math::{Rect, Size}, util::text::{HasBuffer, TextCacheBufferLike}};
 
 
 #[derive(Copy, Clone, Debug, Default)]
@@ -477,10 +477,9 @@ impl Into<taffy::style::Style> for CSSLayoutBuilder {
     }
 }
 
-
 #[derive(From)]
 pub enum TaffyNodeContext {
-    Text(Arc<Mutex<TextCacheBuffer>>),
+    Text(Arc<Mutex<dyn TextCacheBufferLike>>),
 }
 
 pub type TaffyEngine = taffy::TaffyTree<TaffyNodeContext>;
@@ -614,14 +613,14 @@ impl LayoutEngine {
                         });
                 
                         let mut buffer = buffer.lock().unwrap();
-
-                        buffer.buffer.set_size(
+                        
+                        buffer.set_size(
                             &mut self.font_system.lock().unwrap(),
                             Some(tbox_width),
                             Some(tbox_height),
                         );
 
-                        let result = buffer.buffer.computed_size();
+                        let result = buffer.compute_size();
 
                         result.into()
                     }

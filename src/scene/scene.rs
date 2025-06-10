@@ -23,7 +23,7 @@ use crate::{
     texture::TextureManagerRef,
     util::{
         guard::ReadLockable,
-        text::{FontSystem, FontSystemRef, TextBox},
+        text::{FontSystem, FontSystemRef, HasBuffer, TextBox, TextBoxLike},
     },
 };
 
@@ -106,7 +106,7 @@ impl<'a> SceneResources<'a> {
         &self.texture_manager
     }
 
-    pub(crate) fn prepare_text(&mut self, text: &TextBox) {
+    pub(crate) fn prepare_text<Buffer: HasBuffer + 'static>(&mut self, text: &TextBox<Buffer>) {
         self.font_manager.process_glyphs(
             &text.calculate_placed_text_box(self.element_clip_rect, self.scale_factor()),
         );
@@ -251,7 +251,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         });
 
         // layout pass
-        let scene_resources = Self::get_scene_resources(
+        let mut scene_resources = Self::get_scene_resources(
             &self.atlas_manager,
             &self.texture_manager,
             &mut self.font_manager,
@@ -260,7 +260,7 @@ impl<Root: RootConstructor + 'static> Scene<Root> {
         );
 
         input.insert_transformations(transformations);
-        scene_layout.do_input_pass(&mut input, None, &mut clip_rects, None);
+        scene_layout.do_input_pass(&mut input, None, &mut clip_rects, None, &mut scene_resources);
         let transformations = input.take_transformations().unwrap();
 
         let mut scene_context =
